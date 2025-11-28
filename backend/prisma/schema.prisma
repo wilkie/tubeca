@@ -9,13 +9,69 @@ datasource db {
   provider = "sqlite"
 }
 
-// Example model - you can modify this based on your needs
 model User {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  passwordHash String
+  role         Role     @default(Viewer)
+  groups       Group[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Group {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  users     User[]
+  libraries Library[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Library {
+  id          String       @id @default(uuid())
+  name        String
+  path        String       // Filesystem path where media is stored
+  libraryType LibraryType
+  groups      Group[]      // Groups that can access this library
+  collections Collection[] // Collections within this library
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Collection {
   id        String   @id @default(uuid())
-  email     String   @unique
   name      String
+
+  // Belongs to a library
+  library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  libraryId String
+
+  // Self-referential hierarchy: a collection can have a parent collection
+  parent    Collection?  @relation("CollectionHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId  String?
+  children  Collection[] @relation("CollectionHierarchy")
+
+  // Media within this collection
+  media     Media[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([libraryId])
+  @@index([parentId])
+}
+
+enum LibraryType {
+  Television
+  Film
+  Music
+}
+
+enum Role {
+  Admin    // Full access: manage users, settings, all content and actions
+  Editor   // Can create, edit, and delete content
+  Viewer   // Read-only access to content
 }
 
 // Single Table Inheritance (STI) model for Media
@@ -31,11 +87,16 @@ model Media {
   // Discriminator field
   type        MediaType
 
+  // Belongs to a collection
+  collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  collectionId String?
+
   // Timestamps
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([type])
+  @@index([collectionId])
 }
 
 enum MediaType {

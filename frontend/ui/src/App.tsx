@@ -1,44 +1,24 @@
 import { useState } from 'react'
-import { Container, Typography, Button, Stack, Box } from '@mui/material'
-import { PlayArrow, Favorite, Share, Add } from '@mui/icons-material'
-import { Header } from './components'
-import styles from './App.module.scss'
+import { Routes, Route } from 'react-router-dom'
+import { Box } from '@mui/material'
+import { Header, Sidebar } from './components'
+import { SettingsPage } from './pages/SettingsPage'
+import { LibrariesPage } from './pages/LibrariesPage'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
     <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Header />
-      <Container className={styles.app}>
-      <Typography variant="h2" component="h1" gutterBottom>
-        Tubeca
-      </Typography>
-
-      <div className={styles.card}>
-        <Stack spacing={2} direction="row" alignItems="center">
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => setCount((count) => count + 1)}
-          >
-            Count is {count}
-          </Button>
-
-          <Button variant="outlined" startIcon={<PlayArrow />}>
-            Play
-          </Button>
-
-          <Button variant="text" startIcon={<Favorite />}>
-            Like
-          </Button>
-
-          <Button variant="text" startIcon={<Share />}>
-            Share
-          </Button>
-        </Stack>
-      </div>
-      </Container>
+      <Header onMenuClick={() => setSidebarOpen(true)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Box component="main" sx={{ flexGrow: 1 }}>
+        <Routes>
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/libraries" element={<LibrariesPage />} />
+          <Route path="/" element={<Box />} />
+        </Routes>
+      </Box>
     </Box>
   )
 }

@@ -1,0 +1,74 @@
+{
+  "app": {
+    "name": "Tubeca"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "username": "Username",
+    "password": "Password",
+    "usernameRequired": "Username and password are required",
+    "invalidCredentials": "Invalid username or password"
+  },
+  "setup": {
+    "title": "Tubeca Setup",
+    "description": "Create your administrator account to get started.",
+    "createAdmin": "Create Admin Account"
+  },
+  "header": {
+    "search": "Search",
+    "account": "Account",
+    "menu": "Menu"
+  },
+  "nav": {
+    "settings": "Settings",
+    "libraries": "Libraries"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "instanceName": "Instance Name",
+    "instanceNameHelp": "The name of this Tubeca instance",
+    "save": "Save",
+    "saved": "Settings saved successfully"
+  },
+  "libraries": {
+    "title": "Libraries",
+    "create": "Add Library",
+    "edit": "Edit Library",
+    "name": "Name",
+    "path": "Path",
+    "pathHelp": "The filesystem path where media files are stored",
+    "libraryType": "Library Type",
+    "groups": "Groups",
+    "actions": "Actions",
+    "scan": "Scan",
+    "noLibraries": "No libraries configured",
+    "noGroups": "All users",
+    "confirmDelete": "Are you sure you want to delete this library?",
+    "startScan": "Scan library for media",
+    "cancelScan": "Cancel scan",
+    "scanComplete": "Scan complete",
+    "scanFailed": "Scan failed",
+    "scanResult": "Processed {{files}} files, created {{collections}} collections and {{media}} media items",
+    "validation": {
+      "required": "Name and path are required"
+    },
+    "libraryTypes": {
+      "Television": "Television",
+      "Film": "Film",
+      "Music": "Music"
+    }
+  },
+  "errors": {
+    "networkError": "Network error",
+    "unknownError": "An error occurred"
+  }
+}

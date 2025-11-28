@@ -6,8 +6,13 @@ import { prisma } from './config/database'
 import { MediaService } from './services/mediaService'
 import { SettingsService } from './services/settingsService'
 import { videoWorker } from './workers/videoWorker'
+import { libraryScanWorker } from './workers/libraryScanWorker'
 import { redisConnection } from './config/redis'
 import { swaggerSpec } from './config/swagger.js'
+import authRoutes from './routes/auth'
+import userRoutes from './routes/users'
+import libraryRoutes from './routes/libraries'
+import collectionRoutes from './routes/collections'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -22,6 +27,12 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'Tubeca API Documentation',
 }))
+
+// Auth and User routes
+app.use('/api/auth', authRoutes)
+app.use('/api/users', userRoutes)
+app.use('/api/libraries', libraryRoutes)
+app.use('/api/collections', collectionRoutes)
 
 /**
  * @openapi
@@ -334,9 +345,12 @@ async function shutdown() {
     console.log('✅ Express server closed')
   })
 
-  // Close worker
+  // Close workers
   await videoWorker.close()
   console.log('✅ Video worker closed')
+
+  await libraryScanWorker.close()
+  console.log('✅ Library scan worker closed')
 
   // Close Redis connection
   await redisConnection.quit()

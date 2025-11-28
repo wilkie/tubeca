@@ -16,6 +16,7 @@ export default [
       parser: tsParser,
       globals: {
         ...globals.browser,
+        ...globals.serviceworker,
       },
       parserOptions: {
         ecmaVersion: 'latest',
@@ -35,6 +36,7 @@ export default [
       ...react.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',
+      'no-undef': 'off', // TypeScript handles this
     },
     settings: {
       react: {
