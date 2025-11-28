@@ -1,13 +1,16 @@
 import { useState } from 'react'
-import { Container, Typography, Button, Stack } from '@mui/material'
+import { Container, Typography, Button, Stack, Box } from '@mui/material'
 import { PlayArrow, Favorite, Share, Add } from '@mui/icons-material'
+import { Header } from './components'
 import styles from './App.module.scss'
 
 function App() {
   const [count, setCount] = useState(0)
 
   return (
-    <Container className={styles.app}>
+    <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Header />
+      <Container className={styles.app}>
       <Typography variant="h2" component="h1" gutterBottom>
         Tubeca
       </Typography>
@@ -35,7 +38,8 @@ function App() {
           </Button>
         </Stack>
       </div>
-    </Container>
+      </Container>
+    </Box>
   )
 }
 
