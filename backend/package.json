@@ -1,0 +1,48 @@
+{
+  "name": "@tubeca/backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tubeca backend API",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint .",
+    "test": "jest",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:seed": "tsx prisma/seed.ts",
+    "docs:generate": "tsx src/swagger.ts && redocly build-docs openapi.json --output docs/api.html",
+    "docs:serve": "redocly preview-docs openapi.json"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "@prisma/adapter-libsql": "^7.0.1",
+    "@prisma/client": "^7.0.1",
+    "bullmq": "^5.31.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^1.25.15",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.6",
+    "@typescript-eslint/eslint-plugin": "^8.48.0",
+    "@typescript-eslint/parser": "^8.48.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "prisma": "^7.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}

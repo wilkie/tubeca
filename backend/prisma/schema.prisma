@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Example model - you can modify this based on your needs
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Single Table Inheritance (STI) model for Media
+model Media {
+  id          String    @id @default(uuid())
+
+  // Shared properties for both Video and Audio
+  path        String    // File location/path
+  duration    Int       // Length in seconds
+  name        String    // Human-readable name
+  description String    // Description text
+
+  // Discriminator field
+  type        MediaType
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([type])
+}
+
+enum MediaType {
+  Video
+  Audio
+}
+
+// Settings model for system-wide configuration
+// This should be a singleton table with only one row
+model Settings {
+  id           String   @id @default(uuid())
+  instanceName String   // Main name of the instance
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
