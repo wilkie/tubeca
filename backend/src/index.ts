@@ -13,6 +13,7 @@ import authRoutes from './routes/auth'
 import userRoutes from './routes/users'
 import libraryRoutes from './routes/libraries'
 import collectionRoutes from './routes/collections'
+import streamRoutes from './routes/stream'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -33,6 +34,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/libraries', libraryRoutes)
 app.use('/api/collections', collectionRoutes)
+app.use('/api/stream', streamRoutes)
 
 /**
  * @openapi

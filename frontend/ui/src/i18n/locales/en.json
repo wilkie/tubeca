@@ -22,14 +22,18 @@
   },
   "nav": {
     "settings": "Settings",
-    "libraries": "Libraries"
+    "libraries": "Libraries",
+    "librariesSection": "Libraries",
+    "administration": "Administration",
+    "noLibraries": "No libraries available"
   },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
     "edit": "Edit",
-    "create": "Create"
+    "create": "Create",
+    "back": "Back"
   },
   "settings": {
     "title": "Settings",
@@ -66,6 +70,23 @@
       "Film": "Film",
       "Music": "Music"
     }
+  },
+  "library": {
+    "notFound": "Library not found",
+    "empty": "This library is empty. Run a scan to discover media.",
+    "folders": "{{count}} folders",
+    "items": "{{count}} items"
+  },
+  "collection": {
+    "notFound": "Collection not found",
+    "empty": "This collection is empty"
+  },
+  "media": {
+    "notFound": "Media not found",
+    "type": "Type",
+    "duration": "Duration",
+    "play": "Play",
+    "audioNotSupported": "Your browser does not support audio playback"
   },
   "errors": {
     "networkError": "Network error",

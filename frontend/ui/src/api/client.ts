@@ -169,6 +169,27 @@ class ApiClient {
     });
   }
 
+  // Media methods
+  async getMedia(id: string): Promise<ApiResponse<MediaResponse>> {
+    return this.request<MediaResponse>(`/media/${id}`);
+  }
+
+  // Get streaming URL for video (includes auth token)
+  getVideoStreamUrl(mediaId: string, startTime?: number): string {
+    const token = this.getToken();
+    let url = `${API_BASE}/stream/video/${mediaId}?token=${token}`;
+    if (startTime && startTime > 0) {
+      url += `&start=${startTime}`;
+    }
+    return url;
+  }
+
+  // Get streaming URL for audio (includes auth token)
+  getAudioStreamUrl(mediaId: string): string {
+    const token = this.getToken();
+    return `${API_BASE}/stream/audio/${mediaId}?token=${token}`;
+  }
+
   hasToken(): boolean {
     return !!this.getToken();
   }
@@ -297,6 +318,25 @@ export interface CreateCollectionInput {
 export interface UpdateCollectionInput {
   name?: string;
   parentId?: string | null;
+}
+
+// Media types
+export type MediaType = 'Video' | 'Audio';
+
+export interface Media {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  duration: number;
+  type: MediaType;
+  collectionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MediaResponse {
+  media: Media;
 }
 
 export const apiClient = new ApiClient();

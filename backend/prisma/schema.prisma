@@ -87,6 +87,9 @@ model Media {
   // Discriminator field
   type        MediaType
 
+  // Video-specific: path to trickplay thumbnails folder for scrubbing preview
+  thumbnails  String?
+
   // Belongs to a collection
   collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   collectionId String?

@@ -4,6 +4,10 @@ import { Box } from '@mui/material'
 import { Header, Sidebar } from './components'
 import { SettingsPage } from './pages/SettingsPage'
 import { LibrariesPage } from './pages/LibrariesPage'
+import { LibraryPage } from './pages/LibraryPage'
+import { CollectionPage } from './pages/CollectionPage'
+import { MediaPage } from './pages/MediaPage'
+import { PlayPage } from './pages/PlayPage'
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -14,8 +18,18 @@ function App() {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <Box component="main" sx={{ flexGrow: 1 }}>
         <Routes>
+          {/* Admin routes */}
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/admin/libraries" element={<LibrariesPage />} />
+          {/* Keep old route for backwards compatibility */}
           <Route path="/libraries" element={<LibrariesPage />} />
+
+          {/* Library browsing routes */}
+          <Route path="/library/:libraryId" element={<LibraryPage />} />
+          <Route path="/collection/:collectionId" element={<CollectionPage />} />
+          <Route path="/media/:mediaId" element={<MediaPage />} />
+          <Route path="/play/:mediaId" element={<PlayPage />} />
+
           <Route path="/" element={<Box />} />
         </Routes>
       </Box>

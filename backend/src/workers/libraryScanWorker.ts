@@ -1,9 +1,30 @@
 import { Worker, Job } from 'bullmq'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { redisConnection } from '../config/redis'
 import { prisma } from '../config/database'
 import { libraryScanQueue, type LibraryScanJobData } from '../queues/libraryScanQueue'
 import * as fs from 'fs'
 import * as path from 'path'
+
+const execFileAsync = promisify(execFile)
+
+// Get media duration using ffprobe
+async function getMediaDuration(filePath: string): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ])
+    const duration = parseFloat(stdout.trim())
+    return isNaN(duration) ? 0 : Math.round(duration)
+  } catch (error) {
+    console.error(`Failed to get duration for ${filePath}:`, error)
+    return 0
+  }
+}
 
 // Supported media extensions by type
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
@@ -104,6 +125,15 @@ async function scanDirectory(
       const mediaType = VIDEO_EXTENSIONS.includes(ext) ? 'Video' : 'Audio'
       const mediaName = path.basename(file.name, ext)
 
+      // Check for corresponding .trickplay folder for video thumbnails
+      let thumbnails: string | null = null
+      if (mediaType === 'Video') {
+        const trickplayPath = path.join(dirPath, `${mediaName}.trickplay`)
+        if (fs.existsSync(trickplayPath) && fs.statSync(trickplayPath).isDirectory()) {
+          thumbnails = trickplayPath
+        }
+      }
+
       try {
         // Check if media already exists by path
         const existing = await prisma.media.findFirst({
@@ -111,13 +141,15 @@ async function scanDirectory(
         })
 
         if (!existing) {
+          const duration = await getMediaDuration(filePath)
           await prisma.media.create({
             data: {
               path: filePath,
               name: mediaName,
               description: '',
-              duration: 0, // Would be populated by analyze job
+              duration,
               type: mediaType,
+              ...(thumbnails && { thumbnails }),
               collectionId: parentCollectionId,
             },
           })
@@ -125,7 +157,8 @@ async function scanDirectory(
         }
         result.filesProcessed++
       } catch (error) {
-        result.errors.push(`Failed to process: ${filePath}`)
+        console.error(`Failed to process ${filePath}:`, error)
+        result.errors.push(`Failed to process: ${filePath} - ${error instanceof Error ? error.message : String(error)}`)
       }
     }
   }
@@ -134,6 +167,9 @@ async function scanDirectory(
   for (const dir of dirs) {
     // Skip hidden directories
     if (dir.name.startsWith('.')) continue
+
+    // Skip .trickplay folders (they are for video thumbnails, not collections)
+    if (dir.name.endsWith('.trickplay')) continue
 
     const subDirPath = path.join(dirPath, dir.name)
 
