@@ -41,7 +41,7 @@ export function Header({ onMenuClick }: HeaderProps) {
 
   return (
     <AppBar position="static" className={styles.header}>
-      <Toolbar>
+      <Toolbar sx={{ minHeight: '48px !important' }}>
         <IconButton
           size="large"
           edge="start"
@@ -57,6 +57,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           variant="h6"
           component="div"
           className={styles.title}
+          sx={{ fontFamily: '"Praise", cursive', fontSize: '1.75rem' }}
         >
           {t('app.name')}
         </Typography>

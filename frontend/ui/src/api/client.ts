@@ -29,6 +29,15 @@ import type {
   AudioDetails,
   Credit,
   CreditType,
+  ShowDetails,
+  ShowCredit,
+  SeasonDetails,
+  ArtistDetails,
+  ArtistMember,
+  AlbumDetails,
+  AlbumCredit,
+  Image,
+  ImageType,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -63,6 +72,15 @@ export type {
   AudioDetails,
   Credit,
   CreditType,
+  ShowDetails,
+  ShowCredit,
+  SeasonDetails,
+  ArtistDetails,
+  ArtistMember,
+  AlbumDetails,
+  AlbumCredit,
+  Image,
+  ImageType,
 };
 
 const API_BASE = '/api';
@@ -259,6 +277,12 @@ class ApiClient {
 
   hasToken(): boolean {
     return !!this.getToken();
+  }
+
+  // Get URL for an image (includes auth token)
+  getImageUrl(imageId: string): string {
+    const token = this.getToken();
+    return `${API_BASE}/images/${imageId}/file?token=${token}`;
   }
 }
 

@@ -154,6 +154,7 @@ export interface ShowCredit {
   role: string | null
   creditType: CreditType
   order: number | null
+  images?: Image[]
 }
 
 export interface ShowDetails {
@@ -232,6 +233,7 @@ export interface Collection {
   parent?: CollectionSummary | null
   children?: CollectionSummary[]
   media?: MediaSummary[]
+  images?: Image[]
   showDetails?: ShowDetails | null
   seasonDetails?: SeasonDetails | null
   artistDetails?: ArtistDetails | null
@@ -261,6 +263,47 @@ export interface UpdateCollectionInput {
 }
 
 // ============================================
+// Image Types
+// ============================================
+
+export type ImageType =
+  | 'Poster'
+  | 'Backdrop'
+  | 'Logo'
+  | 'Thumbnail'
+  | 'Still'
+  | 'Photo'
+  | 'AlbumArt'
+  | 'ArtistImage'
+
+export interface Image {
+  id: string
+  mediaId: string | null
+  collectionId: string | null
+  showCreditId: string | null
+  creditId: string | null
+  imageType: ImageType
+  path: string
+  width: number | null
+  height: number | null
+  format: string | null
+  fileSize: number | null
+  sourceUrl: string | null
+  scraperId: string | null
+  isPrimary: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ImageResponse {
+  image: Image
+}
+
+export interface ImagesResponse {
+  images: Image[]
+}
+
+// ============================================
 // Media Types
 // ============================================
 
@@ -281,6 +324,7 @@ export interface Credit {
   role: string | null
   creditType: CreditType
   order: number | null
+  images?: Image[]
 }
 
 export interface VideoDetails {
@@ -317,6 +361,7 @@ export interface Media {
   collectionId: string | null
   videoDetails: VideoDetails | null
   audioDetails: AudioDetails | null
+  images?: Image[]
   createdAt: string
   updatedAt: string
 }

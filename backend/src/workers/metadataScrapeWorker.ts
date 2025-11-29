@@ -2,8 +2,11 @@ import { Worker, Job } from 'bullmq'
 import { redisConnection } from '../config/redis'
 import { prisma } from '../config/database'
 import { scraperManager } from '../plugins/scraperLoader'
+import { ImageService } from '../services/imageService'
 import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue'
 import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types'
+
+const imageService = new ImageService()
 
 interface ScrapeResult {
   success: boolean
@@ -59,7 +62,7 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
     if (scraper?.getVideoMetadata) {
       const metadata = await scraper.getVideoMetadata(externalId)
       if (metadata) {
-        await applyVideoMetadata(mediaId, metadata)
+        await applyVideoMetadata(mediaId, metadata, scraperId)
         return { success: true, scraperId, externalId }
       }
     }
@@ -106,7 +109,7 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
       }
 
       if (metadata) {
-        await applyVideoMetadata(mediaId, metadata)
+        await applyVideoMetadata(mediaId, metadata, scraper.id)
         console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`)
         return { success: true, scraperId: scraper.id, externalId: metadata.externalId }
       }
@@ -128,7 +131,7 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
     if (scraper?.getAudioMetadata) {
       const metadata = await scraper.getAudioMetadata(externalId)
       if (metadata) {
-        await applyAudioMetadata(mediaId, metadata)
+        await applyAudioMetadata(mediaId, metadata, scraperId)
         return { success: true, scraperId, externalId }
       }
     }
@@ -155,7 +158,7 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
         const metadata = await scraper.getAudioMetadata(bestMatch.externalId)
 
         if (metadata) {
-          await applyAudioMetadata(mediaId, metadata)
+          await applyAudioMetadata(mediaId, metadata, scraper.id)
           console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`)
           return { success: true, scraperId: scraper.id, externalId: metadata.externalId }
         }
@@ -172,7 +175,7 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
 /**
  * Apply video metadata to the database
  */
-async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata): Promise<void> {
+async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scraperId?: string): Promise<void> {
   // Create or update VideoDetails
   await prisma.videoDetails.upsert({
     where: { mediaId },
@@ -203,6 +206,9 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata): Pro
     })
   }
 
+  // Download images
+  await downloadMediaImages(mediaId, metadata, scraperId)
+
   // Add credits if available
   if (metadata.credits && metadata.credits.length > 0) {
     const videoDetails = await prisma.videoDetails.findUnique({
@@ -215,24 +221,109 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata): Pro
         where: { videoDetailsId: videoDetails.id },
       })
 
-      // Add new credits
-      await prisma.credit.createMany({
-        data: metadata.credits.map((credit) => ({
-          videoDetailsId: videoDetails.id,
-          name: credit.name,
-          role: credit.role,
-          creditType: mapCreditType(credit.type),
-          order: credit.order,
-        })),
-      })
+      // Add new credits and download their photos
+      for (const credit of metadata.credits) {
+        const createdCredit = await prisma.credit.create({
+          data: {
+            videoDetailsId: videoDetails.id,
+            name: credit.name,
+            role: credit.role,
+            creditType: mapCreditType(credit.type),
+            order: credit.order,
+          },
+        })
+
+        // Download credit photo if available
+        if (credit.photoUrl) {
+          try {
+            await imageService.downloadAndSaveImage(credit.photoUrl, {
+              imageType: 'Photo',
+              creditId: createdCredit.id,
+              isPrimary: true,
+              scraperId,
+            })
+            console.log(`📷 Downloaded photo for ${credit.name}`)
+          } catch (error) {
+            console.warn(`Failed to download photo for ${credit.name}:`, error)
+          }
+        }
+      }
     }
   }
 }
 
 /**
+ * Download images for a media item
+ */
+async function downloadMediaImages(
+  mediaId: string,
+  metadata: VideoMetadata | AudioMetadata,
+  scraperId?: string
+): Promise<void> {
+  const imagePromises: Promise<void>[] = []
+
+  // Check for poster (video) or album art (audio)
+  if ('posterUrl' in metadata && metadata.posterUrl) {
+    imagePromises.push(
+      imageService.downloadAndSaveImage(metadata.posterUrl, {
+        imageType: 'Poster',
+        mediaId,
+        isPrimary: true,
+        scraperId,
+      }).then((result) => {
+        if (result.success) {
+          console.log(`📷 Downloaded poster for media ${mediaId}`)
+        }
+      }).catch((error) => {
+        console.warn(`Failed to download poster:`, error)
+      })
+    )
+  }
+
+  // Check for backdrop (video only)
+  if ('backdropUrl' in metadata && metadata.backdropUrl) {
+    imagePromises.push(
+      imageService.downloadAndSaveImage(metadata.backdropUrl, {
+        imageType: 'Backdrop',
+        mediaId,
+        isPrimary: true,
+        scraperId,
+      }).then((result) => {
+        if (result.success) {
+          console.log(`📷 Downloaded backdrop for media ${mediaId}`)
+        }
+      }).catch((error) => {
+        console.warn(`Failed to download backdrop:`, error)
+      })
+    )
+  }
+
+  // Check for album art (audio only)
+  if ('albumArtUrl' in metadata && metadata.albumArtUrl) {
+    imagePromises.push(
+      imageService.downloadAndSaveImage(metadata.albumArtUrl, {
+        imageType: 'AlbumArt',
+        mediaId,
+        isPrimary: true,
+        scraperId,
+      }).then((result) => {
+        if (result.success) {
+          console.log(`📷 Downloaded album art for media ${mediaId}`)
+        }
+      }).catch((error) => {
+        console.warn(`Failed to download album art:`, error)
+      })
+    )
+  }
+
+  // Wait for all image downloads
+  await Promise.all(imagePromises)
+}
+
+/**
  * Apply audio metadata to the database
  */
-async function applyAudioMetadata(mediaId: string, metadata: AudioMetadata): Promise<void> {
+async function applyAudioMetadata(mediaId: string, metadata: AudioMetadata, scraperId?: string): Promise<void> {
   await prisma.audioDetails.upsert({
     where: { mediaId },
     create: {
@@ -263,6 +354,9 @@ async function applyAudioMetadata(mediaId: string, metadata: AudioMetadata): Pro
       data: { name: metadata.title },
     })
   }
+
+  // Download album art if available
+  await downloadMediaImages(mediaId, metadata, scraperId)
 }
 
 /**
