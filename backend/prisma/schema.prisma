@@ -62,6 +62,9 @@ model Collection {
   artistDetails ArtistDetails?
   albumDetails  AlbumDetails?
 
+  // Images associated with this collection
+  images    Image[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -113,6 +116,9 @@ model Media {
   collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   collectionId String?
 
+  // Images associated with this media
+  images      Image[]
+
   // Timestamps
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -163,6 +169,9 @@ model Credit {
   creditType     CreditType   // Actor, Director, Writer, etc.
   order          Int?         // Display order (e.g., billing order for actors)
 
+  // Images (photos) for this person
+  images         Image[]
+
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -178,6 +187,17 @@ enum CreditType {
   Composer
   Cinematographer
   Editor
+}
+
+enum ImageType {
+  Poster      // Primary vertical artwork (movies, shows, seasons)
+  Backdrop    // Horizontal background/hero image
+  Logo        // Text-based logo/title treatment
+  Thumbnail   // Small preview image
+  Still       // Video frame capture
+  Photo       // Person photo (for credits)
+  AlbumArt    // Album cover art
+  ArtistImage // Artist promotional image
 }
 
 // Audio-specific metadata
@@ -245,6 +265,9 @@ model ShowCredit {
   role          String?     // Character name (for actors) or job title
   creditType    CreditType  // Actor, Director, Writer, etc.
   order         Int?        // Display order
+
+  // Images (photos) for this person
+  images        Image[]
 
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -372,4 +395,47 @@ model Settings {
   instanceName String   // Main name of the instance
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+// ============================================
+// Image Storage
+// ============================================
+
+// Unified image storage for all entity types
+model Image {
+  id           String    @id @default(uuid())
+
+  // Polymorphic references (only one should be set)
+  mediaId      String?
+  collectionId String?
+  showCreditId String?
+  creditId     String?
+
+  // Image metadata
+  imageType    ImageType
+  path         String    // Relative path within image storage directory
+  width        Int?
+  height       Int?
+  format       String?   // webp, jpg, png
+  fileSize     Int?      // bytes
+
+  // Source tracking
+  sourceUrl    String?   // Original URL (for re-download if needed)
+  scraperId    String?   // Which scraper provided this
+
+  isPrimary    Boolean   @default(false)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  media        Media?      @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  showCredit   ShowCredit? @relation(fields: [showCreditId], references: [id], onDelete: Cascade)
+  credit       Credit?     @relation(fields: [creditId], references: [id], onDelete: Cascade)
+
+  @@index([mediaId, imageType])
+  @@index([collectionId, imageType])
+  @@index([showCreditId])
+  @@index([creditId])
 }

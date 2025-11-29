@@ -11,6 +11,7 @@ import {
   Card,
   CardContent,
   CardActionArea,
+  CardMedia,
 } from '@mui/material';
 import { Folder, VideoFile, AudioFile } from '@mui/icons-material';
 import { apiClient, type Library, type Collection } from '../api/client';
@@ -131,29 +132,65 @@ export function LibraryPage() {
       ) : (
         <Grid container spacing={2}>
           {/* Collections (folders) */}
-          {collections.map((collection) => (
-            <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
-              <Card>
-                <CardActionArea onClick={() => handleCollectionClick(collection.id)}>
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <Folder sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
-                    <Typography variant="body2" noWrap title={collection.name}>
-                      {collection.name}
-                    </Typography>
-                    {collection._count && (
-                      <Typography variant="caption" color="text.secondary">
-                        {collection._count.children > 0 &&
-                          t('library.folders', { count: collection._count.children })}
-                        {collection._count.children > 0 && collection._count.media > 0 && ' | '}
-                        {collection._count.media > 0 &&
-                          t('library.items', { count: collection._count.media })}
-                      </Typography>
+          {collections.map((collection) => {
+            const primaryImage = collection.images?.[0];
+            const hasImage = primaryImage && collection.collectionType === 'Show';
+
+            return (
+              <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
+                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <CardActionArea
+                    onClick={() => handleCollectionClick(collection.id)}
+                    sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                  >
+                    {hasImage ? (
+                      <>
+                        <CardMedia
+                          component="img"
+                          image={apiClient.getImageUrl(primaryImage.id)}
+                          alt={collection.name}
+                          sx={{
+                            aspectRatio: '2/3',
+                            objectFit: 'cover',
+                          }}
+                        />
+                        <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                          <Typography variant="body2" noWrap title={collection.name}>
+                            {collection.name}
+                          </Typography>
+                          {collection._count && (
+                            <Typography variant="caption" color="text.secondary">
+                              {collection._count.children > 0 &&
+                                t('library.folders', { count: collection._count.children })}
+                              {collection._count.children > 0 && collection._count.media > 0 && ' | '}
+                              {collection._count.media > 0 &&
+                                t('library.items', { count: collection._count.media })}
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </>
+                    ) : (
+                      <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <Folder sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
+                        <Typography variant="body2" noWrap title={collection.name}>
+                          {collection.name}
+                        </Typography>
+                        {collection._count && (
+                          <Typography variant="caption" color="text.secondary">
+                            {collection._count.children > 0 &&
+                              t('library.folders', { count: collection._count.children })}
+                            {collection._count.children > 0 && collection._count.media > 0 && ' | '}
+                            {collection._count.media > 0 &&
+                              t('library.items', { count: collection._count.media })}
+                          </Typography>
+                        )}
+                      </CardContent>
                     )}
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            </Grid>
-          ))}
+                  </CardActionArea>
+                </Card>
+              </Grid>
+            );
+          })}
 
           {/* Media items */}
           {rootMedia.map((media) => (

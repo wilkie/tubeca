@@ -7,3 +7,6 @@ node_modules
 # Generated API documentation
 openapi.json
 /docs
+
+# Local data storage (images, etc.)
+/data

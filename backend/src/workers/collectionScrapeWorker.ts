@@ -2,8 +2,11 @@ import { Worker, Job } from 'bullmq'
 import { redisConnection } from '../config/redis'
 import { prisma } from '../config/database'
 import { scraperManager } from '../plugins/scraperLoader'
+import { ImageService } from '../services/imageService'
 import type { CollectionScrapeJobData } from '../queues/collectionScrapeQueue'
 import type { SeriesMetadata, SeasonMetadata } from '@tubeca/scraper-types'
+
+const imageService = new ImageService()
 
 interface ScrapeResult {
   success: boolean
@@ -193,6 +196,9 @@ async function applyShowMetadata(
     },
   })
 
+  // Download images
+  await downloadCollectionImages(collectionId, metadata, scraperId)
+
   // Add credits if available
   if (metadata.credits && metadata.credits.length > 0) {
     // Clear existing credits
@@ -200,16 +206,33 @@ async function applyShowMetadata(
       where: { showDetailsId: showDetails.id },
     })
 
-    // Add new credits
-    await prisma.showCredit.createMany({
-      data: metadata.credits.map((credit) => ({
-        showDetailsId: showDetails.id,
-        name: credit.name,
-        role: credit.role,
-        creditType: mapCreditType(credit.type),
-        order: credit.order,
-      })),
-    })
+    // Add new credits and download their photos
+    for (const credit of metadata.credits) {
+      const createdCredit = await prisma.showCredit.create({
+        data: {
+          showDetailsId: showDetails.id,
+          name: credit.name,
+          role: credit.role,
+          creditType: mapCreditType(credit.type),
+          order: credit.order,
+        },
+      })
+
+      // Download credit photo if available
+      if (credit.photoUrl) {
+        try {
+          await imageService.downloadAndSaveImage(credit.photoUrl, {
+            imageType: 'Photo',
+            showCreditId: createdCredit.id,
+            isPrimary: true,
+            scraperId,
+          })
+          console.log(`📷 Downloaded photo for ${credit.name}`)
+        } catch (error) {
+          console.warn(`Failed to download photo for ${credit.name}:`, error)
+        }
+      }
+    }
   }
 }
 
@@ -239,6 +262,71 @@ async function applySeasonMetadata(
       releaseDate: metadata.airDate,
     },
   })
+
+  // Download season poster if available
+  if (metadata.posterUrl) {
+    try {
+      await imageService.downloadAndSaveImage(metadata.posterUrl, {
+        imageType: 'Poster',
+        collectionId,
+        isPrimary: true,
+        scraperId,
+      })
+      console.log(`📷 Downloaded season poster for collection ${collectionId}`)
+    } catch (error) {
+      console.warn(`Failed to download season poster:`, error)
+    }
+  }
+}
+
+/**
+ * Download images for a collection (show/series)
+ */
+async function downloadCollectionImages(
+  collectionId: string,
+  metadata: SeriesMetadata,
+  scraperId: string
+): Promise<void> {
+  const imagePromises: Promise<void>[] = []
+
+  // Download poster
+  if (metadata.posterUrl) {
+    imagePromises.push(
+      imageService.downloadAndSaveImage(metadata.posterUrl, {
+        imageType: 'Poster',
+        collectionId,
+        isPrimary: true,
+        scraperId,
+      }).then((result) => {
+        if (result.success) {
+          console.log(`📷 Downloaded poster for collection ${collectionId}`)
+        }
+      }).catch((error) => {
+        console.warn(`Failed to download poster:`, error)
+      })
+    )
+  }
+
+  // Download backdrop
+  if (metadata.backdropUrl) {
+    imagePromises.push(
+      imageService.downloadAndSaveImage(metadata.backdropUrl, {
+        imageType: 'Backdrop',
+        collectionId,
+        isPrimary: true,
+        scraperId,
+      }).then((result) => {
+        if (result.success) {
+          console.log(`📷 Downloaded backdrop for collection ${collectionId}`)
+        }
+      }).catch((error) => {
+        console.warn(`Failed to download backdrop:`, error)
+      })
+    )
+  }
+
+  // Wait for all image downloads
+  await Promise.all(imagePromises)
 }
 
 /**

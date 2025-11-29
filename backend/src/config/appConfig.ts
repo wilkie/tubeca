@@ -11,6 +11,7 @@ export interface ScraperPluginConfig {
 }
 
 export interface AppConfig {
+  imagePath?: string  // Path for storing downloaded images
   scrapers?: {
     tmdb?: ScraperPluginConfig
     tvdb?: ScraperPluginConfig
@@ -104,4 +105,40 @@ export function getScraperConfigs(appConfig: AppConfig): Record<string, { apiKey
   }
 
   return scraperConfigs
+}
+
+// Cached image storage path
+let imageStoragePath: string | null = null
+
+/**
+ * Get the image storage path from configuration
+ * Creates the directory if it doesn't exist
+ */
+export function getImageStoragePath(appConfig?: AppConfig): string {
+  if (imageStoragePath) {
+    return imageStoragePath
+  }
+
+  // Use configured path or default
+  const configuredPath = appConfig?.imagePath
+  if (configuredPath) {
+    // Use absolute path if provided, otherwise resolve relative to repo root
+    if (path.isAbsolute(configuredPath)) {
+      imageStoragePath = configuredPath
+    } else {
+      const repoRoot = path.resolve(__dirname, '..', '..', '..')
+      imageStoragePath = path.resolve(repoRoot, configuredPath)
+    }
+  } else {
+    // Default: ./data/images relative to backend directory
+    imageStoragePath = path.resolve(__dirname, '..', '..', 'data', 'images')
+  }
+
+  // Create directory if it doesn't exist
+  if (!fs.existsSync(imageStoragePath)) {
+    fs.mkdirSync(imageStoragePath, { recursive: true })
+    console.log(`📁 Created image storage directory: ${imageStoragePath}`)
+  }
+
+  return imageStoragePath
 }

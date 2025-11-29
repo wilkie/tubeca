@@ -28,6 +28,10 @@ export class CollectionService {
             name: true,
           },
         },
+        images: {
+          where: { isPrimary: true },
+          take: 1,
+        },
         _count: {
           select: {
             media: true,
@@ -84,6 +88,26 @@ export class CollectionService {
           },
           orderBy: { name: 'asc' },
         },
+        // Include collection metadata based on type
+        showDetails: {
+          include: {
+            credits: {
+              orderBy: { order: 'asc' },
+            },
+          },
+        },
+        seasonDetails: true,
+        artistDetails: {
+          include: {
+            members: true,
+          },
+        },
+        albumDetails: {
+          include: {
+            credits: true,
+          },
+        },
+        images: true,
       },
     })
   }

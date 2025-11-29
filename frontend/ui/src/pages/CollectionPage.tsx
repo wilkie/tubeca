@@ -14,9 +14,20 @@ import {
   Breadcrumbs,
   Link,
   Chip,
+  Paper,
+  Divider,
 } from '@mui/material';
-import { Folder, VideoFile, AudioFile, Tv, Person, Album } from '@mui/icons-material';
-import { apiClient, type Collection, type CollectionType } from '../api/client';
+import {
+  Folder,
+  VideoFile,
+  AudioFile,
+  Tv,
+  Person,
+  Album,
+  CalendarMonth,
+  Star,
+} from '@mui/icons-material';
+import { apiClient, type Collection, type CollectionType, type ShowCredit } from '../api/client';
 
 interface MediaItem {
   id: string;
@@ -268,6 +279,197 @@ export function CollectionPage() {
           />
         )}
       </Box>
+
+      {/* Show Details */}
+      {collection.showDetails && (
+        <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
+          {/* Rating and Status Row */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+            {collection.showDetails.rating && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Star sx={{ color: 'warning.main', fontSize: 20 }} />
+                <Typography variant="body2">
+                  {collection.showDetails.rating.toFixed(1)}
+                </Typography>
+              </Box>
+            )}
+            {collection.showDetails.status && (
+              <Chip
+                label={collection.showDetails.status}
+                size="small"
+                color={collection.showDetails.status === 'Ended' ? 'default' : 'success'}
+                variant="outlined"
+              />
+            )}
+            {collection.showDetails.releaseDate && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CalendarMonth sx={{ fontSize: 20, color: 'text.secondary' }} />
+                <Typography variant="body2" color="text.secondary">
+                  {new Date(collection.showDetails.releaseDate).getFullYear()}
+                  {collection.showDetails.endDate &&
+                    ` - ${new Date(collection.showDetails.endDate).getFullYear()}`}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
+          {/* Genres */}
+          {collection.showDetails.genres && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+              {collection.showDetails.genres.split(', ').map((genre) => (
+                <Chip key={genre} label={genre} size="small" variant="outlined" />
+              ))}
+            </Box>
+          )}
+
+          {/* Description */}
+          {collection.showDetails.description && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {collection.showDetails.description}
+            </Typography>
+          )}
+
+          {/* Cast */}
+          {collection.showDetails.credits && collection.showDetails.credits.length > 0 && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Cast
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {collection.showDetails.credits
+                  .filter((c: ShowCredit) => c.creditType === 'Actor')
+                  .slice(0, 10)
+                  .map((credit: ShowCredit) => (
+                    <Chip
+                      key={credit.id}
+                      label={credit.role ? `${credit.name} as ${credit.role}` : credit.name}
+                      size="small"
+                      variant="outlined"
+                    />
+                  ))}
+              </Box>
+            </>
+          )}
+        </Paper>
+      )}
+
+      {/* Season Details */}
+      {collection.seasonDetails && (
+        <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
+          {collection.seasonDetails.releaseDate && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 2 }}>
+              <CalendarMonth sx={{ fontSize: 20, color: 'text.secondary' }} />
+              <Typography variant="body2" color="text.secondary">
+                {new Date(collection.seasonDetails.releaseDate).toLocaleDateString()}
+              </Typography>
+            </Box>
+          )}
+
+          {collection.seasonDetails.description && (
+            <Typography variant="body2" color="text.secondary">
+              {collection.seasonDetails.description}
+            </Typography>
+          )}
+        </Paper>
+      )}
+
+      {/* Artist Details */}
+      {collection.artistDetails && (
+        <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+            {collection.artistDetails.country && (
+              <Typography variant="body2" color="text.secondary">
+                {collection.artistDetails.country}
+              </Typography>
+            )}
+            {collection.artistDetails.formedYear && (
+              <Typography variant="body2" color="text.secondary">
+                Formed: {collection.artistDetails.formedYear}
+                {collection.artistDetails.endedYear &&
+                  ` - ${collection.artistDetails.endedYear}`}
+              </Typography>
+            )}
+          </Box>
+
+          {collection.artistDetails.genres && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+              {collection.artistDetails.genres.split(', ').map((genre) => (
+                <Chip key={genre} label={genre} size="small" variant="outlined" />
+              ))}
+            </Box>
+          )}
+
+          {collection.artistDetails.biography && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {collection.artistDetails.biography}
+            </Typography>
+          )}
+
+          {collection.artistDetails.members && collection.artistDetails.members.length > 0 && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Members
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {collection.artistDetails.members.map((member) => (
+                  <Chip
+                    key={member.id}
+                    label={member.role ? `${member.name} (${member.role})` : member.name}
+                    size="small"
+                    variant={member.active ? 'filled' : 'outlined'}
+                    color={member.active ? 'primary' : 'default'}
+                  />
+                ))}
+              </Box>
+            </>
+          )}
+        </Paper>
+      )}
+
+      {/* Album Details */}
+      {collection.albumDetails && (
+        <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+            {collection.albumDetails.releaseType && (
+              <Chip
+                label={collection.albumDetails.releaseType}
+                size="small"
+                color="primary"
+                variant="outlined"
+              />
+            )}
+            {collection.albumDetails.releaseDate && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CalendarMonth sx={{ fontSize: 20, color: 'text.secondary' }} />
+                <Typography variant="body2" color="text.secondary">
+                  {new Date(collection.albumDetails.releaseDate).toLocaleDateString()}
+                </Typography>
+              </Box>
+            )}
+            {collection.albumDetails.label && (
+              <Typography variant="body2" color="text.secondary">
+                {collection.albumDetails.label}
+              </Typography>
+            )}
+          </Box>
+
+          {collection.albumDetails.genres && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+              {collection.albumDetails.genres.split(', ').map((genre) => (
+                <Chip key={genre} label={genre} size="small" variant="outlined" />
+              ))}
+            </Box>
+          )}
+
+          {collection.albumDetails.description && (
+            <Typography variant="body2" color="text.secondary">
+              {collection.albumDetails.description}
+            </Typography>
+          )}
+        </Paper>
+      )}
 
       {childCollections.length === 0 && media.length === 0 ? (
         <Alert severity="info">{t('collection.empty')}</Alert>
