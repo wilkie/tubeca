@@ -79,7 +79,7 @@ export function VideoPlayer({ src, title, mediaDuration, onSeek }: VideoPlayerPr
       video.removeEventListener('canplay', handleCanPlay);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, []);
+  }, [mediaDuration]);
 
   const handlePlayPause = () => {
     const video = videoRef.current;

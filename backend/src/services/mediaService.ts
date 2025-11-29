@@ -57,6 +57,12 @@ export class MediaService {
           include: {
             credits: {
               orderBy: { order: 'asc' },
+              include: {
+                images: {
+                  where: { isPrimary: true },
+                  take: 1,
+                },
+              },
             },
           },
         },
