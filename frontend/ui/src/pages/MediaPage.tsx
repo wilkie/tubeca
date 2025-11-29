@@ -11,9 +11,22 @@ import {
   Button,
   Chip,
   Divider,
+  Grid,
+  Card,
+  CardContent,
+  CardMedia,
 } from '@mui/material';
-import { ArrowBack, PlayArrow, Tv, Movie, MusicNote, Album } from '@mui/icons-material';
-import { apiClient, type Media } from '../api/client';
+import { ArrowBack, PlayArrow, Tv, Movie, MusicNote, Album, Person } from '@mui/icons-material';
+import { apiClient, type Media, type Image } from '../api/client';
+
+interface CreditWithImages {
+  id: string;
+  name: string;
+  role: string | null;
+  creditType: string;
+  order: number | null;
+  images?: Image[];
+}
 
 export function MediaPage() {
   const { t } = useTranslation();
@@ -252,6 +265,65 @@ export function MediaPage() {
           </>
         )}
       </Paper>
+
+      {/* Credits Photo Grid */}
+      {videoDetails?.credits && videoDetails.credits.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h5" sx={{ mb: 2 }}>
+            {t('media.castAndCrew', 'Cast & Crew')}
+          </Typography>
+          <Grid container spacing={2}>
+            {(videoDetails.credits as CreditWithImages[]).map((credit) => {
+              const primaryImage = credit.images?.[0];
+
+              return (
+                <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={credit.id}>
+                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    {primaryImage ? (
+                      <CardMedia
+                        component="img"
+                        image={apiClient.getImageUrl(primaryImage.id)}
+                        alt={credit.name}
+                        sx={{
+                          aspectRatio: '2/3',
+                          objectFit: 'cover',
+                        }}
+                      />
+                    ) : (
+                      <Box
+                        sx={{
+                          aspectRatio: '2/3',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          bgcolor: 'action.hover',
+                        }}
+                      >
+                        <Person sx={{ fontSize: 64, color: 'text.secondary' }} />
+                      </Box>
+                    )}
+                    <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1 }}>
+                      <Typography variant="body2" noWrap title={credit.name}>
+                        {credit.name}
+                      </Typography>
+                      {credit.role && (
+                        <Typography variant="caption" color="text.secondary" noWrap title={credit.role}>
+                          {credit.role}
+                        </Typography>
+                      )}
+                      {!credit.role && credit.creditType !== 'Actor' && (
+                        <Typography variant="caption" color="text.secondary">
+                          {credit.creditType}
+                        </Typography>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </Box>
+      )}
     </Container>
   );
 }

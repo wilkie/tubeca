@@ -11,6 +11,7 @@ import {
   Card,
   CardContent,
   CardActionArea,
+  CardMedia,
   Breadcrumbs,
   Link,
   Chip,
@@ -27,7 +28,7 @@ import {
   CalendarMonth,
   Star,
 } from '@mui/icons-material';
-import { apiClient, type Collection, type CollectionType, type ShowCredit } from '../api/client';
+import { apiClient, type Collection, type CollectionType, type ShowCredit, type Image } from '../api/client';
 
 interface MediaItem {
   id: string;
@@ -41,12 +42,14 @@ interface MediaItem {
     track: number | null;
     disc: number | null;
   } | null;
+  images?: Image[];
 }
 
 interface ChildCollection {
   id: string;
   name: string;
   collectionType?: CollectionType;
+  images?: Image[];
 }
 
 interface BreadcrumbItem {
@@ -482,20 +485,47 @@ export function CollectionPage() {
                 {getChildLabel()} ({childCollections.length})
               </Typography>
               <Grid container spacing={2} sx={{ mb: 4 }}>
-                {childCollections.map((child) => (
-                  <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={child.id}>
-                    <Card>
-                      <CardActionArea onClick={() => handleCollectionClick(child.id)}>
-                        <CardContent sx={{ textAlign: 'center' }}>
-                          {getCollectionIcon(child.collectionType)}
-                          <Typography variant="body2" noWrap title={child.name}>
-                            {child.name}
-                          </Typography>
-                        </CardContent>
-                      </CardActionArea>
-                    </Card>
-                  </Grid>
-                ))}
+                {childCollections.map((child) => {
+                  const primaryImage = child.images?.[0];
+                  const hasImage = primaryImage && child.collectionType === 'Season';
+
+                  return (
+                    <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={child.id}>
+                      <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        <CardActionArea
+                          onClick={() => handleCollectionClick(child.id)}
+                          sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                        >
+                          {hasImage ? (
+                            <>
+                              <CardMedia
+                                component="img"
+                                image={apiClient.getImageUrl(primaryImage.id)}
+                                alt={child.name}
+                                sx={{
+                                  aspectRatio: '2/3',
+                                  objectFit: 'cover',
+                                }}
+                              />
+                              <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                                <Typography variant="body2" noWrap title={child.name}>
+                                  {child.name}
+                                </Typography>
+                              </CardContent>
+                            </>
+                          ) : (
+                            <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                              {getCollectionIcon(child.collectionType)}
+                              <Typography variant="body2" noWrap title={child.name}>
+                                {child.name}
+                              </Typography>
+                            </CardContent>
+                          )}
+                        </CardActionArea>
+                      </Card>
+                    </Grid>
+                  );
+                })}
               </Grid>
             </>
           )}
@@ -516,25 +546,56 @@ export function CollectionPage() {
                     numberLabel = `${item.audioDetails.track}`;
                   }
 
+                  const primaryImage = item.images?.[0];
+                  const isEpisode = collection.collectionType === 'Season' && item.type === 'Video';
+                  const hasImage = primaryImage && isEpisode;
+
                   return (
                     <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={item.id}>
-                      <Card>
-                        <CardActionArea onClick={() => handleMediaClick(item.id)}>
-                          <CardContent sx={{ textAlign: 'center' }}>
-                            {item.type === 'Video' ? (
-                              <VideoFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
-                            ) : (
-                              <AudioFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
-                            )}
-                            {numberLabel && (
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                {numberLabel}
+                      <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        <CardActionArea
+                          onClick={() => handleMediaClick(item.id)}
+                          sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                        >
+                          {hasImage ? (
+                            <>
+                              <CardMedia
+                                component="img"
+                                image={apiClient.getImageUrl(primaryImage.id)}
+                                alt={item.name}
+                                sx={{
+                                  aspectRatio: '16/9',
+                                  objectFit: 'cover',
+                                }}
+                              />
+                              <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                                {numberLabel && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    {numberLabel}
+                                  </Typography>
+                                )}
+                                <Typography variant="body2" noWrap title={item.name}>
+                                  {item.name}
+                                </Typography>
+                              </CardContent>
+                            </>
+                          ) : (
+                            <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                              {item.type === 'Video' ? (
+                                <VideoFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
+                              ) : (
+                                <AudioFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
+                              )}
+                              {numberLabel && (
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  {numberLabel}
+                                </Typography>
+                              )}
+                              <Typography variant="body2" noWrap title={item.name}>
+                                {item.name}
                               </Typography>
-                            )}
-                            <Typography variant="body2" noWrap title={item.name}>
-                              {item.name}
-                            </Typography>
-                          </CardContent>
+                            </CardContent>
+                          )}
                         </CardActionArea>
                       </Card>
                     </Grid>

@@ -65,6 +65,10 @@ export class CollectionService {
             id: true,
             name: true,
             collectionType: true,
+            images: {
+              where: { isPrimary: true },
+              take: 1,
+            },
           },
           orderBy: { name: 'asc' },
         },
@@ -84,6 +88,10 @@ export class CollectionService {
                 track: true,
                 disc: true,
               },
+            },
+            images: {
+              where: { isPrimary: true },
+              take: 1,
             },
           },
           orderBy: { name: 'asc' },
