@@ -48,10 +48,20 @@ export class MediaService {
     })
   }
 
-  // Get media by ID with type checking
-  async getMediaById(id: string): Promise<Media | null> {
+  // Get media by ID with type checking and details
+  async getMediaById(id: string) {
     return await prisma.media.findUnique({
       where: { id },
+      include: {
+        videoDetails: {
+          include: {
+            credits: {
+              orderBy: { order: 'asc' },
+            },
+          },
+        },
+        audioDetails: true,
+      },
     })
   }
 
@@ -86,18 +96,13 @@ export class MediaService {
     })
   }
 
-  // Search media by name or description
+  // Search media by name
   async searchMedia(query: string, type?: MediaType): Promise<Media[]> {
     return await prisma.media.findMany({
       where: {
         AND: [
           type ? { type } : {},
-          {
-            OR: [
-              { name: { contains: query } },
-              { description: { contains: query } },
-            ],
-          },
+          { name: { contains: query } },
         ],
       },
       orderBy: { createdAt: 'desc' },

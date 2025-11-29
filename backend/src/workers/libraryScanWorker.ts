@@ -4,6 +4,18 @@ import { promisify } from 'util'
 import { redisConnection } from '../config/redis'
 import { prisma } from '../config/database'
 import { libraryScanQueue, type LibraryScanJobData } from '../queues/libraryScanQueue'
+import { addBulkMetadataScrapeJobs, type MetadataScrapeJobData } from '../queues/metadataScrapeQueue'
+import {
+  addBulkCollectionScrapeJobs,
+  type CollectionScrapeJobData,
+  type CollectionScrapeType,
+} from '../queues/collectionScrapeQueue'
+import {
+  parseEpisodeFromFilename,
+  parseMovieFromFilename,
+  getShowNameFromCollectionPath,
+} from '../utils/mediaParser'
+import type { LibraryType, CollectionType } from '@prisma/client'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -30,12 +42,32 @@ async function getMediaDuration(filePath: string): Promise<number> {
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
 const AUDIO_EXTENSIONS = ['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma']
 
+interface NewMediaInfo {
+  id: string
+  name: string
+  type: 'Video' | 'Audio'
+  showName?: string
+  season?: number
+  episode?: number
+  year?: number
+}
+
+interface NewCollectionInfo {
+  id: string
+  name: string
+  collectionType: CollectionType
+  parentId: string | null
+  seasonNumber?: number // For Season collections
+}
+
 interface ScanResult {
   filesFound: number
   filesProcessed: number
   collectionsCreated: number
   mediaCreated: number
   errors: string[]
+  newMediaIds: NewMediaInfo[]
+  newCollections: NewCollectionInfo[]
 }
 
 // Library scan worker
@@ -52,6 +84,8 @@ export const libraryScanWorker = new Worker(
       collectionsCreated: 0,
       mediaCreated: 0,
       errors: [],
+      newMediaIds: [],
+      newCollections: [],
     }
 
     try {
@@ -72,10 +106,96 @@ export const libraryScanWorker = new Worker(
       const extensions = library.libraryType === 'Music' ? AUDIO_EXTENSIONS : VIDEO_EXTENSIONS
 
       // Scan the directory recursively
-      await scanDirectory(job, libraryPath, libraryId, null, extensions, result)
+      await scanDirectory(job, libraryPath, libraryId, null, [], extensions, library.libraryType, 0, result)
 
       await job.updateProgress(100)
-      console.log(`✅ Scan complete for ${libraryName}:`, result)
+      console.log(`✅ Scan complete for ${libraryName}:`, {
+        filesFound: result.filesFound,
+        filesProcessed: result.filesProcessed,
+        collectionsCreated: result.collectionsCreated,
+        mediaCreated: result.mediaCreated,
+        errors: result.errors,
+      })
+
+      // Queue metadata scraping for newly discovered media
+      if (result.newMediaIds.length > 0) {
+        console.log(`📋 Queueing metadata scrape for ${result.newMediaIds.length} new media items`)
+        const scrapeJobs: MetadataScrapeJobData[] = result.newMediaIds.map((media) => ({
+          mediaId: media.id,
+          mediaName: media.name,
+          mediaType: media.type,
+          showName: media.showName,
+          season: media.season,
+          episode: media.episode,
+          year: media.year,
+        }))
+        await addBulkMetadataScrapeJobs(scrapeJobs)
+      }
+
+      // Queue collection metadata scraping for newly discovered collections
+      if (result.newCollections.length > 0) {
+        // Filter to only scrape-able collection types (Show, Season, Artist, Album)
+        const scrapeableTypes: CollectionType[] = ['Show', 'Season', 'Artist', 'Album']
+        const collectionsToScrape = result.newCollections.filter(
+          (c) => scrapeableTypes.includes(c.collectionType)
+        )
+
+        if (collectionsToScrape.length > 0) {
+          console.log(`📋 Queueing collection scrape for ${collectionsToScrape.length} collections`)
+
+          // Build a map of collection IDs to their scrape results for parent lookups
+          // We need to process Shows first, then Seasons (to get parent info)
+          const shows = collectionsToScrape.filter((c) => c.collectionType === 'Show')
+          const seasons = collectionsToScrape.filter((c) => c.collectionType === 'Season')
+          const artists = collectionsToScrape.filter((c) => c.collectionType === 'Artist')
+          const albums = collectionsToScrape.filter((c) => c.collectionType === 'Album')
+
+          const collectionScrapeJobs: CollectionScrapeJobData[] = []
+
+          // Queue Show scrapes
+          for (const show of shows) {
+            collectionScrapeJobs.push({
+              collectionId: show.id,
+              collectionName: show.name,
+              collectionType: 'Show' as CollectionScrapeType,
+            })
+          }
+
+          // Queue Season scrapes with parent show info
+          for (const season of seasons) {
+            collectionScrapeJobs.push({
+              collectionId: season.id,
+              collectionName: season.name,
+              collectionType: 'Season' as CollectionScrapeType,
+              parentShowId: season.parentId ?? undefined,
+              seasonNumber: season.seasonNumber,
+              // Note: parentExternalId and parentScraperId will be filled in by the worker
+              // after the parent show is scraped, or we can look them up
+            })
+          }
+
+          // Queue Artist scrapes
+          for (const artist of artists) {
+            collectionScrapeJobs.push({
+              collectionId: artist.id,
+              collectionName: artist.name,
+              collectionType: 'Artist' as CollectionScrapeType,
+            })
+          }
+
+          // Queue Album scrapes with parent artist info
+          for (const album of albums) {
+            collectionScrapeJobs.push({
+              collectionId: album.id,
+              collectionName: album.name,
+              collectionType: 'Album' as CollectionScrapeType,
+              parentShowId: album.parentId ?? undefined, // Actually parent artist
+            })
+          }
+
+          await addBulkCollectionScrapeJobs(collectionScrapeJobs)
+        }
+      }
 
       return result
     } catch (error) {
@@ -89,12 +209,31 @@ export const libraryScanWorker = new Worker(
   }
 )
 
+/**
+ * Determine the collection type based on library type and depth
+ * - Television: depth 0 = Show, depth 1 = Season
+ * - Music: depth 0 = Artist, depth 1 = Album
+ * - Film: always Generic
+ */
+function getCollectionType(libraryType: LibraryType, depth: number): CollectionType {
+  if (libraryType === 'Television') {
+    return depth === 0 ? 'Show' : depth === 1 ? 'Season' : 'Generic'
+  }
+  if (libraryType === 'Music') {
+    return depth === 0 ? 'Artist' : depth === 1 ? 'Album' : 'Generic'
+  }
+  return 'Generic'
+}
+
 async function scanDirectory(
   job: Job<LibraryScanJobData & { cancelled?: boolean }>,
   dirPath: string,
   libraryId: string,
   parentCollectionId: string | null,
+  collectionPath: string[],
   extensions: string[],
+  libraryType: LibraryType,
+  depth: number,
   result: ScanResult
 ): Promise<void> {
   // Check if job was cancelled
@@ -106,7 +245,7 @@ async function scanDirectory(
   let entries: fs.Dirent[]
   try {
     entries = fs.readdirSync(dirPath, { withFileTypes: true })
-  } catch (error) {
+  } catch {
     result.errors.push(`Cannot read directory: ${dirPath}`)
     return
   }
@@ -142,11 +281,10 @@ async function scanDirectory(
 
         if (!existing) {
           const duration = await getMediaDuration(filePath)
-          await prisma.media.create({
+          const newMedia = await prisma.media.create({
             data: {
               path: filePath,
               name: mediaName,
-              description: '',
               duration,
               type: mediaType,
               ...(thumbnails && { thumbnails }),
@@ -154,6 +292,33 @@ async function scanDirectory(
             },
           })
           result.mediaCreated++
+
+          // Parse filename for metadata hints
+          const newMediaInfo: NewMediaInfo = {
+            id: newMedia.id,
+            name: mediaName,
+            type: mediaType as 'Video' | 'Audio',
+          }
+
+          if (mediaType === 'Video') {
+            // Try to parse as TV episode
+            const episodeInfo = parseEpisodeFromFilename(mediaName)
+            if (episodeInfo) {
+              newMediaInfo.season = episodeInfo.season
+              newMediaInfo.episode = episodeInfo.episode
+              // Get show name from collection path (e.g., /Betty/Season 1/ -> Betty)
+              newMediaInfo.showName =
+                episodeInfo.showName || getShowNameFromCollectionPath(collectionPath)
+            } else {
+              // Try to parse as movie
+              const movieInfo = parseMovieFromFilename(mediaName)
+              if (movieInfo.year) {
+                newMediaInfo.year = movieInfo.year
+              }
+            }
+          }
+
+          result.newMediaIds.push(newMediaInfo)
         }
         result.filesProcessed++
       } catch (error) {
@@ -174,6 +339,9 @@ async function scanDirectory(
     const subDirPath = path.join(dirPath, dir.name)
 
     try {
+      // Determine collection type based on library type and depth
+      const collectionType = getCollectionType(libraryType, depth)
+
       // Check if collection already exists
       let collection = await prisma.collection.findFirst({
         where: {
@@ -189,14 +357,39 @@ async function scanDirectory(
             name: dir.name,
             libraryId,
             parentId: parentCollectionId,
+            collectionType,
           },
         })
         result.collectionsCreated++
+
+        // Track new collection for metadata scraping
+        const newCollectionInfo: NewCollectionInfo = {
+          id: collection.id,
+          name: dir.name,
+          collectionType,
+          parentId: parentCollectionId,
+        }
+
+        // For Season collections, try to parse the season number from the name
+        if (collectionType === 'Season') {
+          const seasonMatch = dir.name.match(/season\s*(\d+)/i)
+          if (seasonMatch) {
+            newCollectionInfo.seasonNumber = parseInt(seasonMatch[1], 10)
+          }
+        }
+
+        result.newCollections.push(newCollectionInfo)
+      } else if (collection.collectionType !== collectionType) {
+        // Update collection type if it changed
+        collection = await prisma.collection.update({
+          where: { id: collection.id },
+          data: { collectionType },
+        })
       }
 
-      // Recursively scan subdirectory
-      await scanDirectory(job, subDirPath, libraryId, collection.id, extensions, result)
-    } catch (error) {
+      // Recursively scan subdirectory with updated collection path
+      await scanDirectory(job, subDirPath, libraryId, collection.id, [...collectionPath, dir.name], extensions, libraryType, depth + 1, result)
+    } catch {
       result.errors.push(`Failed to process directory: ${subDirPath}`)
     }
   }

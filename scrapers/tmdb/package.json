@@ -1,0 +1,34 @@
+{
+  "name": "@tubeca/scraper-tmdb",
+  "version": "1.0.0",
+  "description": "TMDB metadata scraper plugin for Tubeca",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@tubeca/scraper-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@tubeca/scraper-types": "^1.0.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "tubeca": {
+    "pluginType": "scraper"
+  }
+}

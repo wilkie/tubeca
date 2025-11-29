@@ -1,3 +1,70 @@
+import type {
+  User,
+  UserRole,
+  UserGroup,
+  LoginResponse,
+  UserResponse,
+  SetupStatusResponse,
+  Settings,
+  SettingsResponse,
+  Library,
+  LibraryType,
+  LibraryResponse,
+  LibrariesResponse,
+  CreateLibraryInput,
+  UpdateLibraryInput,
+  ScanStartResponse,
+  ScanStatusResponse,
+  ScanCancelResponse,
+  Collection,
+  CollectionType,
+  CollectionResponse,
+  CollectionsResponse,
+  CreateCollectionInput,
+  UpdateCollectionInput,
+  Media,
+  MediaType,
+  MediaResponse,
+  VideoDetails,
+  AudioDetails,
+  Credit,
+  CreditType,
+} from '@tubeca/shared-types';
+
+// Re-export types for convenience
+export type {
+  User,
+  UserRole,
+  UserGroup,
+  LoginResponse,
+  UserResponse,
+  SetupStatusResponse,
+  Settings,
+  SettingsResponse,
+  Library,
+  LibraryType,
+  LibraryResponse,
+  LibrariesResponse,
+  CreateLibraryInput,
+  UpdateLibraryInput,
+  ScanStartResponse,
+  ScanStatusResponse,
+  ScanCancelResponse,
+  Collection,
+  CollectionType,
+  CollectionResponse,
+  CollectionsResponse,
+  CreateCollectionInput,
+  UpdateCollectionInput,
+  Media,
+  MediaType,
+  MediaResponse,
+  VideoDetails,
+  AudioDetails,
+  Credit,
+  CreditType,
+};
+
 const API_BASE = '/api';
 
 interface ApiResponse<T> {
@@ -193,150 +260,6 @@ class ApiClient {
   hasToken(): boolean {
     return !!this.getToken();
   }
-}
-
-export interface Settings {
-  id: string;
-  instanceName: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SettingsResponse {
-  settings: Settings;
-}
-
-export interface User {
-  id: string;
-  name: string;
-  role: 'Admin' | 'Editor' | 'Viewer';
-  groups: { id: string; name: string }[];
-  createdAt: string;
-}
-
-export interface LoginResponse {
-  user: User;
-  token: string;
-}
-
-export interface UserResponse {
-  user: User;
-}
-
-export interface SetupStatusResponse {
-  needsSetup: boolean;
-}
-
-export type LibraryType = 'Television' | 'Film' | 'Music';
-
-export interface Library {
-  id: string;
-  name: string;
-  path: string;
-  libraryType: LibraryType;
-  groups: { id: string; name: string }[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface LibraryResponse {
-  library: Library;
-}
-
-export interface LibrariesResponse {
-  libraries: Library[];
-}
-
-export interface CreateLibraryInput {
-  name: string;
-  path: string;
-  libraryType: LibraryType;
-  groupIds?: string[];
-}
-
-export interface UpdateLibraryInput {
-  name?: string;
-  path?: string;
-  libraryType?: LibraryType;
-  groupIds?: string[];
-}
-
-// Scan types
-export interface ScanStartResponse {
-  message: string;
-  jobId: string;
-}
-
-export interface ScanStatusResponse {
-  status: 'idle' | 'active' | 'waiting' | 'completed' | 'failed';
-  scanning: boolean;
-  progress: number;
-  result?: {
-    filesFound: number;
-    filesProcessed: number;
-    collectionsCreated: number;
-    mediaCreated: number;
-    errors: string[];
-  };
-  failedReason?: string;
-}
-
-export interface ScanCancelResponse {
-  message: string;
-  wasActive: boolean;
-}
-
-// Collection types
-export interface Collection {
-  id: string;
-  name: string;
-  libraryId: string;
-  parentId: string | null;
-  library?: { id: string; name: string };
-  parent?: { id: string; name: string } | null;
-  children?: { id: string; name: string }[];
-  media?: { id: string; name: string; type: string }[];
-  _count?: { media: number; children: number };
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CollectionResponse {
-  collection: Collection;
-}
-
-export interface CollectionsResponse {
-  collections: Collection[];
-}
-
-export interface CreateCollectionInput {
-  name: string;
-  libraryId: string;
-  parentId?: string;
-}
-
-export interface UpdateCollectionInput {
-  name?: string;
-  parentId?: string | null;
-}
-
-// Media types
-export type MediaType = 'Video' | 'Audio';
-
-export interface Media {
-  id: string;
-  name: string;
-  description: string;
-  path: string;
-  duration: number;
-  type: MediaType;
-  collectionId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface MediaResponse {
-  media: Media;
 }
 
 export const apiClient = new ApiClient();

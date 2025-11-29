@@ -1,0 +1,12 @@
+{
+  "scrapers": {
+    "tmdb": {
+      "enabled": true,
+      "apiKey": "362a4a16fca2168c744a64f79ebdf931"
+    },
+    "tvdb": {
+      "enabled": false,
+      "apiKey": "33f4f6b5b414677825f0255ffa7d52e3"
+    }
+  }
+}

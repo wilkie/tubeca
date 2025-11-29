@@ -24,7 +24,7 @@ router.get('/setup', async (_req, res) => {
   try {
     const needsSetup = await authService.needsSetup()
     res.json({ needsSetup })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to check setup status' })
   }
 })

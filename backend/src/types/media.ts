@@ -22,6 +22,21 @@ export function isAudio(media: Media): media is Audio {
   return media.type === MediaType.Audio
 }
 
-// Helper type for creating new media items (without id and timestamps)
-export type CreateVideoInput = Omit<Video, 'id' | 'createdAt' | 'updatedAt'>
-export type CreateAudioInput = Omit<Audio, 'id' | 'createdAt' | 'updatedAt'>
+// Helper type for creating new media items (required fields only)
+export type CreateVideoInput = {
+  type: typeof MediaType.Video
+  path: string
+  duration: number
+  name: string
+  thumbnails?: string | null
+  collectionId?: string | null
+}
+
+export type CreateAudioInput = {
+  type: typeof MediaType.Audio
+  path: string
+  duration: number
+  name: string
+  thumbnails?: string | null
+  collectionId?: string | null
+}

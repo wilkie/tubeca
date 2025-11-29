@@ -53,12 +53,14 @@ export class CollectionService {
           select: {
             id: true,
             name: true,
+            collectionType: true,
           },
         },
         children: {
           select: {
             id: true,
             name: true,
+            collectionType: true,
           },
           orderBy: { name: 'asc' },
         },
@@ -67,6 +69,18 @@ export class CollectionService {
             id: true,
             name: true,
             type: true,
+            videoDetails: {
+              select: {
+                season: true,
+                episode: true,
+              },
+            },
+            audioDetails: {
+              select: {
+                track: true,
+                disc: true,
+              },
+            },
           },
           orderBy: { name: 'asc' },
         },

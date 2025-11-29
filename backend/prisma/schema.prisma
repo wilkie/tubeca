@@ -40,8 +40,9 @@ model Library {
 }
 
 model Collection {
-  id        String   @id @default(uuid())
-  name      String
+  id             String          @id @default(uuid())
+  name           String
+  collectionType CollectionType  @default(Generic)
 
   // Belongs to a library
   library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
@@ -55,17 +56,32 @@ model Collection {
   // Media within this collection
   media     Media[]
 
+  // Type-specific metadata (one-to-one, based on collectionType)
+  showDetails   ShowDetails?
+  seasonDetails SeasonDetails?
+  artistDetails ArtistDetails?
+  albumDetails  AlbumDetails?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([libraryId])
   @@index([parentId])
+  @@index([collectionType])
 }
 
 enum LibraryType {
   Television
   Film
   Music
+}
+
+enum CollectionType {
+  Generic  // Default, untyped folder
+  Show     // TV show container
+  Season   // Season within a show
+  Artist   // Music artist container
+  Album    // Album within an artist
 }
 
 enum Role {
@@ -82,13 +98,16 @@ model Media {
   path        String    // File location/path
   duration    Int       // Length in seconds
   name        String    // Human-readable name
-  description String    // Description text
 
   // Discriminator field
   type        MediaType
 
   // Video-specific: path to trickplay thumbnails folder for scrubbing preview
   thumbnails  String?
+
+  // Type-specific details (one-to-one)
+  videoDetails VideoDetails?
+  audioDetails AudioDetails?
 
   // Belongs to a collection
   collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
@@ -105,6 +124,245 @@ model Media {
 enum MediaType {
   Video
   Audio
+}
+
+// Video-specific metadata
+model VideoDetails {
+  id          String   @id @default(uuid())
+
+  // Relationship to Media
+  media       Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId     String   @unique
+
+  // Episode information (for TV shows)
+  showName    String?  // Name of the show (e.g., "Breaking Bad")
+  season      Int?     // Season number
+  episode     Int?     // Episode number
+
+  // General video metadata
+  description String?  // Plot summary / description
+  releaseDate DateTime?
+  rating      String?  // Content rating (e.g., "PG-13", "TV-MA")
+
+  // Cast and crew
+  credits     Credit[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Cast and crew credits for videos
+model Credit {
+  id             String       @id @default(uuid())
+
+  videoDetails   VideoDetails @relation(fields: [videoDetailsId], references: [id], onDelete: Cascade)
+  videoDetailsId String
+
+  name           String       // Person's name
+  role           String?      // Role/character name (for actors) or job title (for crew)
+  creditType     CreditType   // Actor, Director, Writer, etc.
+  order          Int?         // Display order (e.g., billing order for actors)
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([videoDetailsId])
+  @@index([creditType])
+}
+
+enum CreditType {
+  Actor
+  Director
+  Writer
+  Producer
+  Composer
+  Cinematographer
+  Editor
+}
+
+// Audio-specific metadata
+model AudioDetails {
+  id          String   @id @default(uuid())
+
+  // Relationship to Media
+  media       Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId     String   @unique
+
+  // Track information
+  artist      String?  // Primary artist
+  albumArtist String?  // Album artist (may differ from track artist)
+  album       String?  // Album name
+  track       Int?     // Track number
+  disc        Int?     // Disc number (for multi-disc albums)
+  year        Int?     // Release year
+  genre       String?  // Genre
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================
+// Collection Detail Models
+// ============================================
+
+// TV Show metadata
+model ShowDetails {
+  id           String   @id @default(uuid())
+
+  // Relationship to Collection
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId String     @unique
+
+  // External scraper reference
+  scraperId    String?  // Which scraper provided this data
+  externalId   String?  // ID in the external system (e.g., TMDB ID, TVDB ID)
+
+  // Show information
+  description  String?  // Plot summary / overview
+  releaseDate  DateTime? // First air date
+  endDate      DateTime? // Last air date (if ended)
+  status       String?  // "Continuing", "Ended", etc.
+  rating       Float?   // Average rating
+  genres       String?  // Comma-separated genres
+
+  // Cast and crew
+  credits      ShowCredit[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([scraperId, externalId])
+}
+
+// Credits for TV shows
+model ShowCredit {
+  id            String      @id @default(uuid())
+
+  showDetails   ShowDetails @relation(fields: [showDetailsId], references: [id], onDelete: Cascade)
+  showDetailsId String
+
+  name          String      // Person's name
+  role          String?     // Character name (for actors) or job title
+  creditType    CreditType  // Actor, Director, Writer, etc.
+  order         Int?        // Display order
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([showDetailsId])
+  @@index([creditType])
+}
+
+// TV Season metadata
+model SeasonDetails {
+  id           String   @id @default(uuid())
+
+  // Relationship to Collection
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId String     @unique
+
+  // External scraper reference
+  scraperId    String?
+  externalId   String?
+
+  // Season information
+  seasonNumber Int?     // Season number
+  description  String?  // Season overview
+  releaseDate  DateTime? // First air date of this season
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([scraperId, externalId])
+}
+
+// Music Artist metadata
+model ArtistDetails {
+  id           String   @id @default(uuid())
+
+  // Relationship to Collection
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId String     @unique
+
+  // External scraper reference
+  scraperId    String?
+  externalId   String?
+
+  // Artist information
+  biography    String?  // Artist bio
+  formedYear   Int?     // Year formed/born
+  endedYear    Int?     // Year disbanded (if applicable)
+  genres       String?  // Comma-separated genres
+  country      String?  // Country of origin
+
+  // Band members (for groups)
+  members      ArtistMember[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([scraperId, externalId])
+}
+
+// Band/group members
+model ArtistMember {
+  id              String        @id @default(uuid())
+
+  artistDetails   ArtistDetails @relation(fields: [artistDetailsId], references: [id], onDelete: Cascade)
+  artistDetailsId String
+
+  name            String        // Member's name
+  role            String?       // Instrument/role (e.g., "vocals", "guitar")
+  active          Boolean       @default(true) // Current or former member
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([artistDetailsId])
+}
+
+// Music Album metadata
+model AlbumDetails {
+  id           String   @id @default(uuid())
+
+  // Relationship to Collection
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId String     @unique
+
+  // External scraper reference
+  scraperId    String?
+  externalId   String?
+
+  // Album information
+  releaseDate  DateTime? // Release date
+  releaseType  String?   // "Album", "EP", "Single", "Compilation"
+  genres       String?   // Comma-separated genres
+  description  String?   // Album description/review
+  label        String?   // Record label
+
+  // Production credits
+  credits      AlbumCredit[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([scraperId, externalId])
+}
+
+// Credits for albums (producers, engineers, etc.)
+model AlbumCredit {
+  id             String       @id @default(uuid())
+
+  albumDetails   AlbumDetails @relation(fields: [albumDetailsId], references: [id], onDelete: Cascade)
+  albumDetailsId String
+
+  name           String       // Person's name
+  role           String?      // Job title (e.g., "Producer", "Mixing Engineer")
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([albumDetailsId])
 }
 
 // Settings model for system-wide configuration

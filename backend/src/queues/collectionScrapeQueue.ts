@@ -1,0 +1,81 @@
+import { Queue } from 'bullmq'
+import { redisConnection } from '../config/redis'
+
+export type CollectionScrapeType = 'Show' | 'Season' | 'Artist' | 'Album'
+
+export interface CollectionScrapeJobData {
+  collectionId: string
+  collectionName: string
+  collectionType: CollectionScrapeType
+  // For seasons, provide parent show context
+  parentShowId?: string // Collection ID of the parent show
+  parentExternalId?: string // External ID of the parent show (for scraper)
+  parentScraperId?: string // Which scraper to use
+  seasonNumber?: number // For seasons
+  // Specific scraper to use (if not provided, tries all)
+  scraperId?: string
+  // External ID if already known (for refresh)
+  externalId?: string
+}
+
+// Create collection scraping queue with rate limiting
+export const collectionScrapeQueue = new Queue<CollectionScrapeJobData>('collection-scrape', {
+  connection: redisConnection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 5000,
+    },
+    removeOnComplete: {
+      age: 24 * 3600,
+      count: 1000,
+    },
+    removeOnFail: {
+      age: 7 * 24 * 3600,
+    },
+  },
+})
+
+// Queue event handlers
+collectionScrapeQueue.on('error', (error: Error) => {
+  console.error('Collection scrape queue error:', error)
+})
+
+/**
+ * Add a single collection scrape job
+ */
+export async function addCollectionScrapeJob(data: CollectionScrapeJobData) {
+  return await collectionScrapeQueue.add('scrape', data, {
+    jobId: `collection-scrape-${data.collectionId}`,
+  })
+}
+
+/**
+ * Add multiple collection scrape jobs (bulk operation after library scan)
+ */
+export async function addBulkCollectionScrapeJobs(jobs: CollectionScrapeJobData[]) {
+  const bulkJobs = jobs.map((data) => ({
+    name: 'scrape',
+    data,
+    opts: {
+      jobId: `collection-scrape-${data.collectionId}`,
+    },
+  }))
+
+  return await collectionScrapeQueue.addBulk(bulkJobs)
+}
+
+/**
+ * Get the current queue status
+ */
+export async function getCollectionScrapeQueueStatus() {
+  const [waiting, active, completed, failed] = await Promise.all([
+    collectionScrapeQueue.getWaitingCount(),
+    collectionScrapeQueue.getActiveCount(),
+    collectionScrapeQueue.getCompletedCount(),
+    collectionScrapeQueue.getFailedCount(),
+  ])
+
+  return { waiting, active, completed, failed }
+}

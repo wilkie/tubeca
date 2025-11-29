@@ -1,0 +1,330 @@
+/**
+ * Shared types for Tubeca API
+ * Used by both backend and frontend
+ */
+
+// ============================================
+// User & Auth Types
+// ============================================
+
+export type UserRole = 'Admin' | 'Editor' | 'Viewer'
+
+export interface User {
+  id: string
+  name: string
+  role: UserRole
+  groups: UserGroup[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UserGroup {
+  id: string
+  name: string
+}
+
+export interface LoginResponse {
+  user: User
+  token: string
+}
+
+export interface UserResponse {
+  user: User
+}
+
+export interface SetupStatusResponse {
+  needsSetup: boolean
+}
+
+// ============================================
+// Settings Types
+// ============================================
+
+export interface Settings {
+  id: string
+  instanceName: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SettingsResponse {
+  settings: Settings
+}
+
+// ============================================
+// Library Types
+// ============================================
+
+export type LibraryType = 'Television' | 'Film' | 'Music'
+
+export interface Library {
+  id: string
+  name: string
+  path: string
+  libraryType: LibraryType
+  groups: UserGroup[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LibraryResponse {
+  library: Library
+}
+
+export interface LibrariesResponse {
+  libraries: Library[]
+}
+
+export interface CreateLibraryInput {
+  name: string
+  path: string
+  libraryType: LibraryType
+  groupIds?: string[]
+}
+
+export interface UpdateLibraryInput {
+  name?: string
+  path?: string
+  libraryType?: LibraryType
+  groupIds?: string[]
+}
+
+// ============================================
+// Library Scan Types
+// ============================================
+
+export interface ScanStartResponse {
+  message: string
+  jobId: string
+}
+
+export type ScanStatus = 'idle' | 'active' | 'waiting' | 'completed' | 'failed'
+
+export interface ScanResult {
+  filesFound: number
+  filesProcessed: number
+  collectionsCreated: number
+  mediaCreated: number
+  errors: string[]
+}
+
+export interface ScanStatusResponse {
+  status: ScanStatus
+  scanning: boolean
+  progress: number
+  result?: ScanResult
+  failedReason?: string
+}
+
+export interface ScanCancelResponse {
+  message: string
+  wasActive: boolean
+}
+
+// ============================================
+// Collection Types
+// ============================================
+
+export type CollectionType = 'Generic' | 'Show' | 'Season' | 'Artist' | 'Album'
+
+export interface CollectionSummary {
+  id: string
+  name: string
+  collectionType?: CollectionType
+}
+
+export interface MediaSummary {
+  id: string
+  name: string
+  type: MediaType
+  videoDetails?: {
+    season: number | null
+    episode: number | null
+  } | null
+  audioDetails?: {
+    track: number | null
+    disc: number | null
+  } | null
+}
+
+// Show (TV Series) metadata
+export interface ShowCredit {
+  id: string
+  name: string
+  role: string | null
+  creditType: CreditType
+  order: number | null
+}
+
+export interface ShowDetails {
+  id: string
+  collectionId: string
+  scraperId: string | null
+  externalId: string | null
+  description: string | null
+  releaseDate: string | null
+  endDate: string | null
+  status: string | null
+  rating: number | null
+  genres: string | null
+  credits: ShowCredit[]
+}
+
+// Season metadata
+export interface SeasonDetails {
+  id: string
+  collectionId: string
+  scraperId: string | null
+  externalId: string | null
+  seasonNumber: number | null
+  description: string | null
+  releaseDate: string | null
+}
+
+// Artist metadata
+export interface ArtistMember {
+  id: string
+  name: string
+  role: string | null
+  active: boolean
+}
+
+export interface ArtistDetails {
+  id: string
+  collectionId: string
+  scraperId: string | null
+  externalId: string | null
+  biography: string | null
+  formedYear: number | null
+  endedYear: number | null
+  genres: string | null
+  country: string | null
+  members: ArtistMember[]
+}
+
+// Album metadata
+export interface AlbumCredit {
+  id: string
+  name: string
+  role: string | null
+}
+
+export interface AlbumDetails {
+  id: string
+  collectionId: string
+  scraperId: string | null
+  externalId: string | null
+  releaseDate: string | null
+  releaseType: string | null
+  genres: string | null
+  description: string | null
+  label: string | null
+  credits: AlbumCredit[]
+}
+
+export interface Collection {
+  id: string
+  name: string
+  collectionType: CollectionType
+  libraryId: string
+  parentId: string | null
+  library?: CollectionSummary
+  parent?: CollectionSummary | null
+  children?: CollectionSummary[]
+  media?: MediaSummary[]
+  showDetails?: ShowDetails | null
+  seasonDetails?: SeasonDetails | null
+  artistDetails?: ArtistDetails | null
+  albumDetails?: AlbumDetails | null
+  _count?: { media: number; children: number }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CollectionResponse {
+  collection: Collection
+}
+
+export interface CollectionsResponse {
+  collections: Collection[]
+}
+
+export interface CreateCollectionInput {
+  name: string
+  libraryId: string
+  parentId?: string
+}
+
+export interface UpdateCollectionInput {
+  name?: string
+  parentId?: string | null
+}
+
+// ============================================
+// Media Types
+// ============================================
+
+export type MediaType = 'Video' | 'Audio'
+
+export type CreditType =
+  | 'Actor'
+  | 'Director'
+  | 'Writer'
+  | 'Producer'
+  | 'Composer'
+  | 'Cinematographer'
+  | 'Editor'
+
+export interface Credit {
+  id: string
+  name: string
+  role: string | null
+  creditType: CreditType
+  order: number | null
+}
+
+export interface VideoDetails {
+  id: string
+  mediaId: string
+  showName: string | null
+  season: number | null
+  episode: number | null
+  description: string | null
+  releaseDate: string | null
+  rating: number | null
+  credits: Credit[]
+}
+
+export interface AudioDetails {
+  id: string
+  mediaId: string
+  artist: string | null
+  albumArtist: string | null
+  album: string | null
+  track: number | null
+  disc: number | null
+  year: number | null
+  genre: string | null
+}
+
+export interface Media {
+  id: string
+  name: string
+  path: string
+  duration: number
+  type: MediaType
+  thumbnails: string | null
+  collectionId: string | null
+  videoDetails: VideoDetails | null
+  audioDetails: AudioDetails | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MediaResponse {
+  media: Media
+}
+
+export interface MediaListResponse {
+  media: Media[]
+}

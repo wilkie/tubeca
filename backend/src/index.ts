@@ -3,16 +3,21 @@ import express from 'express'
 import cors from 'cors'
 import swaggerUi from 'swagger-ui-express'
 import { prisma } from './config/database'
+import { loadAppConfig, getScraperConfigs } from './config/appConfig'
 import { MediaService } from './services/mediaService'
 import { SettingsService } from './services/settingsService'
 import { videoWorker } from './workers/videoWorker'
 import { libraryScanWorker } from './workers/libraryScanWorker'
+import { metadataScrapeWorker } from './workers/metadataScrapeWorker'
+import { collectionScrapeWorker } from './workers/collectionScrapeWorker'
+import { loadScrapers } from './plugins/scraperLoader'
 import { redisConnection } from './config/redis'
 import { swaggerSpec } from './config/swagger.js'
 import authRoutes from './routes/auth'
 import userRoutes from './routes/users'
 import libraryRoutes from './routes/libraries'
 import collectionRoutes from './routes/collections'
+import mediaRoutes from './routes/media'
 import streamRoutes from './routes/stream'
 
 const app = express()
@@ -34,6 +39,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/libraries', libraryRoutes)
 app.use('/api/collections', collectionRoutes)
+app.use('/api/media', mediaRoutes)
 app.use('/api/stream', streamRoutes)
 
 /**
@@ -77,7 +83,7 @@ app.get('/api/health', async (_req, res) => {
       message: 'Tubeca API is running',
       database: 'connected'
     })
-  } catch (error) {
+  } catch {
     res.status(503).json({
       status: 'error',
       message: 'Database connection failed',
@@ -117,7 +123,7 @@ app.get('/api/media', async (_req, res) => {
   try {
     const media = await mediaService.getAllMedia()
     res.json({ media })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch media' })
   }
 })
@@ -126,7 +132,7 @@ app.get('/api/media/videos', async (_req, res) => {
   try {
     const videos = await mediaService.getAllVideos()
     res.json({ videos })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch videos' })
   }
 })
@@ -135,7 +141,7 @@ app.get('/api/media/audio', async (_req, res) => {
   try {
     const audio = await mediaService.getAllAudio()
     res.json({ audio })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch audio' })
   }
 })
@@ -147,7 +153,7 @@ app.get('/api/media/:id', async (req, res) => {
       return res.status(404).json({ error: 'Media not found' })
     }
     res.json({ media })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch media' })
   }
 })
@@ -203,20 +209,20 @@ app.get('/api/media/:id', async (req, res) => {
  */
 app.post('/api/media/video', async (req, res) => {
   try {
-    const { path, duration, name, description } = req.body
-    const video = await mediaService.createVideo({ path, duration, name, description })
+    const { path, duration, name } = req.body
+    const video = await mediaService.createVideo({ path, duration, name })
     res.status(201).json({ video })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to create video' })
   }
 })
 
 app.post('/api/media/audio', async (req, res) => {
   try {
-    const { path, duration, name, description } = req.body
-    const audio = await mediaService.createAudio({ path, duration, name, description })
+    const { path, duration, name } = req.body
+    const audio = await mediaService.createAudio({ path, duration, name })
     res.status(201).json({ audio })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to create audio' })
   }
 })
@@ -250,7 +256,7 @@ app.get('/api/settings', async (_req, res) => {
   try {
     const settings = await settingsService.getOrCreateSettings()
     res.json({ settings })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch settings' })
   }
 })
@@ -295,7 +301,7 @@ app.patch('/api/settings', async (req, res) => {
     const { instanceName } = req.body
     const settings = await settingsService.updateSettings({ instanceName })
     res.json({ settings })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to update settings' })
   }
 })
@@ -334,15 +340,31 @@ app.post('/api/jobs/analyze', async (req, res) => {
   }
 })
 
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Backend server running on http://localhost:${PORT}`)
-})
+// Initialize scrapers and start server
+async function startServer() {
+  // Load application configuration
+  const appConfig = loadAppConfig()
+
+  // Initialize scraper plugins
+  const scraperConfigs = getScraperConfigs(appConfig)
+  await loadScrapers(scraperConfigs)
+
+  // Start HTTP server
+  const server = app.listen(PORT, () => {
+    console.log(`🚀 Backend server running on http://localhost:${PORT}`)
+  })
+
+  return server
+}
+
+const serverPromise = startServer()
 
 // Graceful shutdown
 async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...')
 
-  // Close Express server
+  // Wait for server to be initialized, then close it
+  const server = await serverPromise
   server.close(() => {
     console.log('✅ Express server closed')
   })
@@ -353,6 +375,12 @@ async function shutdown() {
 
   await libraryScanWorker.close()
   console.log('✅ Library scan worker closed')
+
+  await metadataScrapeWorker.close()
+  console.log('✅ Metadata scrape worker closed')
+
+  await collectionScrapeWorker.close()
+  console.log('✅ Collection scrape worker closed')
 
   // Close Redis connection
   await redisConnection.quit()
