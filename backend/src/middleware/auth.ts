@@ -5,6 +5,7 @@ import { AuthService, type TokenPayload } from '../services/authService'
 const authService = new AuthService()
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: TokenPayload

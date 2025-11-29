@@ -26,7 +26,7 @@ router.get('/me', async (req, res) => {
     }
 
     res.json({ user })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch user' })
   }
 })
@@ -44,7 +44,7 @@ router.get('/', requireRole('Admin'), async (_req, res) => {
       },
     })
     res.json({ users })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch users' })
   }
 })
@@ -76,7 +76,7 @@ router.patch('/:id/groups', requireRole('Admin'), async (req, res) => {
     })
 
     res.json({ user })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to update user groups' })
   }
 })
@@ -104,7 +104,7 @@ router.patch('/:id/role', requireRole('Admin'), async (req, res) => {
     })
 
     res.json({ user })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to update user role' })
   }
 })

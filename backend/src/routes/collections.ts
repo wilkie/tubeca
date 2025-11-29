@@ -13,7 +13,7 @@ router.get('/library/:libraryId', async (req, res) => {
   try {
     const collections = await collectionService.getCollectionsByLibrary(req.params.libraryId)
     res.json({ collections })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch collections' })
   }
 })
@@ -26,7 +26,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Collection not found' })
     }
     res.json({ collection })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch collection' })
   }
 })
@@ -81,7 +81,7 @@ router.delete('/:id', requireRole('Editor'), async (req, res) => {
   try {
     await collectionService.deleteCollection(req.params.id)
     res.status(204).send()
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to delete collection' })
   }
 })

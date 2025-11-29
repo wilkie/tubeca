@@ -18,7 +18,7 @@ router.get('/', async (_req, res) => {
   try {
     const libraries = await libraryService.getAllLibraries()
     res.json({ libraries })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch libraries' })
   }
 })
@@ -31,7 +31,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Library not found' })
     }
     res.json({ library })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch library' })
   }
 })
@@ -89,7 +89,7 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
   try {
     await libraryService.deleteLibrary(req.params.id)
     res.status(204).send()
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to delete library' })
   }
 })
@@ -153,7 +153,7 @@ router.get('/:id/scan', async (req, res) => {
       result: state === 'completed' ? result : undefined,
       failedReason: state === 'failed' ? job.failedReason : undefined,
     })
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to get scan status' })
   }
 })
@@ -170,7 +170,7 @@ router.delete('/:id/scan', requireRole('Admin'), async (req, res) => {
     } else {
       res.status(404).json({ error: 'No active scan found' })
     }
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to cancel scan' })
   }
 })

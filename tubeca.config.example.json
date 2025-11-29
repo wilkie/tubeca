@@ -1,0 +1,12 @@
+{
+  "scrapers": {
+    "tmdb": {
+      "enabled": true,
+      "apiKey": "your-tmdb-api-key-here"
+    },
+    "tvdb": {
+      "enabled": true,
+      "apiKey": "your-tvdb-api-key-here"
+    }
+  }
+}

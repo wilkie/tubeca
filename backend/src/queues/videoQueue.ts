@@ -42,24 +42,8 @@ export const videoQueue = new Queue('video-processing', {
 })
 
 // Queue event handlers
-videoQueue.on('error', (error) => {
+videoQueue.on('error', (error: Error) => {
   console.error('Video queue error:', error)
-})
-
-videoQueue.on('waiting', (jobId) => {
-  console.log(`Job ${jobId} is waiting`)
-})
-
-videoQueue.on('active', (job) => {
-  console.log(`Job ${job.id} is now active`)
-})
-
-videoQueue.on('completed', (job) => {
-  console.log(`Job ${job.id} completed`)
-})
-
-videoQueue.on('failed', (job, error) => {
-  console.error(`Job ${job?.id} failed:`, error)
 })
 
 // Helper functions to add jobs
