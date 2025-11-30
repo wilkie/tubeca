@@ -20,6 +20,7 @@ import collectionRoutes from './routes/collections'
 import mediaRoutes from './routes/media'
 import streamRoutes from './routes/stream'
 import imageRoutes from './routes/images'
+import personRoutes from './routes/persons'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -43,6 +44,7 @@ app.use('/api/collections', collectionRoutes)
 app.use('/api/media', mediaRoutes)
 app.use('/api/stream', streamRoutes)
 app.use('/api/images', imageRoutes)
+app.use('/api/persons', personRoutes)
 
 /**
  * @openapi

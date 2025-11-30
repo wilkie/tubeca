@@ -6,6 +6,7 @@ import type {
   VideoSearchOptions,
   CreditInfo,
   CreditType,
+  PersonMetadata,
 } from '@tubeca/scraper-types'
 
 const TVDB_API_URL = 'https://api4.thetvdb.com/v4'
@@ -82,6 +83,21 @@ interface TVDBSeriesEpisodesResponse {
     series: TVDBSeries
     episodes: TVDBEpisode[]
   }
+}
+
+interface TVDBPerson {
+  id: number
+  name: string
+  image?: string
+  birth?: string
+  death?: string
+  birthPlace?: string
+  biographies?: Array<{ biography: string; language: string }>
+}
+
+interface TVDBPersonResponse {
+  status: string
+  data: TVDBPerson
 }
 
 class TVDBScraper implements ScraperPlugin {
@@ -293,9 +309,36 @@ class TVDBScraper implements ScraperPlugin {
           type,
           order: char.sort,
           photoUrl: char.image,
+          tvdbId: char.peopleId,
         }
       })
       .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+  }
+
+  async getPersonMetadata(personId: string): Promise<PersonMetadata | null> {
+    try {
+      // Remove 'tvdb-' prefix if present
+      const tvdbId = parseInt(personId.replace('tvdb-', ''), 10)
+
+      const response = await this.request<TVDBPersonResponse>(`/people/${tvdbId}/extended`)
+      const person = response.data
+
+      // Find English biography
+      const englishBio = person.biographies?.find((b) => b.language === 'eng')
+
+      return {
+        externalId: `tvdb-${person.id}`,
+        name: person.name,
+        biography: englishBio?.biography || undefined,
+        birthDate: person.birth || undefined,
+        deathDate: person.death || undefined,
+        birthPlace: person.birthPlace || undefined,
+        photoUrl: person.image || undefined,
+        tvdbId: person.id,
+      }
+    } catch {
+      return null
+    }
   }
 }
 

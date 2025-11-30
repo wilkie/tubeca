@@ -11,6 +11,7 @@ export interface SaveImageInput {
   collectionId?: string
   showCreditId?: string
   creditId?: string
+  personId?: string
   sourceUrl?: string
   scraperId?: string
   isPrimary?: boolean
@@ -106,6 +107,9 @@ export class ImageService {
       } else if (input.collectionId) {
         entityFolder = 'collections'
         entityId = input.collectionId
+      } else if (input.personId) {
+        entityFolder = 'people'
+        entityId = input.personId
       } else if (input.showCreditId) {
         entityFolder = 'people'
         entityId = input.showCreditId
@@ -212,6 +216,7 @@ export class ImageService {
       const where: Record<string, unknown> = { imageType: data.imageType }
       if (data.mediaId) where.mediaId = data.mediaId
       if (data.collectionId) where.collectionId = data.collectionId
+      if (data.personId) where.personId = data.personId
       if (data.showCreditId) where.showCreditId = data.showCreditId
       if (data.creditId) where.creditId = data.creditId
 
@@ -227,6 +232,7 @@ export class ImageService {
         imageType: data.imageType,
         mediaId: data.mediaId,
         collectionId: data.collectionId,
+        personId: data.personId,
         showCreditId: data.showCreditId,
         creditId: data.creditId,
       },
@@ -263,6 +269,7 @@ export class ImageService {
         isPrimary: data.isPrimary ?? false,
         mediaId: data.mediaId,
         collectionId: data.collectionId,
+        personId: data.personId,
         showCreditId: data.showCreditId,
         creditId: data.creditId,
       },

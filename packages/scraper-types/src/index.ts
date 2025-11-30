@@ -87,6 +87,12 @@ export interface CreditInfo {
   order?: number
   /** URL to person's photo */
   photoUrl?: string
+  /** TMDB person ID */
+  tmdbId?: number
+  /** TVDB person ID */
+  tvdbId?: number
+  /** IMDB person ID (e.g., "nm0000123") - key for cross-scraper matching */
+  imdbId?: string
 }
 
 export type CreditType =
@@ -97,6 +103,35 @@ export type CreditType =
   | 'composer'
   | 'cinematographer'
   | 'editor'
+
+// ============================================================================
+// Person Metadata
+// ============================================================================
+
+export interface PersonMetadata {
+  /** External ID from the scraper source */
+  externalId: string
+  /** Person's name */
+  name: string
+  /** Biography */
+  biography?: string
+  /** Birth date (ISO format) */
+  birthDate?: string
+  /** Death date (ISO format, if deceased) */
+  deathDate?: string
+  /** Place of birth */
+  birthPlace?: string
+  /** What they're known for (e.g., "Acting", "Directing") */
+  knownFor?: string
+  /** URL to profile photo */
+  photoUrl?: string
+  /** TMDB person ID */
+  tmdbId?: number
+  /** TVDB person ID */
+  tvdbId?: number
+  /** IMDB person ID (e.g., "nm0000123") */
+  imdbId?: string
+}
 
 // ============================================================================
 // Series (TV Show) Metadata
@@ -349,6 +384,11 @@ export interface ScraperPlugin {
    * Get album metadata by external ID
    */
   getAlbumMetadata?(albumId: string): Promise<AlbumMetadata | null>
+
+  /**
+   * Get person metadata by external ID
+   */
+  getPersonMetadata?(personId: string): Promise<PersonMetadata | null>
 }
 
 export interface VideoSearchOptions {

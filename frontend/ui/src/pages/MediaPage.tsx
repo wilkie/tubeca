@@ -15,6 +15,7 @@ import {
   Card,
   CardContent,
   CardMedia,
+  CardActionArea,
   Breadcrumbs,
   Link,
   IconButton,
@@ -33,13 +34,17 @@ import { apiClient, type Media, type Image, type CollectionType } from '../api/c
 import { useAuth } from '../context/AuthContext';
 import { ImagesDialog } from '../components/ImagesDialog';
 
-interface CreditWithImages {
+interface CreditWithPerson {
   id: string;
   name: string;
   role: string | null;
   creditType: string;
   order: number | null;
-  images?: Image[];
+  personId: string | null;
+  person?: {
+    id: string;
+    images?: Image[];
+  } | null;
 }
 
 interface MediaCollection {
@@ -361,7 +366,7 @@ export function MediaPage() {
             <Chip label={formatDuration(media.duration)} size="small" variant="outlined" />
           )}
           {videoDetails?.rating && (
-            <Chip label={`${videoDetails.rating.toFixed(1)} / 10`} size="small" variant="outlined" color="primary" />
+            <Chip label={videoDetails.rating} size="small" variant="outlined" />
           )}
           {videoDetails?.releaseDate && (
             <Chip label={new Date(videoDetails.releaseDate).getFullYear()} size="small" variant="outlined" />
@@ -473,50 +478,56 @@ export function MediaPage() {
             {t('media.castAndCrew', 'Cast & Crew')}
           </Typography>
           <Grid container spacing={2}>
-            {(videoDetails.credits as CreditWithImages[]).map((credit) => {
-              const primaryImage = credit.images?.[0];
+            {(videoDetails.credits as CreditWithPerson[]).map((credit) => {
+              const primaryImage = credit.person?.images?.[0];
 
               return (
                 <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={credit.id}>
                   <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                    {primaryImage ? (
-                      <CardMedia
-                        component="img"
-                        image={apiClient.getImageUrl(primaryImage.id)}
-                        alt={credit.name}
-                        sx={{
-                          aspectRatio: '2/3',
-                          objectFit: 'cover',
-                        }}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          aspectRatio: '2/3',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          bgcolor: 'action.hover',
-                        }}
-                      >
-                        <Person sx={{ fontSize: 64, color: 'text.secondary' }} />
-                      </Box>
-                    )}
-                    <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1 }}>
-                      <Typography variant="body2" noWrap title={credit.name}>
-                        {credit.name}
-                      </Typography>
-                      {credit.role && (
-                        <Typography variant="caption" color="text.secondary" noWrap title={credit.role}>
-                          {credit.role}
-                        </Typography>
+                    <CardActionArea
+                      onClick={() => credit.personId && navigate(`/person/${credit.personId}`)}
+                      disabled={!credit.personId}
+                      sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                    >
+                      {primaryImage ? (
+                        <CardMedia
+                          component="img"
+                          image={apiClient.getImageUrl(primaryImage.id)}
+                          alt={credit.name}
+                          sx={{
+                            aspectRatio: '2/3',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            aspectRatio: '2/3',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            bgcolor: 'action.hover',
+                          }}
+                        >
+                          <Person sx={{ fontSize: 64, color: 'text.secondary' }} />
+                        </Box>
                       )}
-                      {!credit.role && credit.creditType !== 'Actor' && (
-                        <Typography variant="caption" color="text.secondary">
-                          {credit.creditType}
+                      <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1 }}>
+                        <Typography variant="body2" noWrap title={credit.name}>
+                          {credit.name}
                         </Typography>
-                      )}
-                    </CardContent>
+                        {credit.role && (
+                          <Typography variant="caption" color="text.secondary" noWrap title={credit.role}>
+                            {credit.role}
+                          </Typography>
+                        )}
+                        {!credit.role && credit.creditType !== 'Actor' && (
+                          <Typography variant="caption" color="text.secondary">
+                            {credit.creditType}
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </CardActionArea>
                   </Card>
                 </Grid>
               );

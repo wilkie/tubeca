@@ -3,10 +3,12 @@ import { redisConnection } from '../config/redis'
 import { prisma } from '../config/database'
 import { scraperManager } from '../plugins/scraperLoader'
 import { ImageService } from '../services/imageService'
+import { PersonService } from '../services/personService'
 import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue'
 import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types'
 
 const imageService = new ImageService()
+const personService = new PersonService()
 
 interface ScrapeResult {
   success: boolean
@@ -213,9 +215,15 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
     })
   }
 
-  // Download images (unless skipImages is set)
+  // Download images for media (unless skipImages is set and media already has images)
   if (!skipImages) {
     await downloadMediaImages(mediaId, metadata, scraperId)
+  } else {
+    // Even with skipImages, download if media has no images yet
+    const existingImages = await prisma.image.count({ where: { mediaId } })
+    if (existingImages === 0) {
+      await downloadMediaImages(mediaId, metadata, scraperId)
+    }
   }
 
   // Add credits if available
@@ -232,26 +240,48 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
 
       // Add new credits (without downloading photos if skipImages is set)
       for (const credit of metadata.credits) {
-        const createdCredit = await prisma.credit.create({
+        // Find or create person for this credit
+        let personId: string | undefined
+        try {
+          const person = await personService.findOrCreatePerson({
+            name: credit.name,
+            type: credit.type,
+            tmdbId: credit.tmdbId,
+            tvdbId: credit.tvdbId,
+            imdbId: credit.imdbId,
+          })
+          personId = person.id
+        } catch (error) {
+          console.warn(`Failed to link person for ${credit.name}:`, error)
+        }
+
+        await prisma.credit.create({
           data: {
             videoDetailsId: videoDetails.id,
             name: credit.name,
             role: credit.role,
             creditType: mapCreditType(credit.type),
             order: credit.order,
+            personId,
           },
         })
 
-        // Download credit photo if available (unless skipImages is set)
-        if (credit.photoUrl && !skipImages) {
+        // Download credit photo to person if available and person doesn't have one yet
+        if (credit.photoUrl && personId) {
           try {
-            await imageService.downloadAndSaveImage(credit.photoUrl, {
-              imageType: 'Photo',
-              creditId: createdCredit.id,
-              isPrimary: true,
-              scraperId,
+            // Check if person already has a photo
+            const existingPhoto = await prisma.image.findFirst({
+              where: { personId, imageType: 'Photo', isPrimary: true },
             })
-            console.log(`📷 Downloaded photo for ${credit.name}`)
+            if (!existingPhoto) {
+              await imageService.downloadAndSaveImage(credit.photoUrl, {
+                imageType: 'Photo',
+                personId,
+                isPrimary: true,
+                scraperId,
+              })
+              console.log(`📷 Downloaded photo for ${credit.name}`)
+            }
           } catch (error) {
             console.warn(`Failed to download photo for ${credit.name}:`, error)
           }

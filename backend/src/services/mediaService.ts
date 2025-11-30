@@ -90,9 +90,13 @@ export class MediaService {
             credits: {
               orderBy: { order: 'asc' },
               include: {
-                images: {
-                  where: { isPrimary: true, imageType: 'Photo' },
-                  take: 1,
+                person: {
+                  include: {
+                    images: {
+                      where: { isPrimary: true, imageType: 'Photo' },
+                      take: 1,
+                    },
+                  },
                 },
               },
             },
