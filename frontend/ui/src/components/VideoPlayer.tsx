@@ -1,5 +1,15 @@
 import { useRef, useState, useEffect } from 'react';
-import { Box, IconButton, Slider, Typography, CircularProgress } from '@mui/material';
+import {
+  Box,
+  IconButton,
+  Slider,
+  Typography,
+  CircularProgress,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+} from '@mui/material';
 import {
   PlayArrow,
   Pause,
@@ -7,7 +17,18 @@ import {
   VolumeOff,
   Fullscreen,
   FullscreenExit,
+  Audiotrack,
+  Check,
 } from '@mui/icons-material';
+
+export interface AudioTrackInfo {
+  streamIndex: number;
+  language: string | null;
+  title: string | null;
+  channels: number | null;
+  channelLayout: string | null;
+  isDefault: boolean;
+}
 
 interface VideoPlayerProps {
   src: string;
@@ -15,7 +36,10 @@ interface VideoPlayerProps {
   poster?: string; // URL for poster/backdrop image
   autoPlay?: boolean;
   mediaDuration?: number; // Duration in seconds from media metadata
-  onSeek?: (startTime: number) => string; // Callback to get new URL for seeking (for transcoded streams)
+  audioTracks?: AudioTrackInfo[]; // Available audio tracks
+  currentAudioTrack?: number; // Current audio track stream index
+  onAudioTrackChange?: (streamIndex: number) => void; // Callback when audio track changes
+  onSeek?: (startTime: number, audioTrack?: number) => string; // Callback to get new URL for seeking (for transcoded streams)
 }
 
 function formatTime(seconds: number): string {
@@ -29,7 +53,73 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function VideoPlayer({ src, title, poster, autoPlay = false, mediaDuration, onSeek }: VideoPlayerProps) {
+// Language code to display name mapping
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  eng: 'English',
+  es: 'Spanish',
+  spa: 'Spanish',
+  fr: 'French',
+  fra: 'French',
+  fre: 'French',
+  de: 'German',
+  deu: 'German',
+  ger: 'German',
+  it: 'Italian',
+  ita: 'Italian',
+  pt: 'Portuguese',
+  por: 'Portuguese',
+  ja: 'Japanese',
+  jpn: 'Japanese',
+  ko: 'Korean',
+  kor: 'Korean',
+  zh: 'Chinese',
+  zho: 'Chinese',
+  chi: 'Chinese',
+  ru: 'Russian',
+  rus: 'Russian',
+  ar: 'Arabic',
+  ara: 'Arabic',
+  hi: 'Hindi',
+  hin: 'Hindi',
+  und: 'Unknown',
+};
+
+function formatAudioTrackLabel(track: AudioTrackInfo): string {
+  const parts: string[] = [];
+
+  // Add language
+  if (track.language) {
+    const langName = LANGUAGE_NAMES[track.language.toLowerCase()] || track.language.toUpperCase();
+    parts.push(langName);
+  }
+
+  // Add title if different from language
+  if (track.title && (!track.language || !track.title.toLowerCase().includes(track.language.toLowerCase()))) {
+    parts.push(track.title);
+  }
+
+  // Add channel layout
+  if (track.channelLayout) {
+    parts.push(track.channelLayout);
+  } else if (track.channels) {
+    parts.push(`${track.channels}ch`);
+  }
+
+  return parts.length > 0 ? parts.join(' - ') : `Track ${track.streamIndex}`;
+}
+
+export function VideoPlayer({
+  src,
+  title,
+  poster,
+  autoPlay = false,
+  mediaDuration,
+  audioTracks,
+  currentAudioTrack,
+  onAudioTrackChange,
+  onSeek,
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -43,6 +133,10 @@ export function VideoPlayer({ src, title, poster, autoPlay = false, mediaDuratio
   const hideControlsTimeout = useRef<number | null>(null);
   const [videoSrc, setVideoSrc] = useState(src);
   const seekOffset = useRef(0); // Track offset when using server-side seeking
+
+  // Audio track menu state
+  const [audioMenuAnchor, setAudioMenuAnchor] = useState<null | HTMLElement>(null);
+  const audioMenuOpen = Boolean(audioMenuAnchor);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -181,6 +275,47 @@ export function VideoPlayer({ src, title, poster, autoPlay = false, mediaDuratio
     handlePlayPause();
   };
 
+  const handleAudioMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    setAudioMenuAnchor(event.currentTarget);
+  };
+
+  const handleAudioMenuClose = () => {
+    setAudioMenuAnchor(null);
+  };
+
+  const handleAudioTrackSelect = (streamIndex: number) => {
+    handleAudioMenuClose();
+
+    // Notify parent of the track change
+    if (onAudioTrackChange) {
+      onAudioTrackChange(streamIndex);
+    }
+
+    // Reload video at current position with new audio track
+    const video = videoRef.current;
+    if (video && onSeek) {
+      const wasPlaying = isPlaying;
+      const currentPosition = video.currentTime + seekOffset.current;
+      setIsLoading(true);
+      seekOffset.current = currentPosition;
+
+      // Get URL with new audio track explicitly
+      const newUrl = onSeek(currentPosition, streamIndex);
+      setVideoSrc(newUrl);
+
+      const handleCanPlayOnce = () => {
+        video.removeEventListener('canplay', handleCanPlayOnce);
+        if (wasPlaying) {
+          video.play();
+        }
+      };
+      video.addEventListener('canplay', handleCanPlayOnce);
+    }
+  };
+
+  const hasMultipleAudioTracks = audioTracks && audioTracks.length > 1;
+
   return (
     <Box
       ref={containerRef}
@@ -287,11 +422,76 @@ export function VideoPlayer({ src, title, poster, autoPlay = false, mediaDuratio
             }}
           />
 
+          {/* Audio track selector */}
+          {hasMultipleAudioTracks && (
+            <IconButton
+              onClick={handleAudioMenuOpen}
+              sx={{ color: 'white' }}
+              aria-label="Select audio track"
+            >
+              <Audiotrack />
+            </IconButton>
+          )}
+
           <IconButton onClick={handleFullscreenToggle} sx={{ color: 'white' }}>
             {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
           </IconButton>
         </Box>
       </Box>
+
+      {/* Audio track menu - rendered with high z-index to appear above fullscreen video */}
+      <Menu
+        anchorEl={audioMenuAnchor}
+        open={audioMenuOpen}
+        onClose={handleAudioMenuClose}
+        container={() => containerRef.current}
+        anchorOrigin={{
+          vertical: 'top',
+          horizontal: 'center',
+        }}
+        transformOrigin={{
+          vertical: 'bottom',
+          horizontal: 'center',
+        }}
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: 'rgba(0, 0, 0, 0.95)',
+              color: 'white',
+              minWidth: 200,
+            },
+          },
+        }}
+        sx={{
+          zIndex: 10001, // Above the fullscreen player overlay (9999) and back button (10000)
+        }}
+      >
+        {audioTracks?.map((track) => (
+          <MenuItem
+            key={track.streamIndex}
+            onClick={() => handleAudioTrackSelect(track.streamIndex)}
+            selected={track.streamIndex === currentAudioTrack}
+            sx={{
+              '&.Mui-selected': {
+                bgcolor: 'rgba(255, 255, 255, 0.1)',
+              },
+              '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+              },
+            }}
+          >
+            {track.streamIndex === currentAudioTrack && (
+              <ListItemIcon sx={{ color: 'primary.main', minWidth: 36 }}>
+                <Check fontSize="small" />
+              </ListItemIcon>
+            )}
+            <ListItemText
+              inset={track.streamIndex !== currentAudioTrack}
+              primary={formatAudioTrackLabel(track)}
+            />
+          </MenuItem>
+        ))}
+      </Menu>
     </Box>
   );
 }

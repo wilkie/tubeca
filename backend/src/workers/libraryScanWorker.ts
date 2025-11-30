@@ -1,6 +1,4 @@
 import { Worker, Job } from 'bullmq'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { redisConnection } from '../config/redis'
 import { prisma } from '../config/database'
 import { libraryScanQueue, type LibraryScanJobData } from '../queues/libraryScanQueue'
@@ -15,28 +13,10 @@ import {
   parseMovieFromFilename,
   getShowNameFromCollectionPath,
 } from '../utils/mediaParser'
-import type { LibraryType, CollectionType } from '@prisma/client'
+import { probeMediaFile, type StreamInfo } from '../utils/ffprobe'
+import type { LibraryType, CollectionType, StreamType } from '@prisma/client'
 import * as fs from 'fs'
 import * as path from 'path'
-
-const execFileAsync = promisify(execFile)
-
-// Get media duration using ffprobe
-async function getMediaDuration(filePath: string): Promise<number> {
-  try {
-    const { stdout } = await execFileAsync('ffprobe', [
-      '-v', 'error',
-      '-show_entries', 'format=duration',
-      '-of', 'default=noprint_wrappers=1:nokey=1',
-      filePath
-    ])
-    const duration = parseFloat(stdout.trim())
-    return isNaN(duration) ? 0 : Math.round(duration)
-  } catch (error) {
-    console.error(`Failed to get duration for ${filePath}:`, error)
-    return 0
-  }
-}
 
 // Supported media extensions by type
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
@@ -296,17 +276,44 @@ async function scanDirectory(
         })
 
         if (!existing) {
-          const duration = await getMediaDuration(filePath)
+          // Probe the media file for duration and stream information
+          const probeResult = await probeMediaFile(filePath)
+
           const newMedia = await prisma.media.create({
             data: {
               path: filePath,
               name: mediaName,
-              duration,
+              duration: probeResult.duration,
               type: mediaType,
               ...(thumbnails && { thumbnails }),
               collectionId: parentCollectionId,
             },
           })
+
+          // Store stream information
+          if (probeResult.streams.length > 0) {
+            await prisma.mediaStream.createMany({
+              data: probeResult.streams.map((stream: StreamInfo) => ({
+                mediaId: newMedia.id,
+                streamIndex: stream.streamIndex,
+                streamType: stream.streamType as StreamType,
+                codec: stream.codec,
+                codecLong: stream.codecLong,
+                language: stream.language,
+                title: stream.title,
+                isDefault: stream.isDefault,
+                isForced: stream.isForced,
+                channels: stream.channels,
+                channelLayout: stream.channelLayout,
+                sampleRate: stream.sampleRate,
+                bitRate: stream.bitRate,
+                width: stream.width,
+                height: stream.height,
+                frameRate: stream.frameRate,
+              })),
+            })
+          }
+
           result.mediaCreated++
 
           // Parse filename for metadata hints

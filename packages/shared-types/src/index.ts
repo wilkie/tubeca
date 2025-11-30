@@ -370,6 +370,31 @@ export interface MediaCollectionInfo {
   } | null
 }
 
+// Media stream types (audio, video, subtitle tracks)
+export type StreamType = 'Video' | 'Audio' | 'Subtitle'
+
+export interface MediaStream {
+  id: string
+  mediaId: string
+  streamIndex: number
+  streamType: StreamType
+  codec: string | null
+  codecLong: string | null
+  language: string | null
+  title: string | null
+  isDefault: boolean
+  isForced: boolean
+  // Audio-specific
+  channels: number | null
+  channelLayout: string | null
+  sampleRate: number | null
+  bitRate: number | null
+  // Video-specific
+  width: number | null
+  height: number | null
+  frameRate: number | null
+}
+
 export interface Media {
   id: string
   name: string
@@ -381,6 +406,7 @@ export interface Media {
   collection?: MediaCollectionInfo | null
   videoDetails: VideoDetails | null
   audioDetails: AudioDetails | null
+  streams?: MediaStream[]
   images?: Image[]
   createdAt: string
   updatedAt: string

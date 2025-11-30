@@ -85,6 +85,12 @@ export class MediaService {
           },
         },
         images: true,
+        streams: {
+          orderBy: [
+            { streamType: 'asc' },
+            { streamIndex: 'asc' },
+          ],
+        },
         videoDetails: {
           include: {
             credits: {

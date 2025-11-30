@@ -53,7 +53,15 @@ router.get('/video/:id', async (req, res) => {
 
     // Get file extension to determine if transcoding is needed
     const ext = path.extname(videoPath).toLowerCase()
-    const needsTranscode = !['.mp4', '.webm'].includes(ext)
+    const nativeFormat = ['.mp4', '.webm'].includes(ext)
+
+    // Support audio track selection via audioTrack query parameter (stream index)
+    const audioTrack = req.query.audioTrack !== undefined
+      ? parseInt(req.query.audioTrack as string, 10)
+      : undefined
+
+    // Use FFmpeg if: not a native format OR audio track selection is requested
+    const needsTranscode = !nativeFormat || audioTrack !== undefined
 
     if (needsTranscode) {
       // Use ffmpeg to transcode to mp4 for browser compatibility
@@ -70,11 +78,32 @@ router.get('/video/:id', async (req, res) => {
         ffmpegArgs.push('-ss', startTime.toString())
       }
 
+      ffmpegArgs.push('-i', videoPath)
+
+      // Map video stream (first video stream)
+      ffmpegArgs.push('-map', '0:v:0')
+
+      // Map audio stream (specific track or first audio stream)
+      if (audioTrack !== undefined) {
+        // Map the specific audio stream by absolute index
+        ffmpegArgs.push('-map', `0:${audioTrack}`)
+      } else {
+        // Default: map first audio stream
+        ffmpegArgs.push('-map', '0:a:0?')
+      }
+
+      // If source is native format, copy video stream to avoid re-encoding
+      if (nativeFormat) {
+        ffmpegArgs.push('-c:v', 'copy')
+      } else {
+        ffmpegArgs.push(
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-tune', 'zerolatency'
+        )
+      }
+
       ffmpegArgs.push(
-        '-i', videoPath,
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-tune', 'zerolatency',
         '-c:a', 'aac',
         '-movflags', 'frag_keyframe+empty_moov+faststart',
         '-f', 'mp4',
