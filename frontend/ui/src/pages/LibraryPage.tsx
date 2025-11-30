@@ -134,7 +134,8 @@ export function LibraryPage() {
           {/* Collections (folders) */}
           {collections.map((collection) => {
             const primaryImage = collection.images?.[0];
-            const hasImage = primaryImage && collection.collectionType === 'Show';
+            // Show images for Shows and for Film library collections (movies)
+            const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
 
             return (
               <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
@@ -158,10 +159,13 @@ export function LibraryPage() {
                           <Typography variant="body2" noWrap title={collection.name}>
                             {collection.name}
                           </Typography>
-                          {collection._count && (
+                          {/* Don't show counts for Film library - they're movies, not folders */}
+                          {library.libraryType !== 'Film' && collection._count && (
                             <Typography variant="caption" color="text.secondary">
                               {collection._count.children > 0 &&
-                                t('library.folders', { count: collection._count.children })}
+                                (collection.collectionType === 'Show'
+                                  ? t('library.seasons', { count: collection._count.children })
+                                  : t('library.folders', { count: collection._count.children }))}
                               {collection._count.children > 0 && collection._count.media > 0 && ' | '}
                               {collection._count.media > 0 &&
                                 t('library.items', { count: collection._count.media })}
@@ -178,7 +182,9 @@ export function LibraryPage() {
                         {collection._count && (
                           <Typography variant="caption" color="text.secondary">
                             {collection._count.children > 0 &&
-                              t('library.folders', { count: collection._count.children })}
+                              (collection.collectionType === 'Show'
+                                ? t('library.seasons', { count: collection._count.children })
+                                : t('library.folders', { count: collection._count.children }))}
                             {collection._count.children > 0 && collection._count.media > 0 && ' | '}
                             {collection._count.media > 0 &&
                               t('library.items', { count: collection._count.media })}

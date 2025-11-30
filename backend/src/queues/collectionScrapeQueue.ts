@@ -1,7 +1,7 @@
 import { Queue } from 'bullmq'
 import { redisConnection } from '../config/redis'
 
-export type CollectionScrapeType = 'Show' | 'Season' | 'Artist' | 'Album'
+export type CollectionScrapeType = 'Show' | 'Season' | 'Artist' | 'Album' | 'Film'
 
 export interface CollectionScrapeJobData {
   collectionId: string
@@ -12,10 +12,16 @@ export interface CollectionScrapeJobData {
   parentExternalId?: string // External ID of the parent show (for scraper)
   parentScraperId?: string // Which scraper to use
   seasonNumber?: number // For seasons
+  // For films, provide year hint for better search accuracy
+  year?: number
   // Specific scraper to use (if not provided, tries all)
   scraperId?: string
   // External ID if already known (for refresh)
   externalId?: string
+  // Skip downloading images (useful for metadata-only refresh)
+  skipImages?: boolean
+  // Skip metadata updates, only refresh images
+  imagesOnly?: boolean
 }
 
 // Create collection scraping queue with rate limiting
@@ -46,8 +52,10 @@ collectionScrapeQueue.on('error', (error: Error) => {
  * Add a single collection scrape job
  */
 export async function addCollectionScrapeJob(data: CollectionScrapeJobData) {
+  // Use timestamp in job ID to allow re-scraping the same collection
+  const jobId = `collection-scrape-${data.collectionId}-${Date.now()}`
   return await collectionScrapeQueue.add('scrape', data, {
-    jobId: `collection-scrape-${data.collectionId}`,
+    jobId,
   })
 }
 

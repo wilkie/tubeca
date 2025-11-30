@@ -15,6 +15,10 @@ export interface MetadataScrapeJobData {
   scraperId?: string
   // External ID if already known (for refresh)
   externalId?: string
+  // Skip downloading images (useful for metadata-only refresh)
+  skipImages?: boolean
+  // Skip metadata updates, only refresh images
+  imagesOnly?: boolean
 }
 
 // Create metadata scraping queue with rate limiting
@@ -45,9 +49,10 @@ metadataScrapeQueue.on('error', (error: Error) => {
  * Add a single metadata scrape job
  */
 export async function addMetadataScrapeJob(data: MetadataScrapeJobData) {
+  // Use timestamp in job ID to allow re-scraping the same media
+  const jobId = `scrape-${data.mediaId}-${Date.now()}`
   return await metadataScrapeQueue.add('scrape', data, {
-    // Use media ID as job ID to prevent duplicates
-    jobId: `scrape-${data.mediaId}`,
+    jobId,
   })
 }
 

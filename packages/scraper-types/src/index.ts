@@ -55,8 +55,12 @@ export interface VideoMetadata {
   genres?: string[]
   /** URL to poster image */
   posterUrl?: string
-  /** URL to backdrop/fanart image */
+  /** URL to backdrop/fanart image (highest rated overall) */
   backdropUrl?: string
+  /** URL to thumbnail image (highest rated English backdrop) */
+  thumbnailUrl?: string
+  /** URL to logo image */
+  logoUrl?: string
 
   // TV-specific fields
   /** Show name (for episodes) */
@@ -119,8 +123,12 @@ export interface SeriesMetadata {
   genres?: string[]
   /** URL to poster image */
   posterUrl?: string
-  /** URL to backdrop/fanart image */
+  /** URL to backdrop/fanart image (highest rated overall) */
   backdropUrl?: string
+  /** URL to thumbnail image (highest rated English backdrop) */
+  thumbnailUrl?: string
+  /** URL to logo image */
+  logoUrl?: string
   /** Number of seasons */
   seasonCount?: number
   /** Cast and crew */

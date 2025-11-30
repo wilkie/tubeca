@@ -15,9 +15,23 @@ import {
   Card,
   CardContent,
   CardMedia,
+  Breadcrumbs,
+  Link,
+  IconButton,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
-import { ArrowBack, PlayArrow, Tv, Movie, MusicNote, Album, Person } from '@mui/icons-material';
-import { apiClient, type Media, type Image } from '../api/client';
+import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon } from '@mui/icons-material';
+import { apiClient, type Media, type Image, type CollectionType } from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import { ImagesDialog } from '../components/ImagesDialog';
 
 interface CreditWithImages {
   id: string;
@@ -28,13 +42,136 @@ interface CreditWithImages {
   images?: Image[];
 }
 
+interface MediaCollection {
+  id: string;
+  name: string;
+  collectionType: CollectionType;
+  parent?: {
+    id: string;
+    name: string;
+    collectionType: CollectionType;
+  } | null;
+  library?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+interface BreadcrumbItem {
+  id: string;
+  name: string;
+  type: 'library' | 'collection';
+}
+
 export function MediaPage() {
   const { t } = useTranslation();
   const { mediaId } = useParams<{ mediaId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [media, setMedia] = useState<Media | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+
+  // Menu state
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const menuOpen = Boolean(menuAnchorEl);
+
+  // Delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Images dialog state
+  const [imagesDialogOpen, setImagesDialogOpen] = useState(false);
+
+  // Refresh metadata state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingImages, setIsRefreshingImages] = useState(false);
+
+  const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null);
+  };
+
+  const handleImagesClick = () => {
+    handleMenuClose();
+    setImagesDialogOpen(true);
+  };
+
+  const handleImagesClose = () => {
+    setImagesDialogOpen(false);
+  };
+
+  const handleDeleteClick = () => {
+    handleMenuClose();
+    setDeleteDialogOpen(true);
+  };
+
+  const handleRefreshMetadata = async () => {
+    if (!media) return;
+    handleMenuClose();
+    setIsRefreshing(true);
+    try {
+      await apiClient.refreshMediaMetadata(media.id);
+      // Could show a success toast here
+    } catch (error) {
+      console.error('Failed to queue metadata refresh:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRefreshImages = async () => {
+    if (!media) return;
+    handleMenuClose();
+    setIsRefreshingImages(true);
+    try {
+      await apiClient.refreshMediaImages(media.id);
+      // Could show a success toast here
+    } catch (error) {
+      console.error('Failed to queue image refresh:', error);
+    } finally {
+      setIsRefreshingImages(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!media) return;
+
+    setIsDeleting(true);
+    const result = await apiClient.deleteMedia(media.id);
+
+    if (result.error) {
+      setError(result.error);
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      return;
+    }
+
+    // Navigate back to collection or library after successful deletion
+    const collection = (media as Media & { collection?: MediaCollection }).collection;
+    if (collection) {
+      navigate(`/collection/${collection.id}`);
+    } else if (breadcrumbs.length > 0) {
+      const lastCrumb = breadcrumbs[breadcrumbs.length - 1];
+      if (lastCrumb.type === 'library') {
+        navigate(`/library/${lastCrumb.id}`);
+      } else {
+        navigate(`/collection/${lastCrumb.id}`);
+      }
+    } else {
+      navigate('/');
+    }
+  };
 
   useEffect(() => {
     if (!mediaId) return;
@@ -52,6 +189,39 @@ export function MediaPage() {
         setError(result.error);
       } else if (result.data) {
         setMedia(result.data.media);
+
+        // Build breadcrumbs from collection hierarchy
+        const crumbs: BreadcrumbItem[] = [];
+        const collection = (result.data.media as Media & { collection?: MediaCollection }).collection;
+
+        if (collection) {
+          // Add library
+          if (collection.library) {
+            crumbs.push({
+              id: collection.library.id,
+              name: collection.library.name,
+              type: 'library',
+            });
+          }
+
+          // Add parent collection (e.g., Show)
+          if (collection.parent) {
+            crumbs.push({
+              id: collection.parent.id,
+              name: collection.parent.name,
+              type: 'collection',
+            });
+          }
+
+          // Add immediate collection (e.g., Season)
+          crumbs.push({
+            id: collection.id,
+            name: collection.name,
+            type: 'collection',
+          });
+        }
+
+        setBreadcrumbs(crumbs);
       }
 
       setIsLoading(false);
@@ -64,8 +234,12 @@ export function MediaPage() {
     };
   }, [mediaId]);
 
-  const handleBack = () => {
-    navigate(-1);
+  const handleBreadcrumbClick = (item: BreadcrumbItem) => {
+    if (item.type === 'library') {
+      navigate(`/library/${item.id}`);
+    } else {
+      navigate(`/collection/${item.id}`);
+    }
   };
 
   const handlePlay = () => {
@@ -115,10 +289,25 @@ export function MediaPage() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* Back button */}
-      <Button startIcon={<ArrowBack />} onClick={handleBack} sx={{ mb: 2 }}>
-        {t('common.back')}
-      </Button>
+      {/* Breadcrumbs */}
+      {breadcrumbs.length > 0 && (
+        <Breadcrumbs sx={{ mb: 2 }}>
+          {breadcrumbs.map((crumb) => (
+            <Link
+              key={crumb.id}
+              component="button"
+              variant="body2"
+              onClick={() => handleBreadcrumbClick(crumb)}
+              underline="hover"
+              color="inherit"
+              sx={{ cursor: 'pointer' }}
+            >
+              {crumb.name}
+            </Link>
+          ))}
+          <Typography color="text.primary">{media.name}</Typography>
+        </Breadcrumbs>
+      )}
 
       {/* Media details */}
       <Paper sx={{ p: 3 }}>
@@ -133,14 +322,25 @@ export function MediaPage() {
               </Typography>
             )}
           </Box>
-          <Button
-            variant="contained"
-            size="large"
-            startIcon={<PlayArrow />}
-            onClick={handlePlay}
-          >
-            {t('media.play')}
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <IconButton
+              onClick={handleMenuOpen}
+              aria-label={t('common.moreOptions', 'More options')}
+              aria-controls={menuOpen ? 'media-menu' : undefined}
+              aria-haspopup="true"
+              aria-expanded={menuOpen ? 'true' : undefined}
+            >
+              <MoreVert />
+            </IconButton>
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<PlayArrow />}
+              onClick={handlePlay}
+            >
+              {t('media.play')}
+            </Button>
+          </Box>
         </Box>
 
         {/* Description */}
@@ -324,6 +524,100 @@ export function MediaPage() {
           </Grid>
         </Box>
       )}
+
+      {/* Options Menu */}
+      <Menu
+        id="media-menu"
+        anchorEl={menuAnchorEl}
+        open={menuOpen}
+        onClose={handleMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+      >
+        <MenuItem onClick={handleImagesClick}>
+          <ListItemIcon>
+            <Collections fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>
+            {t('media.images', 'Images')}
+          </ListItemText>
+        </MenuItem>
+        {canEdit && <Divider />}
+        {canEdit && (
+          <MenuItem onClick={handleRefreshMetadata} disabled={isRefreshing}>
+            <ListItemIcon>
+              <Refresh fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              {isRefreshing ? t('media.refreshing', 'Refreshing...') : t('media.refreshMetadata', 'Refresh metadata')}
+            </ListItemText>
+          </MenuItem>
+        )}
+        {canEdit && (
+          <MenuItem onClick={handleRefreshImages} disabled={isRefreshingImages}>
+            <ListItemIcon>
+              <ImageIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              {isRefreshingImages ? t('media.refreshingImages', 'Refreshing...') : t('media.refreshImages', 'Refresh images')}
+            </ListItemText>
+          </MenuItem>
+        )}
+        {canEdit && (
+          <MenuItem onClick={handleDeleteClick}>
+            <ListItemIcon>
+              <Delete fontSize="small" color="error" />
+            </ListItemIcon>
+            <ListItemText primaryTypographyProps={{ color: 'error' }}>
+              {t('media.delete', 'Delete')}
+            </ListItemText>
+          </MenuItem>
+        )}
+      </Menu>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteCancel}
+        aria-labelledby="delete-media-dialog-title"
+        aria-describedby="delete-media-dialog-description"
+      >
+        <DialogTitle id="delete-media-dialog-title">
+          {t('media.deleteTitle', 'Delete Media?')}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-media-dialog-description">
+            {t('media.deleteConfirmation', 'Are you sure you want to delete "{{name}}"? This action cannot be undone.', { name: media.name })}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} disabled={isDeleting}>
+            {t('common.cancel', 'Cancel')}
+          </Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={isDeleting}
+          >
+            {isDeleting ? t('common.deleting', 'Deleting...') : t('common.delete', 'Delete')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Images Dialog */}
+      <ImagesDialog
+        open={imagesDialogOpen}
+        onClose={handleImagesClose}
+        images={media.images || []}
+        title={t('media.imagesTitle', 'Media Images')}
+      />
     </Container>
   );
 }

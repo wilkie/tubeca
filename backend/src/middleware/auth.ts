@@ -29,13 +29,25 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+// Role hierarchy: Admin > Editor > Viewer
+const roleHierarchy: Record<Role, number> = {
+  Admin: 3,
+  Editor: 2,
+  Viewer: 1,
+}
+
 export function requireRole(...allowedRoles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' })
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    // Find the minimum required role level
+    const minRequiredLevel = Math.min(...allowedRoles.map((role) => roleHierarchy[role]))
+    const userLevel = roleHierarchy[req.user.role]
+
+    // User's role level must be >= the minimum required level
+    if (userLevel < minRequiredLevel) {
       return res.status(403).json({ error: 'Insufficient permissions' })
     }
 

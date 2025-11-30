@@ -130,6 +130,23 @@ interface TMDBCrew {
   profile_path: string | null
 }
 
+interface TMDBImage {
+  aspect_ratio: number
+  height: number
+  width: number
+  file_path: string
+  iso_639_1: string | null
+  vote_average: number
+  vote_count: number
+}
+
+interface TMDBImagesResponse {
+  id: number
+  backdrops: TMDBImage[]
+  logos: TMDBImage[]
+  posters: TMDBImage[]
+}
+
 class TMDBScraper implements ScraperPlugin {
   readonly id = 'tmdb'
   readonly name = 'The Movie Database'
@@ -176,6 +193,61 @@ class TMDBScraper implements ScraperPlugin {
   private getImageUrl(path: string | null | undefined, size?: string): string | undefined {
     if (!path) return undefined
     return `${TMDB_IMAGE_BASE}/${size ?? this.imageSize}${path}`
+  }
+
+  /**
+   * Get image URLs from the images endpoint
+   * Returns backdrop (highest rated overall), thumbnail (highest rated English backdrop), and logo
+   */
+  private async getImageUrls(
+    type: 'movie' | 'tv',
+    id: number,
+    fallbackPath: string | null
+  ): Promise<{ backdropUrl?: string; thumbnailUrl?: string; logoUrl?: string }> {
+    try {
+      const images = await this.request<TMDBImagesResponse>(
+        `/${type}/${id}/images`,
+        { include_image_language: 'en,null' }
+      )
+
+      let backdropUrl: string | undefined
+      let thumbnailUrl: string | undefined
+
+      if (!images.backdrops || images.backdrops.length === 0) {
+        // Fall back to the default backdrop_path from main response
+        const fallbackUrl = this.getImageUrl(fallbackPath, 'original')
+        backdropUrl = fallbackUrl
+        thumbnailUrl = fallbackUrl
+      } else {
+        // Sort by vote_average descending
+        const sortedBackdrops = [...images.backdrops].sort((a, b) => b.vote_average - a.vote_average)
+
+        // Highest rated overall for backdrop
+        backdropUrl = this.getImageUrl(sortedBackdrops[0].file_path, 'original')
+
+        // Highest rated English for thumbnail
+        const englishBackdrop = sortedBackdrops.find((img) => img.iso_639_1 === 'en')
+        thumbnailUrl = englishBackdrop
+          ? this.getImageUrl(englishBackdrop.file_path, 'original')
+          : backdropUrl // Fall back to highest rated overall if no English
+      }
+
+      // Get logo - prefer English, then highest rated
+      let logoUrl: string | undefined
+      if (images.logos && images.logos.length > 0) {
+        const sortedLogos = [...images.logos].sort((a, b) => b.vote_average - a.vote_average)
+        const englishLogo = sortedLogos.find((img) => img.iso_639_1 === 'en')
+        logoUrl = englishLogo
+          ? this.getImageUrl(englishLogo.file_path, 'original')
+          : this.getImageUrl(sortedLogos[0].file_path, 'original')
+      }
+
+      return { backdropUrl, thumbnailUrl, logoUrl }
+    } catch {
+      // If images endpoint fails, fall back to backdrop_path
+      const fallbackUrl = this.getImageUrl(fallbackPath, 'original')
+      return { backdropUrl: fallbackUrl, thumbnailUrl: fallbackUrl, logoUrl: undefined }
+    }
   }
 
   async searchVideo(query: string, options?: VideoSearchOptions): Promise<SearchResult[]> {
@@ -249,6 +321,9 @@ class TMDBScraper implements ScraperPlugin {
 
     const credits = this.mapCredits(movie.credits?.cast ?? [], movie.credits?.crew ?? [])
 
+    // Get images (backdrop, thumbnail, logo)
+    const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('movie', movieId, movie.backdrop_path)
+
     return {
       externalId: `movie-${movie.id}`,
       title: movie.title,
@@ -259,7 +334,9 @@ class TMDBScraper implements ScraperPlugin {
       runtime: movie.runtime,
       genres: movie.genres.map((g) => g.name),
       posterUrl: this.getImageUrl(movie.poster_path),
-      backdropUrl: this.getImageUrl(movie.backdrop_path, 'original'),
+      backdropUrl,
+      thumbnailUrl,
+      logoUrl,
       credits,
     }
   }
@@ -275,6 +352,9 @@ class TMDBScraper implements ScraperPlugin {
 
     const credits = this.mapCredits(tv.credits?.cast ?? [], tv.credits?.crew ?? [])
 
+    // Get images (backdrop, thumbnail, logo)
+    const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('tv', tvId, tv.backdrop_path)
+
     return {
       externalId: `tv-${tv.id}`,
       title: tv.name,
@@ -285,7 +365,9 @@ class TMDBScraper implements ScraperPlugin {
       runtime: tv.episode_run_time[0], // Average episode runtime
       genres: tv.genres.map((g) => g.name),
       posterUrl: this.getImageUrl(tv.poster_path),
-      backdropUrl: this.getImageUrl(tv.backdrop_path, 'original'),
+      backdropUrl,
+      thumbnailUrl,
+      logoUrl,
       showName: tv.name,
       credits,
     }
@@ -337,7 +419,7 @@ class TMDBScraper implements ScraperPlugin {
   async getSeriesMetadata(seriesId: string): Promise<SeriesMetadata | null> {
     try {
       // Remove prefix if present
-      const tvId = seriesId.replace('tv-', '')
+      const tvId = parseInt(seriesId.replace('tv-', ''), 10)
 
       const tv = await this.request<TMDBTVDetails>(
         `/tv/${tvId}`,
@@ -345,6 +427,9 @@ class TMDBScraper implements ScraperPlugin {
       )
 
       const credits = this.mapCredits(tv.credits?.cast ?? [], tv.credits?.crew ?? [])
+
+      // Get images (backdrop, thumbnail, logo)
+      const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('tv', tvId, tv.backdrop_path)
 
       return {
         externalId: `tv-${tv.id}`,
@@ -357,7 +442,9 @@ class TMDBScraper implements ScraperPlugin {
         rating: tv.vote_average,
         genres: tv.genres.map((g) => g.name),
         posterUrl: this.getImageUrl(tv.poster_path),
-        backdropUrl: this.getImageUrl(tv.backdrop_path, 'original'),
+        backdropUrl,
+        thumbnailUrl,
+        logoUrl,
         seasonCount: tv.number_of_seasons,
         credits,
       }

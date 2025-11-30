@@ -97,6 +97,32 @@ export function PlayPage() {
       ? apiClient.getVideoStreamUrl(media.id)
       : apiClient.getAudioStreamUrl(media.id);
 
+  // Get backdrop image from collection or parent collection (for show/film)
+  const getBackdropUrl = (): string | undefined => {
+    const collection = media.collection;
+    if (!collection) return undefined;
+
+    // First check the immediate collection for a backdrop
+    const collectionBackdrop = collection.images?.find(
+      (img) => img.imageType === 'Backdrop' && img.isPrimary
+    );
+    if (collectionBackdrop) {
+      return apiClient.getImageUrl(collectionBackdrop.id);
+    }
+
+    // If not found, check parent collection (e.g., show for a season/episode)
+    const parentBackdrop = collection.parent?.images?.find(
+      (img) => img.imageType === 'Backdrop' && img.isPrimary
+    );
+    if (parentBackdrop) {
+      return apiClient.getImageUrl(parentBackdrop.id);
+    }
+
+    return undefined;
+  };
+
+  const posterUrl = getBackdropUrl();
+
   return (
     <Box
       sx={{
@@ -132,6 +158,8 @@ export function PlayPage() {
           <VideoPlayer
             src={streamUrl}
             title={media.name}
+            poster={posterUrl}
+            autoPlay={true}
             mediaDuration={media.duration}
             onSeek={handleSeek}
           />

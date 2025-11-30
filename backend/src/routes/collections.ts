@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { CollectionService } from '../services/collectionService'
 import { authenticate, requireRole } from '../middleware/auth'
+import { addCollectionScrapeJob, type CollectionScrapeType } from '../queues/collectionScrapeQueue'
 
 const router = Router()
 const collectionService = new CollectionService()
@@ -83,6 +84,116 @@ router.delete('/:id', requireRole('Editor'), async (req, res) => {
     res.status(204).send()
   } catch {
     res.status(500).json({ error: 'Failed to delete collection' })
+  }
+})
+
+// Refresh metadata for a collection (Admin/Editor only)
+router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => {
+  try {
+    const collection = await collectionService.getCollectionById(req.params.id)
+    if (!collection) {
+      return res.status(404).json({ error: 'Collection not found' })
+    }
+
+    // Check if collection type is scrapeable
+    const scrapeableTypes: CollectionScrapeType[] = ['Show', 'Season', 'Film', 'Artist', 'Album']
+    if (!scrapeableTypes.includes(collection.collectionType as CollectionScrapeType)) {
+      return res.status(400).json({ error: 'This collection type does not support metadata scraping' })
+    }
+
+    // Get existing scraper info if available
+    let scraperId: string | undefined
+    let externalId: string | undefined
+    let seasonNumber: number | undefined
+
+    if (collection.showDetails) {
+      scraperId = collection.showDetails.scraperId ?? undefined
+      externalId = collection.showDetails.externalId ?? undefined
+    } else if (collection.seasonDetails) {
+      scraperId = collection.seasonDetails.scraperId ?? undefined
+      externalId = collection.seasonDetails.externalId ?? undefined
+      seasonNumber = collection.seasonDetails.seasonNumber ?? undefined
+    } else if (collection.artistDetails) {
+      scraperId = collection.artistDetails.scraperId ?? undefined
+      externalId = collection.artistDetails.externalId ?? undefined
+    } else if (collection.albumDetails) {
+      scraperId = collection.albumDetails.scraperId ?? undefined
+      externalId = collection.albumDetails.externalId ?? undefined
+    }
+
+    const job = await addCollectionScrapeJob({
+      collectionId: collection.id,
+      collectionName: collection.name,
+      collectionType: collection.collectionType as CollectionScrapeType,
+      parentShowId: collection.parentId ?? undefined,
+      seasonNumber,
+      scraperId,
+      externalId,
+      skipImages: true, // Don't replace images on metadata refresh
+    })
+
+    res.status(202).json({
+      message: 'Metadata refresh queued',
+      jobId: job.id,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to queue metadata refresh'
+    res.status(500).json({ error: message })
+  }
+})
+
+// Refresh images for a collection (Admin/Editor only)
+router.post('/:id/refresh-images', requireRole('Editor'), async (req, res) => {
+  try {
+    const collection = await collectionService.getCollectionById(req.params.id)
+    if (!collection) {
+      return res.status(404).json({ error: 'Collection not found' })
+    }
+
+    // Check if collection type is scrapeable
+    const scrapeableTypes: CollectionScrapeType[] = ['Show', 'Season', 'Film', 'Artist', 'Album']
+    if (!scrapeableTypes.includes(collection.collectionType as CollectionScrapeType)) {
+      return res.status(400).json({ error: 'This collection type does not support image scraping' })
+    }
+
+    // Get existing scraper info if available
+    let scraperId: string | undefined
+    let externalId: string | undefined
+    let seasonNumber: number | undefined
+
+    if (collection.showDetails) {
+      scraperId = collection.showDetails.scraperId ?? undefined
+      externalId = collection.showDetails.externalId ?? undefined
+    } else if (collection.seasonDetails) {
+      scraperId = collection.seasonDetails.scraperId ?? undefined
+      externalId = collection.seasonDetails.externalId ?? undefined
+      seasonNumber = collection.seasonDetails.seasonNumber ?? undefined
+    } else if (collection.artistDetails) {
+      scraperId = collection.artistDetails.scraperId ?? undefined
+      externalId = collection.artistDetails.externalId ?? undefined
+    } else if (collection.albumDetails) {
+      scraperId = collection.albumDetails.scraperId ?? undefined
+      externalId = collection.albumDetails.externalId ?? undefined
+    }
+
+    const job = await addCollectionScrapeJob({
+      collectionId: collection.id,
+      collectionName: collection.name,
+      collectionType: collection.collectionType as CollectionScrapeType,
+      parentShowId: collection.parentId ?? undefined,
+      seasonNumber,
+      scraperId,
+      externalId,
+      imagesOnly: true, // Only refresh images, not metadata
+    })
+
+    res.status(202).json({
+      message: 'Image refresh queued',
+      jobId: job.id,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to queue image refresh'
+    res.status(500).json({ error: message })
   }
 })
 

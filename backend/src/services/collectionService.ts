@@ -1,4 +1,7 @@
+import * as fs from 'fs'
+import * as path from 'path'
 import { prisma } from '../config/database'
+import { getImageStoragePath } from '../config/appConfig'
 
 export interface CreateCollectionInput {
   name: string
@@ -29,7 +32,7 @@ export class CollectionService {
           },
         },
         images: {
-          where: { isPrimary: true },
+          where: { isPrimary: true, imageType: 'Poster' },
           take: 1,
         },
         _count: {
@@ -51,6 +54,7 @@ export class CollectionService {
           select: {
             id: true,
             name: true,
+            libraryType: true,
           },
         },
         parent: {
@@ -66,7 +70,7 @@ export class CollectionService {
             name: true,
             collectionType: true,
             images: {
-              where: { isPrimary: true },
+              where: { isPrimary: true, imageType: 'Poster' },
               take: 1,
             },
           },
@@ -77,10 +81,23 @@ export class CollectionService {
             id: true,
             name: true,
             type: true,
+            duration: true,
             videoDetails: {
               select: {
                 season: true,
                 episode: true,
+                description: true,
+                releaseDate: true,
+                rating: true,
+                credits: {
+                  orderBy: { order: 'asc' },
+                  include: {
+                    images: {
+                      where: { isPrimary: true, imageType: 'Photo' },
+                      take: 1,
+                    },
+                  },
+                },
               },
             },
             audioDetails: {
@@ -101,6 +118,12 @@ export class CollectionService {
           include: {
             credits: {
               orderBy: { order: 'asc' },
+              include: {
+                images: {
+                  where: { isPrimary: true, imageType: 'Photo' },
+                  take: 1,
+                },
+              },
             },
           },
         },
@@ -232,6 +255,109 @@ export class CollectionService {
   }
 
   async deleteCollection(id: string) {
+    const imageStoragePath = getImageStoragePath()
+
+    // Get all media in this collection
+    const mediaItems = await prisma.media.findMany({
+      where: { collectionId: id },
+      include: {
+        images: true,
+        videoDetails: {
+          include: {
+            credits: {
+              include: {
+                images: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    // Get all images for the collection itself (and related show/season details)
+    const collection = await prisma.collection.findUnique({
+      where: { id },
+      include: {
+        images: true,
+        showDetails: {
+          include: {
+            credits: {
+              include: {
+                images: true,
+              },
+            },
+          },
+        },
+        seasonDetails: true,
+        artistDetails: {
+          include: {
+            members: true,
+          },
+        },
+        albumDetails: {
+          include: {
+            credits: true,
+          },
+        },
+      },
+    })
+
+    if (!collection) {
+      throw new Error('Collection not found')
+    }
+
+    // Helper to delete image file from disk
+    const deleteImageFile = (imagePath: string) => {
+      try {
+        const fullPath = path.join(imageStoragePath, imagePath)
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath)
+          // Try to remove parent directory if empty
+          const parentDir = path.dirname(fullPath)
+          if (fs.existsSync(parentDir) && fs.readdirSync(parentDir).length === 0) {
+            fs.rmdirSync(parentDir)
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to delete image file: ${imagePath}`, error)
+      }
+    }
+
+    // Delete media images from disk
+    for (const media of mediaItems) {
+      for (const image of media.images) {
+        deleteImageFile(image.path)
+      }
+      // Delete credit images from disk
+      if (media.videoDetails?.credits) {
+        for (const credit of media.videoDetails.credits) {
+          for (const image of credit.images) {
+            deleteImageFile(image.path)
+          }
+        }
+      }
+    }
+
+    // Delete collection images from disk
+    for (const image of collection.images) {
+      deleteImageFile(image.path)
+    }
+
+    // Delete show credit images from disk
+    if (collection.showDetails?.credits) {
+      for (const credit of collection.showDetails.credits) {
+        for (const image of credit.images) {
+          deleteImageFile(image.path)
+        }
+      }
+    }
+
+    // Delete media items (this will cascade delete their images, videoDetails, audioDetails, and credits from DB)
+    await prisma.media.deleteMany({
+      where: { collectionId: id },
+    })
+
+    // Delete the collection (this will cascade delete images, showDetails, seasonDetails, etc. from DB)
     return prisma.collection.delete({
       where: { id },
     })

@@ -23,6 +23,19 @@ router.get('/:id', async (req, res) => {
   }
 })
 
+// Delete a media item (Admin/Editor only)
+router.delete('/:id', requireRole('Editor'), async (req, res) => {
+  try {
+    await mediaService.deleteMedia(req.params.id)
+    res.status(204).send()
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Media not found') {
+      return res.status(404).json({ error: error.message })
+    }
+    res.status(500).json({ error: 'Failed to delete media' })
+  }
+})
+
 // Refresh metadata for a media item (Admin/Editor only)
 router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => {
   try {
@@ -40,6 +53,7 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => 
       mediaType: media.type as 'Video' | 'Audio',
       scraperId,
       externalId,
+      skipImages: true, // Don't replace images on metadata refresh
     })
 
     res.status(202).json({
@@ -48,6 +62,42 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => 
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to queue metadata refresh'
+    res.status(500).json({ error: message })
+  }
+})
+
+// Refresh images for a media item (Admin/Editor only)
+router.post('/:id/refresh-images', requireRole('Editor'), async (req, res) => {
+  try {
+    const media = await mediaService.getMediaById(req.params.id)
+    if (!media) {
+      return res.status(404).json({ error: 'Media not found' })
+    }
+
+    // Get existing scraper info from videoDetails or audioDetails
+    let scraperId: string | undefined
+    let externalId: string | undefined
+
+    if (media.videoDetails) {
+      // VideoDetails doesn't store scraperId/externalId directly
+      // We'll need to search again
+    }
+
+    const job = await addMetadataScrapeJob({
+      mediaId: media.id,
+      mediaName: media.name,
+      mediaType: media.type as 'Video' | 'Audio',
+      scraperId,
+      externalId,
+      imagesOnly: true, // Only refresh images, not metadata
+    })
+
+    res.status(202).json({
+      message: 'Image refresh queued',
+      jobId: job.id,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to queue image refresh'
     res.status(500).json({ error: message })
   }
 })

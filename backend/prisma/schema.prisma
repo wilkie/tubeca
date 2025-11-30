@@ -83,6 +83,7 @@ enum CollectionType {
   Generic  // Default, untyped folder
   Show     // TV show container
   Season   // Season within a show
+  Film     // Movie container (film library)
   Artist   // Music artist container
   Album    // Album within an artist
 }

@@ -54,7 +54,7 @@ export const metadataScrapeWorker = new Worker<MetadataScrapeJobData, ScrapeResu
 )
 
 async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeResult> {
-  const { mediaId, mediaName, year, showName, season, episode, scraperId, externalId } = job.data
+  const { mediaId, mediaName, year, showName, season, episode, scraperId, externalId, skipImages, imagesOnly } = job.data
 
   // If we have an external ID, fetch directly
   if (externalId && scraperId) {
@@ -62,7 +62,7 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
     if (scraper?.getVideoMetadata) {
       const metadata = await scraper.getVideoMetadata(externalId)
       if (metadata) {
-        await applyVideoMetadata(mediaId, metadata, scraperId)
+        await applyVideoMetadata(mediaId, metadata, scraperId, skipImages, imagesOnly)
         return { success: true, scraperId, externalId }
       }
     }
@@ -109,7 +109,7 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
       }
 
       if (metadata) {
-        await applyVideoMetadata(mediaId, metadata, scraper.id)
+        await applyVideoMetadata(mediaId, metadata, scraper.id, skipImages, imagesOnly)
         console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`)
         return { success: true, scraperId: scraper.id, externalId: metadata.externalId }
       }
@@ -175,7 +175,14 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
 /**
  * Apply video metadata to the database
  */
-async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scraperId?: string): Promise<void> {
+async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scraperId?: string, skipImages?: boolean, imagesOnly?: boolean): Promise<void> {
+  // If imagesOnly is set, only download images and skip metadata updates
+  if (imagesOnly) {
+    await downloadMediaImages(mediaId, metadata, scraperId)
+    console.log(`📷 Refreshed images for media ${mediaId}`)
+    return
+  }
+
   // Create or update VideoDetails
   await prisma.videoDetails.upsert({
     where: { mediaId },
@@ -206,8 +213,10 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
     })
   }
 
-  // Download images
-  await downloadMediaImages(mediaId, metadata, scraperId)
+  // Download images (unless skipImages is set)
+  if (!skipImages) {
+    await downloadMediaImages(mediaId, metadata, scraperId)
+  }
 
   // Add credits if available
   if (metadata.credits && metadata.credits.length > 0) {
@@ -221,7 +230,7 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
         where: { videoDetailsId: videoDetails.id },
       })
 
-      // Add new credits and download their photos
+      // Add new credits (without downloading photos if skipImages is set)
       for (const credit of metadata.credits) {
         const createdCredit = await prisma.credit.create({
           data: {
@@ -233,8 +242,8 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
           },
         })
 
-        // Download credit photo if available
-        if (credit.photoUrl) {
+        // Download credit photo if available (unless skipImages is set)
+        if (credit.photoUrl && !skipImages) {
           try {
             await imageService.downloadAndSaveImage(credit.photoUrl, {
               imageType: 'Photo',
@@ -294,6 +303,24 @@ async function downloadMediaImages(
         }
       }).catch((error) => {
         console.warn(`Failed to download backdrop:`, error)
+      })
+    )
+  }
+
+  // Check for thumbnail (video only - highest rated English backdrop)
+  if ('thumbnailUrl' in metadata && metadata.thumbnailUrl) {
+    imagePromises.push(
+      imageService.downloadAndSaveImage(metadata.thumbnailUrl, {
+        imageType: 'Thumbnail',
+        mediaId,
+        isPrimary: true,
+        scraperId,
+      }).then((result) => {
+        if (result.success) {
+          console.log(`📷 Downloaded thumbnail for media ${mediaId}`)
+        }
+      }).catch((error) => {
+        console.warn(`Failed to download thumbnail:`, error)
       })
     )
   }

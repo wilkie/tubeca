@@ -22,9 +22,9 @@
     "@libsql/client": "^0.15.15",
     "@prisma/adapter-libsql": "^7.0.1",
     "@prisma/client": "^7.0.1",
-    "@tubeca/scraper-types": "workspace:*",
     "@tubeca/scraper-tmdb": "workspace:*",
     "@tubeca/scraper-tvdb": "workspace:*",
+    "@tubeca/scraper-types": "workspace:*",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.31.0",
     "cors": "^2.8.5",
@@ -32,6 +32,7 @@
     "express": "^4.21.2",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
+    "sharp": "^0.34.5",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
   },
