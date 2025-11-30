@@ -1,8 +1,11 @@
+import * as fs from 'fs'
+import * as path from 'path'
 import { prisma } from '../config/database'
 import { Media, MediaType } from '@prisma/client'
 import { Video, Audio, CreateVideoInput, CreateAudioInput, isVideo, isAudio } from '../types/media'
 import { addTranscodeJob, addThumbnailJob, addAnalyzeJob } from '../queues/videoQueue'
 import type { TranscodeJobData, ThumbnailJobData, AnalyzeJobData } from '../queues/videoQueue'
+import { getImageStoragePath } from '../config/appConfig'
 
 export class MediaService {
   // Create a new video
@@ -53,13 +56,42 @@ export class MediaService {
     return await prisma.media.findUnique({
       where: { id },
       include: {
+        collection: {
+          select: {
+            id: true,
+            name: true,
+            collectionType: true,
+            images: {
+              where: { imageType: 'Backdrop', isPrimary: true },
+              take: 1,
+            },
+            parent: {
+              select: {
+                id: true,
+                name: true,
+                collectionType: true,
+                images: {
+                  where: { imageType: 'Backdrop', isPrimary: true },
+                  take: 1,
+                },
+              },
+            },
+            library: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        images: true,
         videoDetails: {
           include: {
             credits: {
               orderBy: { order: 'asc' },
               include: {
                 images: {
-                  where: { isPrimary: true },
+                  where: { isPrimary: true, imageType: 'Photo' },
                   take: 1,
                 },
               },
@@ -95,8 +127,63 @@ export class MediaService {
     })
   }
 
-  // Delete media
+  // Delete media with all associated images
   async deleteMedia(id: string): Promise<void> {
+    const imageStoragePath = getImageStoragePath()
+
+    // Get media with all images and credit images
+    const media = await prisma.media.findUnique({
+      where: { id },
+      include: {
+        images: true,
+        videoDetails: {
+          include: {
+            credits: {
+              include: {
+                images: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    if (!media) {
+      throw new Error('Media not found')
+    }
+
+    // Helper to delete image file from disk
+    const deleteImageFile = (imagePath: string) => {
+      try {
+        const fullPath = path.join(imageStoragePath, imagePath)
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath)
+          // Try to remove parent directory if empty
+          const parentDir = path.dirname(fullPath)
+          if (fs.existsSync(parentDir) && fs.readdirSync(parentDir).length === 0) {
+            fs.rmdirSync(parentDir)
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to delete image file: ${imagePath}`, error)
+      }
+    }
+
+    // Delete media images from disk
+    for (const image of media.images) {
+      deleteImageFile(image.path)
+    }
+
+    // Delete credit images from disk
+    if (media.videoDetails?.credits) {
+      for (const credit of media.videoDetails.credits) {
+        for (const image of credit.images) {
+          deleteImageFile(image.path)
+        }
+      }
+    }
+
+    // Delete media (cascades to images, videoDetails, audioDetails, credits in DB)
     await prisma.media.delete({
       where: { id },
     })

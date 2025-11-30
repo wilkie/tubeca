@@ -254,9 +254,39 @@ class ApiClient {
     });
   }
 
+  async refreshCollectionMetadata(id: string): Promise<ApiResponse<{ message: string; jobId: string }>> {
+    return this.request<{ message: string; jobId: string }>(`/collections/${id}/refresh-metadata`, {
+      method: 'POST',
+    });
+  }
+
+  async refreshCollectionImages(id: string): Promise<ApiResponse<{ message: string; jobId: string }>> {
+    return this.request<{ message: string; jobId: string }>(`/collections/${id}/refresh-images`, {
+      method: 'POST',
+    });
+  }
+
   // Media methods
   async getMedia(id: string): Promise<ApiResponse<MediaResponse>> {
     return this.request<MediaResponse>(`/media/${id}`);
+  }
+
+  async deleteMedia(id: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/media/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async refreshMediaMetadata(id: string): Promise<ApiResponse<{ message: string; jobId: string }>> {
+    return this.request<{ message: string; jobId: string }>(`/media/${id}/refresh-metadata`, {
+      method: 'POST',
+    });
+  }
+
+  async refreshMediaImages(id: string): Promise<ApiResponse<{ message: string; jobId: string }>> {
+    return this.request<{ message: string; jobId: string }>(`/media/${id}/refresh-images`, {
+      method: 'POST',
+    });
   }
 
   // Get streaming URL for video (includes auth token)

@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import sharp from 'sharp'
 import { prisma } from '../config/database'
 import { getImageStoragePath } from '../config/appConfig'
 import type { ImageType } from '@prisma/client'
@@ -157,6 +158,17 @@ export class ImageService {
       // Write the file
       fs.writeFileSync(filePath, buffer)
 
+      // Extract image dimensions using sharp
+      let width: number | undefined
+      let height: number | undefined
+      try {
+        const metadata = await sharp(buffer).metadata()
+        width = metadata.width
+        height = metadata.height
+      } catch (sharpError) {
+        console.warn('Failed to extract image dimensions:', sharpError)
+      }
+
       // Calculate relative path for storage in database
       const relativePath = path.relative(imageStoragePath, filePath)
 
@@ -165,6 +177,8 @@ export class ImageService {
         ...input,
         path: relativePath,
         format,
+        width,
+        height,
         fileSize,
         sourceUrl: url,
       })
@@ -172,6 +186,8 @@ export class ImageService {
       return {
         success: true,
         path: relativePath,
+        width,
+        height,
         format,
         fileSize,
       }

@@ -125,12 +125,14 @@ export interface ScanCancelResponse {
 // Collection Types
 // ============================================
 
-export type CollectionType = 'Generic' | 'Show' | 'Season' | 'Artist' | 'Album'
+export type CollectionType = 'Generic' | 'Show' | 'Season' | 'Film' | 'Artist' | 'Album'
 
 export interface CollectionSummary {
   id: string
   name: string
   collectionType?: CollectionType
+  libraryType?: LibraryType
+  images?: Image[]
 }
 
 export interface MediaSummary {
@@ -351,6 +353,19 @@ export interface AudioDetails {
   genre: string | null
 }
 
+export interface MediaCollectionInfo {
+  id: string
+  name: string
+  collectionType: CollectionType
+  images?: Image[]
+  parent?: {
+    id: string
+    name: string
+    collectionType: CollectionType
+    images?: Image[]
+  } | null
+}
+
 export interface Media {
   id: string
   name: string
@@ -359,6 +374,7 @@ export interface Media {
   type: MediaType
   thumbnails: string | null
   collectionId: string | null
+  collection?: MediaCollectionInfo | null
   videoDetails: VideoDetails | null
   audioDetails: AudioDetails | null
   images?: Image[]

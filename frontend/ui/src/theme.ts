@@ -10,4 +10,13 @@ export const theme = createTheme({
       main: '#535bf2',
     },
   },
+  components: {
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          borderRadius: 4,
+        },
+      },
+    },
+  },
 })

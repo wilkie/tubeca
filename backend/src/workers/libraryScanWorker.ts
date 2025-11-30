@@ -50,6 +50,7 @@ interface NewMediaInfo {
   season?: number
   episode?: number
   year?: number
+  collectionName?: string // For Films, the folder name which often has the proper movie title
 }
 
 interface NewCollectionInfo {
@@ -58,6 +59,7 @@ interface NewCollectionInfo {
   collectionType: CollectionType
   parentId: string | null
   seasonNumber?: number // For Season collections
+  year?: number // For Film collections (parsed from folder name)
 }
 
 interface ScanResult {
@@ -122,7 +124,7 @@ export const libraryScanWorker = new Worker(
         console.log(`📋 Queueing metadata scrape for ${result.newMediaIds.length} new media items`)
         const scrapeJobs: MetadataScrapeJobData[] = result.newMediaIds.map((media) => ({
           mediaId: media.id,
-          mediaName: media.name,
+          mediaName: media.collectionName || media.name, // Use collection name for Films
           mediaType: media.type,
           showName: media.showName,
           season: media.season,
@@ -134,8 +136,8 @@ export const libraryScanWorker = new Worker(
 
       // Queue collection metadata scraping for newly discovered collections
       if (result.newCollections.length > 0) {
-        // Filter to only scrape-able collection types (Show, Season, Artist, Album)
-        const scrapeableTypes: CollectionType[] = ['Show', 'Season', 'Artist', 'Album']
+        // Filter to only scrape-able collection types (Show, Season, Film, Artist, Album)
+        const scrapeableTypes: CollectionType[] = ['Show', 'Season', 'Film', 'Artist', 'Album']
         const collectionsToScrape = result.newCollections.filter(
           (c) => scrapeableTypes.includes(c.collectionType)
         )
@@ -147,6 +149,7 @@ export const libraryScanWorker = new Worker(
           // We need to process Shows first, then Seasons (to get parent info)
           const shows = collectionsToScrape.filter((c) => c.collectionType === 'Show')
           const seasons = collectionsToScrape.filter((c) => c.collectionType === 'Season')
+          const films = collectionsToScrape.filter((c) => c.collectionType === 'Film')
           const artists = collectionsToScrape.filter((c) => c.collectionType === 'Artist')
           const albums = collectionsToScrape.filter((c) => c.collectionType === 'Album')
 
@@ -171,6 +174,16 @@ export const libraryScanWorker = new Worker(
               seasonNumber: season.seasonNumber,
               // Note: parentExternalId and parentScraperId will be filled in by the worker
               // after the parent show is scraped, or we can look them up
+            })
+          }
+
+          // Queue Film scrapes with year hint
+          for (const film of films) {
+            collectionScrapeJobs.push({
+              collectionId: film.id,
+              collectionName: film.name,
+              collectionType: 'Film' as CollectionScrapeType,
+              year: film.year,
             })
           }
 
@@ -213,7 +226,7 @@ export const libraryScanWorker = new Worker(
  * Determine the collection type based on library type and depth
  * - Television: depth 0 = Show, depth 1 = Season
  * - Music: depth 0 = Artist, depth 1 = Album
- * - Film: always Generic
+ * - Film: depth 0 = Film (each folder is a movie)
  */
 function getCollectionType(libraryType: LibraryType, depth: number): CollectionType {
   if (libraryType === 'Television') {
@@ -221,6 +234,9 @@ function getCollectionType(libraryType: LibraryType, depth: number): CollectionT
   }
   if (libraryType === 'Music') {
     return depth === 0 ? 'Artist' : depth === 1 ? 'Album' : 'Generic'
+  }
+  if (libraryType === 'Film') {
+    return depth === 0 ? 'Film' : 'Generic'
   }
   return 'Generic'
 }
@@ -310,10 +326,16 @@ async function scanDirectory(
               newMediaInfo.showName =
                 episodeInfo.showName || getShowNameFromCollectionPath(collectionPath)
             } else {
-              // Try to parse as movie
-              const movieInfo = parseMovieFromFilename(mediaName)
+              // Try to parse as movie - use collection (folder) name if available
+              // as it typically has the proper movie title like "The Matrix (1999)"
+              const searchName = collectionPath.length > 0 ? collectionPath[collectionPath.length - 1] : mediaName
+              const movieInfo = parseMovieFromFilename(searchName)
               if (movieInfo.year) {
                 newMediaInfo.year = movieInfo.year
+              }
+              // Store collection name for Film metadata lookup
+              if (libraryType === 'Film' && collectionPath.length > 0) {
+                newMediaInfo.collectionName = collectionPath[collectionPath.length - 1]
               }
             }
           }
@@ -375,6 +397,14 @@ async function scanDirectory(
           const seasonMatch = dir.name.match(/season\s*(\d+)/i)
           if (seasonMatch) {
             newCollectionInfo.seasonNumber = parseInt(seasonMatch[1], 10)
+          }
+        }
+
+        // For Film collections, try to parse the year from the folder name
+        if (collectionType === 'Film') {
+          const movieInfo = parseMovieFromFilename(dir.name)
+          if (movieInfo.year) {
+            newCollectionInfo.year = movieInfo.year
           }
         }
 

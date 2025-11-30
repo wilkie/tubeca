@@ -12,6 +12,8 @@ import {
 interface VideoPlayerProps {
   src: string;
   title?: string;
+  poster?: string; // URL for poster/backdrop image
+  autoPlay?: boolean;
   mediaDuration?: number; // Duration in seconds from media metadata
   onSeek?: (startTime: number) => string; // Callback to get new URL for seeking (for transcoded streams)
 }
@@ -27,7 +29,7 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function VideoPlayer({ src, title, mediaDuration, onSeek }: VideoPlayerProps) {
+export function VideoPlayer({ src, title, poster, autoPlay = false, mediaDuration, onSeek }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -195,6 +197,8 @@ export function VideoPlayer({ src, title, mediaDuration, onSeek }: VideoPlayerPr
       <video
         ref={videoRef}
         src={videoSrc}
+        poster={poster}
+        autoPlay={autoPlay}
         onClick={handleVideoClick}
         style={{
           width: '100%',

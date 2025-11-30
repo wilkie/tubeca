@@ -189,9 +189,10 @@ class TVDBScraper implements ScraperPlugin {
       const series = response.data
       const credits = this.mapCharactersToCredits(series.characters ?? [])
 
-      // Find backdrop (type 3) and poster (type 2)
+      // Find artwork by type: poster (2), backdrop (3), logo (6)
       const backdrop = series.artworks?.find((a) => a.type === 3)
       const poster = series.artworks?.find((a) => a.type === 2)
+      const logo = series.artworks?.find((a) => a.type === 6)
 
       return {
         externalId,
@@ -203,6 +204,7 @@ class TVDBScraper implements ScraperPlugin {
         genres: series.genres?.map((g) => g.name),
         posterUrl: poster?.image ?? series.image,
         backdropUrl: backdrop?.image,
+        logoUrl: logo?.image,
         credits,
       }
     } catch {

@@ -75,6 +75,7 @@
     "notFound": "Library not found",
     "empty": "This library is empty. Run a scan to discover media.",
     "folders": "{{count}} folders",
+    "seasons": "{{count}} seasons",
     "items": "{{count}} items"
   },
   "collection": {
