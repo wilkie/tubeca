@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Box, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
 import { apiClient, type Media } from '../api/client';
-import { VideoPlayer, type AudioTrackInfo } from '../components/VideoPlayer';
+import { VideoPlayer, type AudioTrackInfo, type SubtitleTrackInfo } from '../components/VideoPlayer';
 
 export function PlayPage() {
   const { t } = useTranslation();
@@ -14,6 +14,7 @@ export function PlayPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number | undefined>(undefined);
+  const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState<number | null>(null);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -67,6 +68,23 @@ export function PlayPage() {
     return { audioTracks: tracks, defaultAudioTrack: defaultTrack?.streamIndex };
   }, [media?.streams]);
 
+  // Extract subtitle tracks from media streams
+  const subtitleTracks = useMemo(() => {
+    const streams = media?.streams;
+    if (!streams || !mediaId) return [] as SubtitleTrackInfo[];
+
+    return streams
+      .filter((stream) => stream.streamType === 'Subtitle')
+      .map((stream) => ({
+        streamIndex: stream.streamIndex,
+        language: stream.language,
+        title: stream.title,
+        isDefault: stream.isDefault,
+        isForced: stream.isForced,
+        url: apiClient.getSubtitleUrl(mediaId, stream.streamIndex),
+      }));
+  }, [media?.streams, mediaId]);
+
   // Use derived default if no explicit selection has been made
   const effectiveAudioTrack = currentAudioTrack ?? defaultAudioTrack;
 
@@ -81,6 +99,11 @@ export function PlayPage() {
   // Handle audio track change
   const handleAudioTrackChange = useCallback((streamIndex: number) => {
     setCurrentAudioTrack(streamIndex);
+  }, []);
+
+  // Handle subtitle track change
+  const handleSubtitleTrackChange = useCallback((streamIndex: number | null) => {
+    setCurrentSubtitleTrack(streamIndex);
   }, []);
 
   if (isLoading) {
@@ -195,6 +218,9 @@ export function PlayPage() {
             currentAudioTrack={effectiveAudioTrack}
             onAudioTrackChange={handleAudioTrackChange}
             onSeek={handleSeek}
+            subtitleTracks={subtitleTracks}
+            currentSubtitleTrack={currentSubtitleTrack}
+            onSubtitleTrackChange={handleSubtitleTrackChange}
           />
         </Box>
       ) : (

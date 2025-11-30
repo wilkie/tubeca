@@ -173,6 +173,76 @@ router.get('/video/:id', async (req, res) => {
   }
 })
 
+// Stream subtitles as WebVTT
+router.get('/subtitles/:id', async (req, res) => {
+  try {
+    const media = await mediaService.getVideoById(req.params.id)
+    if (!media) {
+      return res.status(404).json({ error: 'Video not found' })
+    }
+
+    const videoPath = media.path
+
+    if (!fs.existsSync(videoPath)) {
+      return res.status(404).json({ error: 'Video file not found' })
+    }
+
+    // Get subtitle stream index from query parameter
+    const streamIndex = req.query.streamIndex !== undefined
+      ? parseInt(req.query.streamIndex as string, 10)
+      : undefined
+
+    if (streamIndex === undefined) {
+      return res.status(400).json({ error: 'streamIndex query parameter is required' })
+    }
+
+    res.setHeader('Content-Type', 'text/vtt')
+    res.setHeader('Cache-Control', 'public, max-age=3600') // Cache for 1 hour
+
+    // Use ffmpeg to extract and convert subtitle to WebVTT
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', videoPath,
+      '-map', `0:${streamIndex}`,
+      '-c:s', 'webvtt',
+      '-f', 'webvtt',
+      '-'
+    ])
+
+    ffmpeg.stdout.pipe(res)
+
+    ffmpeg.stderr.on('data', (data) => {
+      // Log ffmpeg output for debugging
+      console.log(`ffmpeg subtitles: ${data}`)
+    })
+
+    ffmpeg.on('error', (err) => {
+      console.error('ffmpeg subtitle error:', err)
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Subtitle extraction error' })
+      }
+    })
+
+    ffmpeg.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`ffmpeg subtitles exited with code ${code}`)
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to extract subtitles' })
+        }
+      }
+    })
+
+    // Handle client disconnect
+    req.on('close', () => {
+      ffmpeg.kill('SIGKILL')
+    })
+  } catch (error) {
+    console.error('Subtitle streaming error:', error)
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to stream subtitles' })
+    }
+  }
+})
+
 // Stream audio
 router.get('/audio/:id', async (req, res) => {
   try {

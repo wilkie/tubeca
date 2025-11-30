@@ -322,6 +322,12 @@ class ApiClient {
     return `${API_BASE}/stream/audio/${mediaId}?token=${token}`;
   }
 
+  // Get URL for subtitle stream as WebVTT (includes auth token)
+  getSubtitleUrl(mediaId: string, streamIndex: number): string {
+    const token = this.getToken();
+    return `${API_BASE}/stream/subtitles/${mediaId}?token=${token}&streamIndex=${streamIndex}`;
+  }
+
   hasToken(): boolean {
     return !!this.getToken();
   }

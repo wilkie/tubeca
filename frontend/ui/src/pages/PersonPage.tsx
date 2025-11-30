@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -123,6 +123,13 @@ export function PersonPage() {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [bioExpanded, setBioExpanded] = useState(false);
+  const [bioIsTruncated, setBioIsTruncated] = useState(false);
+  const bioRef = useCallback((node: HTMLElement | null) => {
+    if (node) {
+      // Check if text is actually truncated (scrollHeight > clientHeight)
+      setBioIsTruncated(node.scrollHeight > node.clientHeight);
+    }
+  }, []);
 
   // Menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
@@ -353,6 +360,7 @@ export function PersonPage() {
           {person.biography && (
             <Box>
               <Typography
+                ref={bioExpanded ? undefined : bioRef}
                 variant="body2"
                 color="text.secondary"
                 sx={{
@@ -367,7 +375,7 @@ export function PersonPage() {
               >
                 {person.biography}
               </Typography>
-              {person.biography.length > 400 && (
+              {(bioIsTruncated || bioExpanded) && (
                 <Link
                   component="button"
                   variant="body2"

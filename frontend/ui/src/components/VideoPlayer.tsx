@@ -18,6 +18,7 @@ import {
   Fullscreen,
   FullscreenExit,
   Audiotrack,
+  Subtitles,
   Check,
 } from '@mui/icons-material';
 
@@ -30,6 +31,15 @@ export interface AudioTrackInfo {
   isDefault: boolean;
 }
 
+export interface SubtitleTrackInfo {
+  streamIndex: number;
+  language: string | null;
+  title: string | null;
+  isDefault: boolean;
+  isForced: boolean;
+  url: string; // URL to fetch WebVTT subtitle
+}
+
 interface VideoPlayerProps {
   src: string;
   title?: string;
@@ -40,6 +50,9 @@ interface VideoPlayerProps {
   currentAudioTrack?: number; // Current audio track stream index
   onAudioTrackChange?: (streamIndex: number) => void; // Callback when audio track changes
   onSeek?: (startTime: number, audioTrack?: number) => string; // Callback to get new URL for seeking (for transcoded streams)
+  subtitleTracks?: SubtitleTrackInfo[]; // Available subtitle tracks
+  currentSubtitleTrack?: number | null; // Current subtitle track stream index (null = off)
+  onSubtitleTrackChange?: (streamIndex: number | null) => void; // Callback when subtitle track changes
 }
 
 function formatTime(seconds: number): string {
@@ -109,6 +122,28 @@ function formatAudioTrackLabel(track: AudioTrackInfo): string {
   return parts.length > 0 ? parts.join(' - ') : `Track ${track.streamIndex}`;
 }
 
+function formatSubtitleTrackLabel(track: SubtitleTrackInfo): string {
+  const parts: string[] = [];
+
+  // Add language
+  if (track.language) {
+    const langName = LANGUAGE_NAMES[track.language.toLowerCase()] || track.language.toUpperCase();
+    parts.push(langName);
+  }
+
+  // Add title if different from language
+  if (track.title && (!track.language || !track.title.toLowerCase().includes(track.language.toLowerCase()))) {
+    parts.push(track.title);
+  }
+
+  // Add forced indicator
+  if (track.isForced) {
+    parts.push('(Forced)');
+  }
+
+  return parts.length > 0 ? parts.join(' - ') : `Track ${track.streamIndex}`;
+}
+
 export function VideoPlayer({
   src,
   title,
@@ -119,6 +154,9 @@ export function VideoPlayer({
   currentAudioTrack,
   onAudioTrackChange,
   onSeek,
+  subtitleTracks,
+  currentSubtitleTrack,
+  onSubtitleTrackChange,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -137,6 +175,10 @@ export function VideoPlayer({
   // Audio track menu state
   const [audioMenuAnchor, setAudioMenuAnchor] = useState<null | HTMLElement>(null);
   const audioMenuOpen = Boolean(audioMenuAnchor);
+
+  // Subtitle track menu state
+  const [subtitleMenuAnchor, setSubtitleMenuAnchor] = useState<null | HTMLElement>(null);
+  const subtitleMenuOpen = Boolean(subtitleMenuAnchor);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -176,6 +218,21 @@ export function VideoPlayer({
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, [mediaDuration]);
+
+  // Handle subtitle track changes - enable/disable text tracks
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !video.textTracks) return;
+
+    for (let i = 0; i < video.textTracks.length; i++) {
+      const track = video.textTracks[i];
+      // Find the matching subtitle track by comparing with our subtitleTracks array
+      const subtitleTrack = subtitleTracks?.[i];
+      if (subtitleTrack) {
+        track.mode = subtitleTrack.streamIndex === currentSubtitleTrack ? 'showing' : 'hidden';
+      }
+    }
+  }, [currentSubtitleTrack, subtitleTracks]);
 
   const handlePlayPause = () => {
     const video = videoRef.current;
@@ -315,6 +372,23 @@ export function VideoPlayer({
   };
 
   const hasMultipleAudioTracks = audioTracks && audioTracks.length > 1;
+  const hasSubtitleTracks = subtitleTracks && subtitleTracks.length > 0;
+
+  const handleSubtitleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    setSubtitleMenuAnchor(event.currentTarget);
+  };
+
+  const handleSubtitleMenuClose = () => {
+    setSubtitleMenuAnchor(null);
+  };
+
+  const handleSubtitleTrackSelect = (streamIndex: number | null) => {
+    handleSubtitleMenuClose();
+    if (onSubtitleTrackChange) {
+      onSubtitleTrackChange(streamIndex);
+    }
+  };
 
   return (
     <Box
@@ -335,12 +409,25 @@ export function VideoPlayer({
         poster={poster}
         autoPlay={autoPlay}
         onClick={handleVideoClick}
+        crossOrigin="anonymous"
         style={{
           width: '100%',
           height: '100%',
           objectFit: 'contain',
         }}
-      />
+      >
+        {/* Subtitle tracks */}
+        {subtitleTracks?.map((track) => (
+          <track
+            key={track.streamIndex}
+            kind="subtitles"
+            src={track.url}
+            srcLang={track.language || 'und'}
+            label={formatSubtitleTrackLabel(track)}
+            default={track.streamIndex === currentSubtitleTrack}
+          />
+        ))}
+      </video>
 
       {/* Loading spinner */}
       {isLoading && (
@@ -422,6 +509,17 @@ export function VideoPlayer({
             }}
           />
 
+          {/* Subtitle track selector */}
+          {hasSubtitleTracks && (
+            <IconButton
+              onClick={handleSubtitleMenuOpen}
+              sx={{ color: currentSubtitleTrack !== null ? 'primary.main' : 'white' }}
+              aria-label="Select subtitle track"
+            >
+              <Subtitles />
+            </IconButton>
+          )}
+
           {/* Audio track selector */}
           {hasMultipleAudioTracks && (
             <IconButton
@@ -488,6 +586,80 @@ export function VideoPlayer({
             <ListItemText
               inset={track.streamIndex !== currentAudioTrack}
               primary={formatAudioTrackLabel(track)}
+            />
+          </MenuItem>
+        ))}
+      </Menu>
+
+      {/* Subtitle track menu */}
+      <Menu
+        anchorEl={subtitleMenuAnchor}
+        open={subtitleMenuOpen}
+        onClose={handleSubtitleMenuClose}
+        container={() => containerRef.current}
+        anchorOrigin={{
+          vertical: 'top',
+          horizontal: 'center',
+        }}
+        transformOrigin={{
+          vertical: 'bottom',
+          horizontal: 'center',
+        }}
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: 'rgba(0, 0, 0, 0.95)',
+              color: 'white',
+              minWidth: 200,
+            },
+          },
+        }}
+        sx={{
+          zIndex: 10001,
+        }}
+      >
+        {/* Off option */}
+        <MenuItem
+          onClick={() => handleSubtitleTrackSelect(null)}
+          selected={currentSubtitleTrack === null}
+          sx={{
+            '&.Mui-selected': {
+              bgcolor: 'rgba(255, 255, 255, 0.1)',
+            },
+            '&:hover': {
+              bgcolor: 'rgba(255, 255, 255, 0.2)',
+            },
+          }}
+        >
+          {currentSubtitleTrack === null && (
+            <ListItemIcon sx={{ color: 'primary.main', minWidth: 36 }}>
+              <Check fontSize="small" />
+            </ListItemIcon>
+          )}
+          <ListItemText inset={currentSubtitleTrack !== null} primary="Off" />
+        </MenuItem>
+        {subtitleTracks?.map((track) => (
+          <MenuItem
+            key={track.streamIndex}
+            onClick={() => handleSubtitleTrackSelect(track.streamIndex)}
+            selected={track.streamIndex === currentSubtitleTrack}
+            sx={{
+              '&.Mui-selected': {
+                bgcolor: 'rgba(255, 255, 255, 0.1)',
+              },
+              '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+              },
+            }}
+          >
+            {track.streamIndex === currentSubtitleTrack && (
+              <ListItemIcon sx={{ color: 'primary.main', minWidth: 36 }}>
+                <Check fontSize="small" />
+              </ListItemIcon>
+            )}
+            <ListItemText
+              inset={track.streamIndex !== currentSubtitleTrack}
+              primary={formatSubtitleTrackLabel(track)}
             />
           </MenuItem>
         ))}
