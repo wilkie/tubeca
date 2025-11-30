@@ -38,6 +38,13 @@ import type {
   AlbumCredit,
   Image,
   ImageType,
+  Person,
+  PersonWithFilmography,
+  PersonResponse,
+  PersonsResponse,
+  PersonFilmographyShow,
+  PersonFilmographyFilm,
+  PersonFilmographyEpisode,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -81,6 +88,13 @@ export type {
   AlbumCredit,
   Image,
   ImageType,
+  Person,
+  PersonWithFilmography,
+  PersonResponse,
+  PersonsResponse,
+  PersonFilmographyShow,
+  PersonFilmographyFilm,
+  PersonFilmographyEpisode,
 };
 
 const API_BASE = '/api';
@@ -313,6 +327,21 @@ class ApiClient {
   getImageUrl(imageId: string): string {
     const token = this.getToken();
     return `${API_BASE}/images/${imageId}/file?token=${token}`;
+  }
+
+  // Person methods
+  async getPerson(id: string): Promise<ApiResponse<PersonResponse>> {
+    return this.request<PersonResponse>(`/persons/${id}`);
+  }
+
+  async searchPersons(query: string): Promise<ApiResponse<PersonsResponse>> {
+    return this.request<PersonsResponse>(`/persons/search?q=${encodeURIComponent(query)}`);
+  }
+
+  async refreshPersonMetadata(id: string): Promise<ApiResponse<{ message: string; person: PersonWithFilmography }>> {
+    return this.request<{ message: string; person: PersonWithFilmography }>(`/persons/${id}/refresh`, {
+      method: 'POST',
+    });
   }
 }
 

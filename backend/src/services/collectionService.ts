@@ -92,9 +92,13 @@ export class CollectionService {
                 credits: {
                   orderBy: { order: 'asc' },
                   include: {
-                    images: {
-                      where: { isPrimary: true, imageType: 'Photo' },
-                      take: 1,
+                    person: {
+                      include: {
+                        images: {
+                          where: { isPrimary: true, imageType: 'Photo' },
+                          take: 1,
+                        },
+                      },
                     },
                   },
                 },
@@ -119,9 +123,13 @@ export class CollectionService {
             credits: {
               orderBy: { order: 'asc' },
               include: {
-                images: {
-                  where: { isPrimary: true, imageType: 'Photo' },
-                  take: 1,
+                person: {
+                  include: {
+                    images: {
+                      where: { isPrimary: true, imageType: 'Photo' },
+                      take: 1,
+                    },
+                  },
                 },
               },
             },

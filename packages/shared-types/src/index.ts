@@ -156,6 +156,7 @@ export interface ShowCredit {
   role: string | null
   creditType: CreditType
   order: number | null
+  personId: string | null
   images?: Image[]
 }
 
@@ -210,6 +211,7 @@ export interface AlbumCredit {
   id: string
   name: string
   role: string | null
+  personId: string | null
 }
 
 export interface AlbumDetails {
@@ -282,6 +284,7 @@ export interface Image {
   id: string
   mediaId: string | null
   collectionId: string | null
+  personId: string | null
   showCreditId: string | null
   creditId: string | null
   imageType: ImageType
@@ -326,6 +329,7 @@ export interface Credit {
   role: string | null
   creditType: CreditType
   order: number | null
+  personId: string | null
   images?: Image[]
 }
 
@@ -337,7 +341,7 @@ export interface VideoDetails {
   episode: number | null
   description: string | null
   releaseDate: string | null
-  rating: number | null
+  rating: string | null // Content rating (e.g., "PG-13", "TV-MA")
   credits: Credit[]
 }
 
@@ -388,4 +392,114 @@ export interface MediaResponse {
 
 export interface MediaListResponse {
   media: Media[]
+}
+
+// ============================================
+// Person Types
+// ============================================
+
+export interface Person {
+  id: string
+  name: string
+  biography: string | null
+  birthDate: string | null
+  deathDate: string | null
+  birthPlace: string | null
+  knownFor: string | null
+  tmdbId: number | null
+  tvdbId: number | null
+  imdbId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PersonFilmographyShow {
+  collection: {
+    id: string
+    name: string
+    collectionType: string
+    images: Array<{
+      id: string
+      imageType: string
+      isPrimary: boolean
+    }>
+  }
+  credit: {
+    id: string
+    role: string | null
+    creditType: string
+  }
+}
+
+export interface PersonFilmographyFilm {
+  collection: {
+    id: string
+    name: string
+    collectionType: string
+    images: Array<{
+      id: string
+      imageType: string
+      isPrimary: boolean
+    }>
+  }
+  media: {
+    id: string
+    name: string
+  }
+  credit: {
+    id: string
+    role: string | null
+    creditType: string
+  }
+}
+
+export interface PersonFilmographyEpisode {
+  media: {
+    id: string
+    name: string
+    videoDetails: {
+      showName: string | null
+      season: number | null
+      episode: number | null
+    } | null
+    collection: {
+      id: string
+      name: string
+      parent: {
+        id: string
+        name: string
+      } | null
+    } | null
+    images: Array<{
+      id: string
+      imageType: string
+      isPrimary: boolean
+    }>
+  }
+  credit: {
+    id: string
+    role: string | null
+    creditType: string
+  }
+}
+
+export interface PersonWithFilmography extends Person {
+  filmography: {
+    shows: PersonFilmographyShow[]
+    films: PersonFilmographyFilm[]
+    episodes: PersonFilmographyEpisode[]
+  }
+  images: Array<{
+    id: string
+    imageType: string
+    isPrimary: boolean
+  }>
+}
+
+export interface PersonResponse {
+  person: PersonWithFilmography
+}
+
+export interface PersonsResponse {
+  persons: Person[]
 }

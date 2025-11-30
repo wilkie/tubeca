@@ -47,6 +47,13 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => 
     // Optional: specify a scraper and/or external ID
     const { scraperId, externalId } = req.body
 
+    // Extract episode context from videoDetails if available
+    const videoDetails = media.videoDetails as {
+      showName?: string | null
+      season?: number | null
+      episode?: number | null
+    } | null
+
     const job = await addMetadataScrapeJob({
       mediaId: media.id,
       mediaName: media.name,
@@ -54,6 +61,10 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => 
       scraperId,
       externalId,
       skipImages: true, // Don't replace images on metadata refresh
+      // Include episode context for TV shows
+      showName: videoDetails?.showName ?? undefined,
+      season: videoDetails?.season ?? undefined,
+      episode: videoDetails?.episode ?? undefined,
     })
 
     res.status(202).json({

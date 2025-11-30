@@ -9,6 +9,7 @@ import type {
   VideoType,
   SeriesMetadata,
   SeasonMetadata,
+  PersonMetadata,
 } from '@tubeca/scraper-types'
 
 const TMDB_API_URL = 'https://api.themoviedb.org/3'
@@ -145,6 +146,18 @@ interface TMDBImagesResponse {
   backdrops: TMDBImage[]
   logos: TMDBImage[]
   posters: TMDBImage[]
+}
+
+interface TMDBPersonDetails {
+  id: number
+  name: string
+  biography: string
+  birthday: string | null
+  deathday: string | null
+  place_of_birth: string | null
+  known_for_department: string
+  profile_path: string | null
+  imdb_id: string | null
 }
 
 class TMDBScraper implements ScraperPlugin {
@@ -485,6 +498,7 @@ class TMDBScraper implements ScraperPlugin {
         type: 'actor',
         order: person.order,
         photoUrl: this.getImageUrl(person.profile_path, 'w185'),
+        tmdbId: person.id,
       })
     }
 
@@ -513,12 +527,37 @@ class TMDBScraper implements ScraperPlugin {
             role: person.job,
             type: creditType,
             photoUrl: this.getImageUrl(person.profile_path, 'w185'),
+            tmdbId: person.id,
           })
         }
       }
     }
 
     return credits
+  }
+
+  async getPersonMetadata(personId: string): Promise<PersonMetadata | null> {
+    try {
+      // Remove 'tmdb-' prefix if present
+      const tmdbId = parseInt(personId.replace('tmdb-', ''), 10)
+
+      const person = await this.request<TMDBPersonDetails>(`/person/${tmdbId}`)
+
+      return {
+        externalId: `tmdb-${person.id}`,
+        name: person.name,
+        biography: person.biography || undefined,
+        birthDate: person.birthday || undefined,
+        deathDate: person.deathday || undefined,
+        birthPlace: person.place_of_birth || undefined,
+        knownFor: person.known_for_department || undefined,
+        photoUrl: this.getImageUrl(person.profile_path, 'w500'),
+        tmdbId: person.id,
+        imdbId: person.imdb_id || undefined,
+      }
+    } catch {
+      return null
+    }
   }
 }
 

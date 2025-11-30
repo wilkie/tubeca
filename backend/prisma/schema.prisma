@@ -170,6 +170,10 @@ model Credit {
   creditType     CreditType   // Actor, Director, Writer, etc.
   order          Int?         // Display order (e.g., billing order for actors)
 
+  // Link to Person entity
+  person         Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+  personId       String?
+
   // Images (photos) for this person
   images         Image[]
 
@@ -178,6 +182,7 @@ model Credit {
 
   @@index([videoDetailsId])
   @@index([creditType])
+  @@index([personId])
 }
 
 enum CreditType {
@@ -267,6 +272,10 @@ model ShowCredit {
   creditType    CreditType  // Actor, Director, Writer, etc.
   order         Int?        // Display order
 
+  // Link to Person entity
+  person        Person?     @relation(fields: [personId], references: [id], onDelete: SetNull)
+  personId      String?
+
   // Images (photos) for this person
   images        Image[]
 
@@ -275,6 +284,7 @@ model ShowCredit {
 
   @@index([showDetailsId])
   @@index([creditType])
+  @@index([personId])
 }
 
 // TV Season metadata
@@ -383,10 +393,15 @@ model AlbumCredit {
   name           String       // Person's name
   role           String?      // Job title (e.g., "Producer", "Mixing Engineer")
 
+  // Link to Person entity
+  person         Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+  personId       String?
+
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   @@index([albumDetailsId])
+  @@index([personId])
 }
 
 // Settings model for system-wide configuration
@@ -411,6 +426,7 @@ model Image {
   collectionId String?
   showCreditId String?
   creditId     String?
+  personId     String?
 
   // Image metadata
   imageType    ImageType
@@ -434,9 +450,44 @@ model Image {
   collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   showCredit   ShowCredit? @relation(fields: [showCreditId], references: [id], onDelete: Cascade)
   credit       Credit?     @relation(fields: [creditId], references: [id], onDelete: Cascade)
+  person       Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([mediaId, imageType])
   @@index([collectionId, imageType])
   @@index([showCreditId])
   @@index([creditId])
+  @@index([personId])
+}
+
+// ============================================
+// Person Entity - Links credits across media
+// ============================================
+
+model Person {
+  id           String    @id @default(uuid())
+
+  // Basic info
+  name         String
+  biography    String?
+  birthDate    DateTime?
+  deathDate    DateTime?
+  birthPlace   String?
+  knownFor     String?   // "Acting", "Directing", etc.
+
+  // External IDs for cross-referencing
+  tmdbId       Int?      @unique
+  tvdbId       Int?      @unique
+  imdbId       String?   @unique
+
+  // Timestamps
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  credits      Credit[]
+  showCredits  ShowCredit[]
+  albumCredits AlbumCredit[]
+  images       Image[]
+
+  @@index([name])
 }
