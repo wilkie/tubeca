@@ -120,12 +120,62 @@ model Media {
   // Images associated with this media
   images      Image[]
 
+  // Media streams (audio/video/subtitle tracks)
+  streams     MediaStream[]
+
   // Timestamps
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([type])
   @@index([collectionId])
+}
+
+// Media stream information (audio, video, subtitle tracks)
+model MediaStream {
+  id          String      @id @default(uuid())
+
+  // Relationship to Media
+  media       Media       @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId     String
+
+  // Stream identification
+  streamIndex Int         // FFmpeg stream index (0, 1, 2, etc.)
+  streamType  StreamType  // Audio, Video, Subtitle
+
+  // Codec information
+  codec       String?     // Codec name (e.g., "aac", "h264", "subrip")
+  codecLong   String?     // Full codec name (e.g., "AAC (Advanced Audio Coding)")
+
+  // Language and labeling
+  language    String?     // ISO 639-1/639-2 language code (e.g., "en", "eng", "spa")
+  title       String?     // Stream title/label (e.g., "English 5.1", "Director's Commentary")
+  isDefault   Boolean     @default(false)  // FFmpeg default flag
+  isForced    Boolean     @default(false)  // Forced subtitle flag
+
+  // Audio-specific properties
+  channels    Int?        // Number of audio channels (2, 6, 8, etc.)
+  channelLayout String?   // Channel layout (e.g., "stereo", "5.1", "7.1")
+  sampleRate  Int?        // Audio sample rate in Hz (e.g., 48000)
+  bitRate     Int?        // Bit rate in bits/second
+
+  // Video-specific properties
+  width       Int?        // Video width in pixels
+  height      Int?        // Video height in pixels
+  frameRate   Float?      // Frame rate (e.g., 23.976, 29.97, 60)
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([mediaId])
+  @@index([streamType])
+  @@unique([mediaId, streamIndex])
+}
+
+enum StreamType {
+  Video
+  Audio
+  Subtitle
 }
 
 enum MediaType {

@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Box, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
 import { apiClient, type Media } from '../api/client';
-import { VideoPlayer } from '../components/VideoPlayer';
+import { VideoPlayer, type AudioTrackInfo } from '../components/VideoPlayer';
 
 export function PlayPage() {
   const { t } = useTranslation();
@@ -13,6 +13,7 @@ export function PlayPage() {
   const [media, setMedia] = useState<Media | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentAudioTrack, setCurrentAudioTrack] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -46,12 +47,41 @@ export function PlayPage() {
     navigate(-1);
   };
 
+  // Extract audio tracks from media streams and determine default track
+  const { audioTracks, defaultAudioTrack } = useMemo(() => {
+    const streams = media?.streams;
+    if (!streams) return { audioTracks: [] as AudioTrackInfo[], defaultAudioTrack: undefined };
+
+    const tracks = streams
+      .filter((stream) => stream.streamType === 'Audio')
+      .map((stream) => ({
+        streamIndex: stream.streamIndex,
+        language: stream.language,
+        title: stream.title,
+        channels: stream.channels,
+        channelLayout: stream.channelLayout,
+        isDefault: stream.isDefault,
+      }));
+
+    const defaultTrack = tracks.find((t) => t.isDefault) || tracks[0];
+    return { audioTracks: tracks, defaultAudioTrack: defaultTrack?.streamIndex };
+  }, [media?.streams]);
+
+  // Use derived default if no explicit selection has been made
+  const effectiveAudioTrack = currentAudioTrack ?? defaultAudioTrack;
+
   // Callback to generate new URL for seeking (server-side seeking for transcoded streams)
   // Must be defined before early returns to maintain hook order
   const handleSeek = useCallback(
-    (startTime: number) => (mediaId ? apiClient.getVideoStreamUrl(mediaId, startTime) : ''),
-    [mediaId]
+    (startTime: number, audioTrack?: number) =>
+      mediaId ? apiClient.getVideoStreamUrl(mediaId, startTime, audioTrack ?? effectiveAudioTrack) : '',
+    [mediaId, effectiveAudioTrack]
   );
+
+  // Handle audio track change
+  const handleAudioTrackChange = useCallback((streamIndex: number) => {
+    setCurrentAudioTrack(streamIndex);
+  }, []);
 
   if (isLoading) {
     return (
@@ -94,7 +124,7 @@ export function PlayPage() {
 
   const streamUrl =
     media.type === 'Video'
-      ? apiClient.getVideoStreamUrl(media.id)
+      ? apiClient.getVideoStreamUrl(media.id, undefined, effectiveAudioTrack)
       : apiClient.getAudioStreamUrl(media.id);
 
   // Get backdrop image from collection or parent collection (for show/film)
@@ -161,6 +191,9 @@ export function PlayPage() {
             poster={posterUrl}
             autoPlay={true}
             mediaDuration={media.duration}
+            audioTracks={audioTracks}
+            currentAudioTrack={effectiveAudioTrack}
+            onAudioTrackChange={handleAudioTrackChange}
             onSeek={handleSeek}
           />
         </Box>

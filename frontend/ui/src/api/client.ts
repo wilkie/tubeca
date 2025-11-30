@@ -304,11 +304,14 @@ class ApiClient {
   }
 
   // Get streaming URL for video (includes auth token)
-  getVideoStreamUrl(mediaId: string, startTime?: number): string {
+  getVideoStreamUrl(mediaId: string, startTime?: number, audioTrack?: number): string {
     const token = this.getToken();
     let url = `${API_BASE}/stream/video/${mediaId}?token=${token}`;
     if (startTime && startTime > 0) {
       url += `&start=${startTime}`;
+    }
+    if (audioTrack !== undefined) {
+      url += `&audioTrack=${audioTrack}`;
     }
     return url;
   }

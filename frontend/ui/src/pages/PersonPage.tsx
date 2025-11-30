@@ -129,26 +129,33 @@ export function PersonPage() {
   const menuOpen = Boolean(menuAnchorEl);
 
   useEffect(() => {
-    if (personId) {
-      loadPerson();
-    }
-  }, [personId]);
-
-  const loadPerson = async () => {
     if (!personId) return;
 
-    setIsLoading(true);
-    setError(null);
+    let cancelled = false;
+    const id = personId; // Capture for use in async function
 
-    const response = await apiClient.getPerson(personId);
-    if (response.error) {
-      setError(response.error);
-    } else if (response.data) {
-      setPerson(response.data.person);
+    async function loadPerson() {
+      setIsLoading(true);
+      setError(null);
+
+      const response = await apiClient.getPerson(id);
+      if (cancelled) return;
+
+      if (response.error) {
+        setError(response.error);
+      } else if (response.data) {
+        setPerson(response.data.person);
+      }
+
+      setIsLoading(false);
     }
 
-    setIsLoading(false);
-  };
+    loadPerson();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [personId]);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setMenuAnchorEl(event.currentTarget);
