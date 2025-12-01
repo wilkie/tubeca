@@ -1,50 +1,51 @@
-import 'dotenv/config'
-import express from 'express'
-import cors from 'cors'
-import swaggerUi from 'swagger-ui-express'
-import { prisma } from './config/database'
-import { loadAppConfig, getScraperConfigs } from './config/appConfig'
-import { MediaService } from './services/mediaService'
-import { SettingsService } from './services/settingsService'
-import { videoWorker } from './workers/videoWorker'
-import { libraryScanWorker } from './workers/libraryScanWorker'
-import { metadataScrapeWorker } from './workers/metadataScrapeWorker'
-import { collectionScrapeWorker } from './workers/collectionScrapeWorker'
-import { loadScrapers } from './plugins/scraperLoader'
-import { redisConnection } from './config/redis'
-import { swaggerSpec } from './config/swagger.js'
-import authRoutes from './routes/auth'
-import userRoutes from './routes/users'
-import libraryRoutes from './routes/libraries'
-import collectionRoutes from './routes/collections'
-import mediaRoutes from './routes/media'
-import streamRoutes from './routes/stream'
-import imageRoutes from './routes/images'
-import personRoutes from './routes/persons'
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import swaggerUi from 'swagger-ui-express';
+import { prisma } from './config/database';
+import { loadAppConfig, getScraperConfigs } from './config/appConfig';
+import { MediaService } from './services/mediaService';
+import { SettingsService } from './services/settingsService';
+import { videoWorker } from './workers/videoWorker';
+import { libraryScanWorker } from './workers/libraryScanWorker';
+import { metadataScrapeWorker } from './workers/metadataScrapeWorker';
+import { collectionScrapeWorker } from './workers/collectionScrapeWorker';
+import { loadScrapers } from './plugins/scraperLoader';
+import { redisConnection } from './config/redis';
+import { swaggerSpec } from './config/swagger.js';
+import { fileWatcherService } from './services/fileWatcherService';
+import authRoutes from './routes/auth';
+import userRoutes from './routes/users';
+import libraryRoutes from './routes/libraries';
+import collectionRoutes from './routes/collections';
+import mediaRoutes from './routes/media';
+import streamRoutes from './routes/stream';
+import imageRoutes from './routes/images';
+import personRoutes from './routes/persons';
 
-const app = express()
-const PORT = process.env.PORT || 3000
-const mediaService = new MediaService()
-const settingsService = new SettingsService()
+const app = express();
+const PORT = process.env.PORT || 3000;
+const mediaService = new MediaService();
+const settingsService = new SettingsService();
 
-app.use(cors())
-app.use(express.json())
+app.use(cors());
+app.use(express.json());
 
 // API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'Tubeca API Documentation',
-}))
+}));
 
 // Auth and User routes
-app.use('/api/auth', authRoutes)
-app.use('/api/users', userRoutes)
-app.use('/api/libraries', libraryRoutes)
-app.use('/api/collections', collectionRoutes)
-app.use('/api/media', mediaRoutes)
-app.use('/api/stream', streamRoutes)
-app.use('/api/images', imageRoutes)
-app.use('/api/persons', personRoutes)
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/libraries', libraryRoutes);
+app.use('/api/collections', collectionRoutes);
+app.use('/api/media', mediaRoutes);
+app.use('/api/stream', streamRoutes);
+app.use('/api/images', imageRoutes);
+app.use('/api/persons', personRoutes);
 
 /**
  * @openapi
@@ -81,20 +82,20 @@ app.use('/api/persons', personRoutes)
 app.get('/api/health', async (_req, res) => {
   try {
     // Test database connection
-    await prisma.$queryRaw`SELECT 1`
+    await prisma.$queryRaw`SELECT 1`;
     res.json({
       status: 'ok',
       message: 'Tubeca API is running',
       database: 'connected'
-    })
+    });
   } catch {
     res.status(503).json({
       status: 'error',
       message: 'Database connection failed',
       database: 'disconnected'
-    })
+    });
   }
-})
+});
 
 /**
  * @openapi
@@ -125,42 +126,42 @@ app.get('/api/health', async (_req, res) => {
  */
 app.get('/api/media', async (_req, res) => {
   try {
-    const media = await mediaService.getAllMedia()
-    res.json({ media })
+    const media = await mediaService.getAllMedia();
+    res.json({ media });
   } catch {
-    res.status(500).json({ error: 'Failed to fetch media' })
+    res.status(500).json({ error: 'Failed to fetch media' });
   }
-})
+});
 
 app.get('/api/media/videos', async (_req, res) => {
   try {
-    const videos = await mediaService.getAllVideos()
-    res.json({ videos })
+    const videos = await mediaService.getAllVideos();
+    res.json({ videos });
   } catch {
-    res.status(500).json({ error: 'Failed to fetch videos' })
+    res.status(500).json({ error: 'Failed to fetch videos' });
   }
-})
+});
 
 app.get('/api/media/audio', async (_req, res) => {
   try {
-    const audio = await mediaService.getAllAudio()
-    res.json({ audio })
+    const audio = await mediaService.getAllAudio();
+    res.json({ audio });
   } catch {
-    res.status(500).json({ error: 'Failed to fetch audio' })
+    res.status(500).json({ error: 'Failed to fetch audio' });
   }
-})
+});
 
 app.get('/api/media/:id', async (req, res) => {
   try {
-    const media = await mediaService.getMediaById(req.params.id)
+    const media = await mediaService.getMediaById(req.params.id);
     if (!media) {
-      return res.status(404).json({ error: 'Media not found' })
+      return res.status(404).json({ error: 'Media not found' });
     }
-    res.json({ media })
+    res.json({ media });
   } catch {
-    res.status(500).json({ error: 'Failed to fetch media' })
+    res.status(500).json({ error: 'Failed to fetch media' });
   }
-})
+});
 
 /**
  * @openapi
@@ -213,23 +214,23 @@ app.get('/api/media/:id', async (req, res) => {
  */
 app.post('/api/media/video', async (req, res) => {
   try {
-    const { path, duration, name } = req.body
-    const video = await mediaService.createVideo({ path, duration, name })
-    res.status(201).json({ video })
+    const { path, duration, name } = req.body;
+    const video = await mediaService.createVideo({ path, duration, name });
+    res.status(201).json({ video });
   } catch {
-    res.status(500).json({ error: 'Failed to create video' })
+    res.status(500).json({ error: 'Failed to create video' });
   }
-})
+});
 
 app.post('/api/media/audio', async (req, res) => {
   try {
-    const { path, duration, name } = req.body
-    const audio = await mediaService.createAudio({ path, duration, name })
-    res.status(201).json({ audio })
+    const { path, duration, name } = req.body;
+    const audio = await mediaService.createAudio({ path, duration, name });
+    res.status(201).json({ audio });
   } catch {
-    res.status(500).json({ error: 'Failed to create audio' })
+    res.status(500).json({ error: 'Failed to create audio' });
   }
-})
+});
 
 /**
  * @openapi
@@ -258,12 +259,12 @@ app.post('/api/media/audio', async (req, res) => {
  */
 app.get('/api/settings', async (_req, res) => {
   try {
-    const settings = await settingsService.getOrCreateSettings()
-    res.json({ settings })
+    const settings = await settingsService.getOrCreateSettings();
+    res.json({ settings });
   } catch {
-    res.status(500).json({ error: 'Failed to fetch settings' })
+    res.status(500).json({ error: 'Failed to fetch settings' });
   }
-})
+});
 
 /**
  * @openapi
@@ -302,100 +303,119 @@ app.get('/api/settings', async (_req, res) => {
  */
 app.patch('/api/settings', async (req, res) => {
   try {
-    const { instanceName } = req.body
-    const settings = await settingsService.updateSettings({ instanceName })
-    res.json({ settings })
+    const { instanceName } = req.body;
+    const settings = await settingsService.updateSettings({ instanceName });
+    res.json({ settings });
   } catch {
-    res.status(500).json({ error: 'Failed to update settings' })
+    res.status(500).json({ error: 'Failed to update settings' });
   }
-})
+});
 
 // Background job endpoints
 app.post('/api/jobs/transcode', async (req, res) => {
   try {
-    const { mediaId, inputPath, outputPath, resolution, format } = req.body
-    const job = await mediaService.queueTranscode({ mediaId, inputPath, outputPath, resolution, format })
-    res.status(202).json({ jobId: job.id, message: 'Transcode job queued' })
+    const { mediaId, inputPath, outputPath, resolution, format } = req.body;
+    const job = await mediaService.queueTranscode({ mediaId, inputPath, outputPath, resolution, format });
+    res.status(202).json({ jobId: job.id, message: 'Transcode job queued' });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to queue transcode job'
-    res.status(500).json({ error: message })
+    const message = error instanceof Error ? error.message : 'Failed to queue transcode job';
+    res.status(500).json({ error: message });
   }
-})
+});
 
 app.post('/api/jobs/thumbnail', async (req, res) => {
   try {
-    const { mediaId, videoPath, thumbnailPath, timestamp } = req.body
-    const job = await mediaService.queueThumbnail({ mediaId, videoPath, thumbnailPath, timestamp })
-    res.status(202).json({ jobId: job.id, message: 'Thumbnail job queued' })
+    const { mediaId, videoPath, thumbnailPath, timestamp } = req.body;
+    const job = await mediaService.queueThumbnail({ mediaId, videoPath, thumbnailPath, timestamp });
+    res.status(202).json({ jobId: job.id, message: 'Thumbnail job queued' });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to queue thumbnail job'
-    res.status(500).json({ error: message })
+    const message = error instanceof Error ? error.message : 'Failed to queue thumbnail job';
+    res.status(500).json({ error: message });
   }
-})
+});
 
 app.post('/api/jobs/analyze', async (req, res) => {
   try {
-    const { mediaId, filePath } = req.body
-    const job = await mediaService.queueAnalyze({ mediaId, filePath })
-    res.status(202).json({ jobId: job.id, message: 'Analyze job queued' })
+    const { mediaId, filePath } = req.body;
+    const job = await mediaService.queueAnalyze({ mediaId, filePath });
+    res.status(202).json({ jobId: job.id, message: 'Analyze job queued' });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to queue analyze job'
-    res.status(500).json({ error: message })
+    const message = error instanceof Error ? error.message : 'Failed to queue analyze job';
+    res.status(500).json({ error: message });
   }
-})
+});
 
 // Initialize scrapers and start server
 async function startServer() {
   // Load application configuration
-  const appConfig = loadAppConfig()
+  const appConfig = loadAppConfig();
 
   // Initialize scraper plugins
-  const scraperConfigs = getScraperConfigs(appConfig)
-  await loadScrapers(scraperConfigs)
+  const scraperConfigs = getScraperConfigs(appConfig);
+  await loadScrapers(scraperConfigs);
+
+  // Start file watcher service (optional - can be controlled via config or env var)
+  // Environment variable takes precedence over config file
+  const watcherEnabled = process.env.FILE_WATCHER_ENABLED !== undefined
+    ? process.env.FILE_WATCHER_ENABLED === 'true'
+    : appConfig.fileWatcher?.enabled ?? false;
+  if (watcherEnabled) {
+    await fileWatcherService.start({
+      usePolling: appConfig.fileWatcher?.usePolling,
+      pollInterval: appConfig.fileWatcher?.pollInterval,
+    });
+  }
 
   // Start HTTP server
   const server = app.listen(PORT, () => {
-    console.log(`🚀 Backend server running on http://localhost:${PORT}`)
-  })
+    console.log(`🚀 Backend server running on http://localhost:${PORT}`);
+    if (watcherEnabled) {
+      console.log(`📁 File watcher is enabled`);
+    }
+  });
 
-  return server
+  return server;
 }
 
-const serverPromise = startServer()
+const serverPromise = startServer();
 
 // Graceful shutdown
 async function shutdown() {
-  console.log('\n🛑 Shutting down gracefully...')
+  console.log('\n🛑 Shutting down gracefully...');
 
   // Wait for server to be initialized, then close it
-  const server = await serverPromise
+  const server = await serverPromise;
   server.close(() => {
-    console.log('✅ Express server closed')
-  })
+    console.log('✅ Express server closed');
+  });
 
   // Close workers
-  await videoWorker.close()
-  console.log('✅ Video worker closed')
+  await videoWorker.close();
+  console.log('✅ Video worker closed');
 
-  await libraryScanWorker.close()
-  console.log('✅ Library scan worker closed')
+  await libraryScanWorker.close();
+  console.log('✅ Library scan worker closed');
 
-  await metadataScrapeWorker.close()
-  console.log('✅ Metadata scrape worker closed')
+  await metadataScrapeWorker.close();
+  console.log('✅ Metadata scrape worker closed');
 
-  await collectionScrapeWorker.close()
-  console.log('✅ Collection scrape worker closed')
+  await collectionScrapeWorker.close();
+  console.log('✅ Collection scrape worker closed');
+
+  // Stop file watcher
+  await fileWatcherService.stop();
+  console.log('✅ File watcher stopped');
 
   // Close Redis connection
-  await redisConnection.quit()
-  console.log('✅ Redis connection closed')
+  await redisConnection.quit();
+  console.log('✅ Redis connection closed');
 
   // Close Prisma connection
-  await prisma.$disconnect()
-  console.log('✅ Database connection closed')
+  await prisma.$disconnect();
+  console.log('✅ Database connection closed');
 
-  process.exit(0)
+  process.exit(0);
 }
 
-process.on('SIGTERM', shutdown)
-process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

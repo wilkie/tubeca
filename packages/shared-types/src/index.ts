@@ -62,6 +62,7 @@ export interface Library {
   name: string
   path: string
   libraryType: LibraryType
+  watchForChanges: boolean
   groups: UserGroup[]
   createdAt: string
   updatedAt: string
@@ -80,6 +81,7 @@ export interface CreateLibraryInput {
   path: string
   libraryType: LibraryType
   groupIds?: string[]
+  watchForChanges?: boolean
 }
 
 export interface UpdateLibraryInput {
@@ -87,6 +89,7 @@ export interface UpdateLibraryInput {
   path?: string
   libraryType?: LibraryType
   groupIds?: string[]
+  watchForChanges?: boolean
 }
 
 // ============================================

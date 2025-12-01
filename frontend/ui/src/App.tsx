@@ -1,17 +1,17 @@
-import { useState } from 'react'
-import { Routes, Route } from 'react-router-dom'
-import { Box } from '@mui/material'
-import { Header, Sidebar } from './components'
-import { SettingsPage } from './pages/SettingsPage'
-import { LibrariesPage } from './pages/LibrariesPage'
-import { LibraryPage } from './pages/LibraryPage'
-import { CollectionPage } from './pages/CollectionPage'
-import { MediaPage } from './pages/MediaPage'
-import { PlayPage } from './pages/PlayPage'
-import { PersonPage } from './pages/PersonPage'
+import { useState } from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { Box } from '@mui/material';
+import { Header, Sidebar } from './components';
+import { SettingsPage } from './pages/SettingsPage';
+import { LibrariesPage } from './pages/LibrariesPage';
+import { LibraryPage } from './pages/LibraryPage';
+import { CollectionPage } from './pages/CollectionPage';
+import { MediaPage } from './pages/MediaPage';
+import { PlayPage } from './pages/PlayPage';
+import { PersonPage } from './pages/PersonPage';
 
 function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -36,7 +36,7 @@ function App() {
         </Routes>
       </Box>
     </Box>
-  )
+  );
 }
 
-export default App
+export default App;

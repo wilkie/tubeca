@@ -8,9 +8,11 @@ import {
   Button,
   TextField,
   FormControl,
+  FormControlLabel,
   InputLabel,
   Select,
   MenuItem,
+  Switch,
   Alert,
   CircularProgress,
   Box,
@@ -35,6 +37,7 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
   const [libraryType, setLibraryType] = useState<LibraryType>('Film');
+  const [watchForChanges, setWatchForChanges] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const lastLibraryIdRef = useRef<string | null>(null);
@@ -49,10 +52,12 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
       setName(library.name);
       setPath(library.path);
       setLibraryType(library.libraryType);
+      setWatchForChanges(library.watchForChanges);
     } else {
       setName('');
       setPath('');
       setLibraryType('Film');
+      setWatchForChanges(false);
     }
     setError(null);
   }
@@ -71,6 +76,7 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
       name: name.trim(),
       path: path.trim(),
       libraryType,
+      watchForChanges,
     };
 
     const result = isEditing
@@ -131,6 +137,19 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
               ))}
             </Select>
           </FormControl>
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={watchForChanges}
+                onChange={(e) => setWatchForChanges(e.target.checked)}
+              />
+            }
+            label={t('libraries.watchForChanges')}
+          />
+          <Box sx={{ mt: -1.5, ml: 0.5, color: 'text.secondary', fontSize: '0.75rem' }}>
+            {t('libraries.watchForChangesHelp')}
+          </Box>
         </Box>
       </DialogContent>
       <DialogActions>

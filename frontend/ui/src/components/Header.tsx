@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   AppBar,
   Toolbar,
@@ -10,34 +10,34 @@ import {
   Menu,
   MenuItem,
   Divider,
-} from '@mui/material'
-import { Menu as MenuIcon, Search, AccountCircle } from '@mui/icons-material'
-import { useAuth } from '../context/AuthContext'
-import styles from './Header.module.scss'
+} from '@mui/material';
+import { Menu as MenuIcon, Search, AccountCircle } from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
+import styles from './Header.module.scss';
 
 interface HeaderProps {
   onMenuClick?: () => void
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
-  const { t } = useTranslation()
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
+  const { t } = useTranslation();
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget)
-  }
+    setAnchorEl(event.currentTarget);
+  };
 
   const handleMenuClose = () => {
-    setAnchorEl(null)
-  }
+    setAnchorEl(null);
+  };
 
   const handleLogout = () => {
-    handleMenuClose()
-    logout()
-    navigate('/login')
-  }
+    handleMenuClose();
+    logout();
+    navigate('/login');
+  };
 
   return (
     <AppBar position="static" className={styles.header}>
@@ -104,5 +104,5 @@ export function Header({ onMenuClick }: HeaderProps) {
         </Menu>
       </Toolbar>
     </AppBar>
-  )
+  );
 }

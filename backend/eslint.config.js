@@ -1,7 +1,7 @@
-import js from '@eslint/js'
-import typescript from '@typescript-eslint/eslint-plugin'
-import tsParser from '@typescript-eslint/parser'
-import globals from 'globals'
+import js from '@eslint/js';
+import typescript from '@typescript-eslint/eslint-plugin';
+import tsParser from '@typescript-eslint/parser';
+import globals from 'globals';
 
 export default [
   {
@@ -25,6 +25,7 @@ export default [
     },
     rules: {
       ...typescript.configs.recommended.rules,
+      'semi': ['error', 'always'],
     },
   },
-]
+];

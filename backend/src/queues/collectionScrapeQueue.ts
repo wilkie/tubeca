@@ -1,5 +1,5 @@
-import { Queue } from 'bullmq'
-import { redisConnection } from '../config/redis'
+import { Queue } from 'bullmq';
+import { redisConnection } from '../config/redis';
 
 export type CollectionScrapeType = 'Show' | 'Season' | 'Artist' | 'Album' | 'Film'
 
@@ -41,22 +41,22 @@ export const collectionScrapeQueue = new Queue<CollectionScrapeJobData>('collect
       age: 7 * 24 * 3600,
     },
   },
-})
+});
 
 // Queue event handlers
 collectionScrapeQueue.on('error', (error: Error) => {
-  console.error('Collection scrape queue error:', error)
-})
+  console.error('Collection scrape queue error:', error);
+});
 
 /**
  * Add a single collection scrape job
  */
 export async function addCollectionScrapeJob(data: CollectionScrapeJobData) {
   // Use timestamp in job ID to allow re-scraping the same collection
-  const jobId = `collection-scrape-${data.collectionId}-${Date.now()}`
+  const jobId = `collection-scrape-${data.collectionId}-${Date.now()}`;
   return await collectionScrapeQueue.add('scrape', data, {
     jobId,
-  })
+  });
 }
 
 /**
@@ -69,9 +69,9 @@ export async function addBulkCollectionScrapeJobs(jobs: CollectionScrapeJobData[
     opts: {
       jobId: `collection-scrape-${data.collectionId}`,
     },
-  }))
+  }));
 
-  return await collectionScrapeQueue.addBulk(bulkJobs)
+  return await collectionScrapeQueue.addBulk(bulkJobs);
 }
 
 /**
@@ -83,7 +83,7 @@ export async function getCollectionScrapeQueueStatus() {
     collectionScrapeQueue.getActiveCount(),
     collectionScrapeQueue.getCompletedCount(),
     collectionScrapeQueue.getFailedCount(),
-  ])
+  ]);
 
-  return { waiting, active, completed, failed }
+  return { waiting, active, completed, failed };
 }

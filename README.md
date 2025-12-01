@@ -102,6 +102,10 @@ pnpm lint
 
 The Vite dev server is configured to proxy `/api/*` requests to the backend server at `http://localhost:3000`. This avoids CORS issues during development.
 
+## API Documentation
+
+See [API.md](./API.md) for complete API documentation including all endpoints, authentication, and request/response formats.
+
 ## Available Scripts
 
 - `pnpm dev` - Start all dev servers
@@ -118,13 +122,6 @@ To run commands in specific workspaces, use the `--filter` flag:
 pnpm --filter @tubeca/ui <command>
 pnpm --filter @tubeca/backend <command>
 ```
-
-## API Endpoints
-
-### Backend (`http://localhost:3000`)
-
-- `GET /api/health` - Health check
-- `GET /api/videos` - Get sample videos list
 
 ## License
 

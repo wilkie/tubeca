@@ -1,4 +1,4 @@
-import { Media, MediaType } from '@prisma/client'
+import { Media, MediaType } from '@prisma/client';
 
 // Type-safe Video type
 export type Video = Omit<Media, 'type'> & {
@@ -15,11 +15,11 @@ export type MediaUnion = Video | Audio
 
 // Type guards for runtime type checking
 export function isVideo(media: Media): media is Video {
-  return media.type === MediaType.Video
+  return media.type === MediaType.Video;
 }
 
 export function isAudio(media: Media): media is Audio {
-  return media.type === MediaType.Audio
+  return media.type === MediaType.Audio;
 }
 
 // Helper type for creating new media items (required fields only)

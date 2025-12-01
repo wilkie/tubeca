@@ -1,7 +1,7 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
-const execFileAsync = promisify(execFile)
+const execFileAsync = promisify(execFile);
 
 // FFprobe JSON output types
 interface FFprobeStream {
@@ -77,19 +77,19 @@ export interface MediaProbeResult {
  * Parse frame rate from FFprobe fraction string (e.g., "24000/1001" -> 23.976)
  */
 function parseFrameRate(rateStr: string | undefined): number | null {
-  if (!rateStr) return null
+  if (!rateStr) return null;
 
-  const parts = rateStr.split('/')
+  const parts = rateStr.split('/');
   if (parts.length === 2) {
-    const num = parseFloat(parts[0])
-    const den = parseFloat(parts[1])
+    const num = parseFloat(parts[0]);
+    const den = parseFloat(parts[1]);
     if (den !== 0) {
-      return Math.round((num / den) * 1000) / 1000  // Round to 3 decimal places
+      return Math.round((num / den) * 1000) / 1000;  // Round to 3 decimal places
     }
   }
 
-  const parsed = parseFloat(rateStr)
-  return isNaN(parsed) ? null : parsed
+  const parsed = parseFloat(rateStr);
+  return isNaN(parsed) ? null : parsed;
 }
 
 /**
@@ -98,13 +98,13 @@ function parseFrameRate(rateStr: string | undefined): number | null {
 function mapCodecType(codecType: string): 'Video' | 'Audio' | 'Subtitle' | null {
   switch (codecType) {
     case 'video':
-      return 'Video'
+      return 'Video';
     case 'audio':
-      return 'Audio'
+      return 'Audio';
     case 'subtitle':
-      return 'Subtitle'
+      return 'Subtitle';
     default:
-      return null
+      return null;
   }
 }
 
@@ -119,23 +119,23 @@ export async function probeMediaFile(filePath: string): Promise<MediaProbeResult
       '-show_format',
       '-show_streams',
       filePath
-    ])
+    ]);
 
-    const data: FFprobeOutput = JSON.parse(stdout)
+    const data: FFprobeOutput = JSON.parse(stdout);
 
     // Extract duration
     const duration = data.format?.duration
       ? Math.round(parseFloat(data.format.duration))
-      : 0
+      : 0;
 
     // Extract streams
-    const streams: StreamInfo[] = []
+    const streams: StreamInfo[] = [];
 
     for (const stream of data.streams ?? []) {
-      const streamType = mapCodecType(stream.codec_type)
+      const streamType = mapCodecType(stream.codec_type);
 
       // Skip unsupported stream types (data, attachment, etc.)
-      if (!streamType) continue
+      if (!streamType) continue;
 
       const streamInfo: StreamInfo = {
         streamIndex: stream.index,
@@ -155,15 +155,15 @@ export async function probeMediaFile(filePath: string): Promise<MediaProbeResult
         width: stream.width ?? null,
         height: stream.height ?? null,
         frameRate: parseFrameRate(stream.r_frame_rate) ?? parseFrameRate(stream.avg_frame_rate),
-      }
+      };
 
-      streams.push(streamInfo)
+      streams.push(streamInfo);
     }
 
-    return { duration, streams }
+    return { duration, streams };
   } catch (error) {
-    console.error(`Failed to probe media file ${filePath}:`, error)
-    return { duration: 0, streams: [] }
+    console.error(`Failed to probe media file ${filePath}:`, error);
+    return { duration: 0, streams: [] };
   }
 }
 
@@ -177,11 +177,11 @@ export async function getMediaDuration(filePath: string): Promise<number> {
       '-show_entries', 'format=duration',
       '-of', 'default=noprint_wrappers=1:nokey=1',
       filePath
-    ])
-    const duration = parseFloat(stdout.trim())
-    return isNaN(duration) ? 0 : Math.round(duration)
+    ]);
+    const duration = parseFloat(stdout.trim());
+    return isNaN(duration) ? 0 : Math.round(duration);
   } catch (error) {
-    console.error(`Failed to get duration for ${filePath}:`, error)
-    return 0
+    console.error(`Failed to get duration for ${filePath}:`, error);
+    return 0;
   }
 }
