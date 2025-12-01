@@ -226,7 +226,7 @@ export class PersonService {
                 collection: {
                   include: {
                     parent: {
-                      select: { id: true, name: true },
+                      select: { id: true, name: true, collectionType: true },
                     },
                     images: {
                       where: { imageType: 'Poster', isPrimary: true },
@@ -250,14 +250,21 @@ export class PersonService {
       const media = credit.videoDetails.media;
       const collection = media.collection;
 
-      // If no show/episode info, it's a film
-      if (!credit.videoDetails.showName && collection?.collectionType === 'Film') {
+      // Determine if this is a film or episode based on collection type
+      // Films: collection type is 'Film', or parent collection type is 'Film'
+      // Episodes: collection type is 'Season', or has showName/season/episode info
+      const isFilm = collection?.collectionType === 'Film' ||
+        collection?.parent?.collectionType === 'Film';
+      const isEpisode = collection?.collectionType === 'Season' ||
+        (credit.videoDetails.showName && credit.videoDetails.season != null);
+
+      if (isFilm && !isEpisode) {
         films.push({
           collection: {
-            id: collection.id,
-            name: collection.name,
-            collectionType: collection.collectionType,
-            images: collection.images,
+            id: collection!.id,
+            name: collection!.name,
+            collectionType: collection!.collectionType,
+            images: collection!.images,
           },
           media: {
             id: media.id,
@@ -269,7 +276,7 @@ export class PersonService {
             creditType: credit.creditType,
           },
         });
-      } else {
+      } else if (isEpisode) {
         // It's an episode
         // Prefer thumbnail, then backdrop, then poster from media, then poster from collection
         const thumbnailImage = media.images?.find((img) => img.imageType === 'Thumbnail');
@@ -302,6 +309,7 @@ export class PersonService {
           },
         });
       }
+      // If neither film nor episode (e.g., orphaned media), skip it
     }
 
     return {
