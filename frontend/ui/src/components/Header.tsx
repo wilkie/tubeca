@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -10,9 +10,12 @@ import {
   Menu,
   MenuItem,
   Divider,
+  Button,
 } from '@mui/material';
 import { Menu as MenuIcon, Search, AccountCircle } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
+import { useActiveLibrary } from '../context/ActiveLibraryContext';
+import { apiClient, type Library } from '../api/client';
 import styles from './Header.module.scss';
 
 interface HeaderProps {
@@ -22,8 +25,21 @@ interface HeaderProps {
 export function Header({ onMenuClick }: HeaderProps) {
   const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [libraries, setLibraries] = useState<Library[]>([]);
   const { user, logout } = useAuth();
+  const { activeLibraryId, setActiveLibrary } = useActiveLibrary();
   const navigate = useNavigate();
+
+  // Fetch libraries when user is logged in
+  useEffect(() => {
+    if (user) {
+      apiClient.getLibraries().then((result) => {
+        if (result.data) {
+          setLibraries(result.data.libraries);
+        }
+      });
+    }
+  }, [user]);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -37,6 +53,12 @@ export function Header({ onMenuClick }: HeaderProps) {
     handleMenuClose();
     logout();
     navigate('/login');
+  };
+
+  const handleLibraryClick = (libraryId: string) => {
+    // Set active library before navigating to prevent flash
+    setActiveLibrary(libraryId);
+    navigate(`/library/${libraryId}`);
   };
 
   return (
@@ -61,6 +83,29 @@ export function Header({ onMenuClick }: HeaderProps) {
         >
           {t('app.name')}
         </Typography>
+
+        {/* Library Navigation Buttons */}
+        <Box sx={{ display: 'flex', gap: 1, mx: 2 }}>
+          {libraries.map((library) => {
+            const isActive = activeLibraryId === library.id;
+            return (
+              <Button
+                key={library.id}
+                color="inherit"
+                onClick={() => handleLibraryClick(library.id)}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: isActive ? 'bold' : 'normal',
+                  borderBottom: isActive ? '2px solid white' : '2px solid transparent',
+                  borderRadius: 0,
+                  px: 2,
+                }}
+              >
+                {library.name}
+              </Button>
+            );
+          })}
+        </Box>
 
         <Box sx={{ flexGrow: 1 }} />
 

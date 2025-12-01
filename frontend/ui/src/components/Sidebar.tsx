@@ -19,6 +19,7 @@ import {
   MusicNote,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
+import { useActiveLibrary } from '../context/ActiveLibraryContext';
 import { apiClient, type Library, type LibraryType } from '../api/client';
 
 interface SidebarProps {
@@ -35,6 +36,7 @@ const libraryTypeIcons: Record<LibraryType, React.ReactNode> = {
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { setActiveLibrary } = useActiveLibrary();
   const navigate = useNavigate();
   const location = useLocation();
   const [libraries, setLibraries] = useState<Library[]>([]);
@@ -51,6 +53,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
   const handleNavigate = (path: string) => {
     navigate(path);
+    onClose();
+  };
+
+  const handleLibraryNavigate = (libraryId: string) => {
+    // Set active library before navigating to prevent flash
+    setActiveLibrary(libraryId);
+    navigate(`/library/${libraryId}`);
     onClose();
   };
 
@@ -74,7 +83,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <ListItem key={library.id} disablePadding>
               <ListItemButton
                 selected={location.pathname === `/library/${library.id}`}
-                onClick={() => handleNavigate(`/library/${library.id}`)}
+                onClick={() => handleLibraryNavigate(library.id)}
               >
                 <ListItemIcon>
                   {libraryTypeIcons[library.libraryType]}

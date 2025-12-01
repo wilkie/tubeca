@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Box } from '@mui/material';
 import { Header, Sidebar } from './components';
+import { ActiveLibraryProvider } from './context/ActiveLibraryContext';
 import { SettingsPage } from './pages/SettingsPage';
 import { LibrariesPage } from './pages/LibrariesPage';
 import { LibraryPage } from './pages/LibraryPage';
@@ -14,11 +15,12 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Header onMenuClick={() => setSidebarOpen(true)} />
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <Box component="main" sx={{ flexGrow: 1 }}>
-        <Routes>
+    <ActiveLibraryProvider>
+      <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Header onMenuClick={() => setSidebarOpen(true)} />
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Box component="main" sx={{ flexGrow: 1 }}>
+          <Routes>
           {/* Admin routes */}
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/admin/libraries" element={<LibrariesPage />} />
@@ -32,10 +34,11 @@ function App() {
           <Route path="/play/:mediaId" element={<PlayPage />} />
           <Route path="/person/:personId" element={<PersonPage />} />
 
-          <Route path="/" element={<Box />} />
-        </Routes>
+            <Route path="/" element={<Box />} />
+          </Routes>
+        </Box>
       </Box>
-    </Box>
+    </ActiveLibraryProvider>
   );
 }
 
