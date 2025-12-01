@@ -73,6 +73,18 @@ export class CollectionService {
               where: { isPrimary: true, imageType: 'Poster' },
               take: 1,
             },
+            // Include media for finding first episode in Shows
+            media: {
+              select: {
+                id: true,
+                videoDetails: {
+                  select: {
+                    episode: true,
+                  },
+                },
+              },
+              orderBy: { name: 'asc' },
+            },
           },
           orderBy: { name: 'asc' },
         },
