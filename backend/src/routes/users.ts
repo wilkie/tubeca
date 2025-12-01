@@ -248,6 +248,103 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
 
 /**
  * @openapi
+ * /api/users/{id}:
+ *   patch:
+ *     tags:
+ *       - Users
+ *     summary: Update user
+ *     description: Update a user's name and/or password (Admin only)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Invalid request or username already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Forbidden - Admin role required
+ *       404:
+ *         description: User not found
+ */
+router.patch('/:id', requireRole('Admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, password } = req.body;
+
+    // Check user exists
+    const existingUser = await prisma.user.findUnique({ where: { id } });
+    if (!existingUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // If changing name, check it's not taken
+    if (name && name !== existingUser.name) {
+      const duplicateName = await prisma.user.findUnique({ where: { name } });
+      if (duplicateName) {
+        return res.status(400).json({ error: 'Username already exists' });
+      }
+    }
+
+    // Build update data
+    const updateData: { name?: string; passwordHash?: string } = {};
+    if (name) {
+      updateData.name = name;
+    }
+    if (password) {
+      updateData.passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        groups: true,
+        createdAt: true,
+      },
+    });
+
+    res.json({ user });
+  } catch {
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+/**
+ * @openapi
  * /api/users/{id}/groups:
  *   patch:
  *     tags:

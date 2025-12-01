@@ -6,6 +6,7 @@ import type {
   UserResponse,
   UsersResponse,
   CreateUserInput,
+  UpdateUserInput,
   Group,
   GroupResponse,
   GroupsResponse,
@@ -63,6 +64,7 @@ export type {
   UserResponse,
   UsersResponse,
   CreateUserInput,
+  UpdateUserInput,
   Group,
   GroupResponse,
   GroupsResponse,
@@ -188,6 +190,13 @@ class ApiClient {
   async createUser(user: CreateUserInput): Promise<ApiResponse<UserResponse>> {
     return this.request<UserResponse>('/users', {
       method: 'POST',
+      body: JSON.stringify(user),
+    });
+  }
+
+  async updateUser(id: string, user: UpdateUserInput): Promise<ApiResponse<UserResponse>> {
+    return this.request<UserResponse>(`/users/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(user),
     });
   }

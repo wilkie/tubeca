@@ -43,6 +43,11 @@ export interface CreateUserInput {
   groupIds?: string[]
 }
 
+export interface UpdateUserInput {
+  name?: string
+  password?: string
+}
+
 export interface Group {
   id: string
   name: string

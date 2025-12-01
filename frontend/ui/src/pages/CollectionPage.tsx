@@ -44,6 +44,7 @@ import {
   Collections,
   Refresh,
   Image as ImageIcon,
+  KeyboardArrowDown,
 } from '@mui/icons-material';
 import { apiClient, type Collection, type CollectionType, type ShowCredit, type Image, type Credit } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -170,6 +171,11 @@ export function CollectionPage() {
   // Refresh metadata state
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingImages, setIsRefreshingImages] = useState(false);
+
+  // Season selector state for Shows
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
+  const [seasonMenuAnchorEl, setSeasonMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const seasonMenuOpen = Boolean(seasonMenuAnchorEl);
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
 
@@ -362,21 +368,26 @@ export function CollectionPage() {
   const isShow = collection.collectionType === 'Show';
   const primaryMedia = rawMedia.length > 0 ? rawMedia[0] : null;
 
-  // Find first episode for Shows (first episode of first season)
-  const firstEpisodeId = isShow ? (() => {
-    // Sort seasons by name (Season 1, Season 2, etc.)
-    const sortedSeasons = [...childCollections].sort((a, b) => a.name.localeCompare(b.name));
-    for (const season of sortedSeasons) {
-      if (season.media && season.media.length > 0) {
-        // Sort episodes by episode number
-        const sortedEpisodes = [...season.media].sort((a, b) => {
-          const aEp = a.videoDetails?.episode ?? Infinity;
-          const bEp = b.videoDetails?.episode ?? Infinity;
-          return aEp - bEp;
-        });
-        if (sortedEpisodes.length > 0) {
-          return sortedEpisodes[0].id;
-        }
+  // Sort seasons for Shows
+  const sortedSeasons = isShow
+    ? [...childCollections].sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
+  // Get the currently selected season (default to first season)
+  const currentSeasonId = selectedSeasonId || (sortedSeasons.length > 0 ? sortedSeasons[0].id : null);
+  const currentSeason = sortedSeasons.find(s => s.id === currentSeasonId);
+
+  // Find first episode for the selected season
+  const firstEpisodeId = isShow && currentSeason ? (() => {
+    if (currentSeason.media && currentSeason.media.length > 0) {
+      // Sort episodes by episode number
+      const sortedEpisodes = [...currentSeason.media].sort((a, b) => {
+        const aEp = a.videoDetails?.episode ?? Infinity;
+        const bEp = b.videoDetails?.episode ?? Infinity;
+        return aEp - bEp;
+      });
+      if (sortedEpisodes.length > 0) {
+        return sortedEpisodes[0].id;
       }
     }
     return null;
@@ -454,7 +465,7 @@ export function CollectionPage() {
       {/* Film Library - Movie Detail View */}
       {isFilmLibrary && primaryMedia ? (
         <>
-          {/* Hero Section with Backdrop */}
+          {/* Hero Section with Backdrop - Full viewport height */}
           {(() => {
             // Find images by type
             const backdropImage = collection.images?.find(img => img.imageType === 'Backdrop');
@@ -468,7 +479,7 @@ export function CollectionPage() {
                   mx: -3, // Extend beyond container padding
                   mt: -4, // Pull up to top
                   mb: 3,
-                  minHeight: { xs: 400, md: 450 },
+                  minHeight: 'calc(100vh - 48px)', // Full viewport minus header
                   display: 'flex',
                   flexDirection: 'column',
                 }}
@@ -511,7 +522,7 @@ export function CollectionPage() {
                     left: 0,
                     width: '100%',
                     height: '100%',
-                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0.3) 100%)',
+                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, rgba(0,0,0,0.3) 100%)',
                     zIndex: 1,
                   }}
                 />
@@ -545,7 +556,163 @@ export function CollectionPage() {
                   <Typography sx={{ color: 'grey.100' }}>{collection.name}</Typography>
                 </Breadcrumbs>
 
-                {/* Content Overlay */}
+                {/* Description Card - Semi-transparent, below breadcrumbs */}
+                {(primaryMedia.videoDetails?.description || (primaryMedia.videoDetails?.credits && primaryMedia.videoDetails.credits.length > 0)) && (
+                  <Box
+                    sx={{
+                      position: 'relative',
+                      zIndex: 2,
+                      px: 3,
+                      mt: 2,
+                      maxWidth: { xs: '100%', md: '60%', lg: '50%' },
+                      maxHeight: { xs: 'calc(100vh - 350px)', md: 'calc(100vh - 400px)' },
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <Paper
+                      sx={{
+                        p: 3,
+                        bgcolor: 'rgba(0, 0, 0, 0.6)',
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        maxHeight: '100%',
+                        overflow: 'auto',
+                      }}
+                    >
+                      {/* Description */}
+                      {primaryMedia.videoDetails?.description && (
+                        <Typography
+                          variant="body1"
+                          sx={{
+                            color: 'grey.200',
+                            mb: primaryMedia.videoDetails?.credits?.length ? 2 : 0,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 6,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {primaryMedia.videoDetails.description}
+                        </Typography>
+                      )}
+
+                      {/* Cast & Crew text summary */}
+                      {primaryMedia.videoDetails?.credits && primaryMedia.videoDetails.credits.length > 0 && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          {/* Directors */}
+                          {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Director').length > 0 && (
+                            <Box>
+                              <Typography variant="caption" sx={{ color: 'grey.400' }}>
+                                {t('media.director', 'Director')}
+                              </Typography>
+                              <Typography variant="body2" component="div" sx={{ color: 'grey.200' }}>
+                                {primaryMedia.videoDetails.credits
+                                  .filter(c => c.creditType === 'Director')
+                                  .map((c, index, arr) => (
+                                    <span key={c.id}>
+                                      {c.personId ? (
+                                        <Link
+                                          component="button"
+                                          variant="body2"
+                                          onClick={() => navigate(`/person/${c.personId}`)}
+                                          sx={{
+                                            color: 'grey.200',
+                                            '&:hover': { color: 'white' },
+                                          }}
+                                        >
+                                          {c.name}
+                                        </Link>
+                                      ) : (
+                                        c.name
+                                      )}
+                                      {index < arr.length - 1 && ', '}
+                                    </span>
+                                  ))}
+                              </Typography>
+                            </Box>
+                          )}
+                          {/* Writers */}
+                          {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Writer').length > 0 && (
+                            <Box>
+                              <Typography variant="caption" sx={{ color: 'grey.400' }}>
+                                {t('media.writer', 'Writer')}
+                              </Typography>
+                              <Typography variant="body2" component="div" sx={{ color: 'grey.200' }}>
+                                {primaryMedia.videoDetails.credits
+                                  .filter(c => c.creditType === 'Writer')
+                                  .map((c, index, arr) => (
+                                    <span key={c.id}>
+                                      {c.personId ? (
+                                        <Link
+                                          component="button"
+                                          variant="body2"
+                                          onClick={() => navigate(`/person/${c.personId}`)}
+                                          sx={{
+                                            color: 'grey.200',
+                                            '&:hover': { color: 'white' },
+                                          }}
+                                        >
+                                          {c.name}
+                                        </Link>
+                                      ) : (
+                                        c.name
+                                      )}
+                                      {index < arr.length - 1 && ', '}
+                                    </span>
+                                  ))}
+                              </Typography>
+                            </Box>
+                          )}
+                          {/* Cast */}
+                          {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Actor').length > 0 && (
+                            <Box>
+                              <Typography variant="caption" sx={{ color: 'grey.400' }}>
+                                {t('media.cast', 'Cast')}
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                component="div"
+                                sx={{
+                                  color: 'grey.200',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {primaryMedia.videoDetails.credits
+                                  .filter(c => c.creditType === 'Actor')
+                                  .slice(0, 10)
+                                  .map((c, index, arr) => (
+                                    <span key={c.id}>
+                                      {c.personId ? (
+                                        <Link
+                                          component="button"
+                                          variant="body2"
+                                          onClick={() => navigate(`/person/${c.personId}`)}
+                                          sx={{
+                                            color: 'grey.200',
+                                            '&:hover': { color: 'white' },
+                                          }}
+                                        >
+                                          {c.role ? `${c.name} (${c.role})` : c.name}
+                                        </Link>
+                                      ) : (
+                                        c.role ? `${c.name} (${c.role})` : c.name
+                                      )}
+                                      {index < arr.length - 1 && ', '}
+                                    </span>
+                                  ))}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      )}
+                    </Paper>
+                  </Box>
+                )}
+
+                {/* Content Overlay - Poster, Logo, Play button at bottom */}
                 <Box
                   sx={{
                     position: 'relative',
@@ -655,59 +822,6 @@ export function CollectionPage() {
               </Box>
             );
           })()}
-
-          {/* Movie Details Card */}
-          <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
-            {/* Description */}
-            {primaryMedia.videoDetails?.description && (
-              <Typography variant="body1" color="text.secondary" paragraph>
-                {primaryMedia.videoDetails.description}
-              </Typography>
-            )}
-
-            {/* Cast & Crew text summary */}
-            {primaryMedia.videoDetails?.credits && primaryMedia.videoDetails.credits.length > 0 && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {/* Directors */}
-                {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Director').length > 0 && (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      {t('media.director', 'Director')}
-                    </Typography>
-                    <Typography variant="body2">
-                      {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Director').map(c => c.name).join(', ')}
-                    </Typography>
-                  </Box>
-                )}
-                {/* Writers */}
-                {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Writer').length > 0 && (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      {t('media.writer', 'Writer')}
-                    </Typography>
-                    <Typography variant="body2">
-                      {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Writer').map(c => c.name).join(', ')}
-                    </Typography>
-                  </Box>
-                )}
-                {/* Cast */}
-                {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Actor').length > 0 && (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      {t('media.cast', 'Cast')}
-                    </Typography>
-                    <Typography variant="body2">
-                      {primaryMedia.videoDetails.credits
-                        .filter(c => c.creditType === 'Actor')
-                        .slice(0, 10)
-                        .map(c => c.role ? `${c.name} (${c.role})` : c.name)
-                        .join(', ')}
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            )}
-          </Paper>
 
           {/* Special Features / Other Media */}
           {media.length > 1 && (
@@ -837,7 +951,7 @@ export function CollectionPage() {
         </>
       ) : isShow ? (
         <>
-          {/* Show Detail View with Hero */}
+          {/* Show Detail View with Hero - Full viewport height */}
           {(() => {
             // Find images by type
             const backdropImage = collection.images?.find(img => img.imageType === 'Backdrop');
@@ -851,7 +965,7 @@ export function CollectionPage() {
                   mx: -3, // Extend beyond container padding
                   mt: -4, // Pull up to top
                   mb: 3,
-                  minHeight: { xs: 400, md: 450 },
+                  minHeight: 'calc(100vh - 48px)', // Full viewport minus header
                   display: 'flex',
                   flexDirection: 'column',
                 }}
@@ -894,7 +1008,7 @@ export function CollectionPage() {
                     left: 0,
                     width: '100%',
                     height: '100%',
-                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0.3) 100%)',
+                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, rgba(0,0,0,0.3) 100%)',
                     zIndex: 1,
                   }}
                 />
@@ -928,7 +1042,46 @@ export function CollectionPage() {
                   <Typography sx={{ color: 'grey.100' }}>{collection.name}</Typography>
                 </Breadcrumbs>
 
-                {/* Content Overlay */}
+                {/* Description Card - Semi-transparent, below breadcrumbs */}
+                {collection.showDetails?.description && (
+                  <Box
+                    sx={{
+                      position: 'relative',
+                      zIndex: 2,
+                      px: 3,
+                      mt: 2,
+                      maxWidth: { xs: '100%', md: '60%', lg: '50%' },
+                      maxHeight: { xs: 'calc(100vh - 350px)', md: 'calc(100vh - 400px)' },
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <Paper
+                      sx={{
+                        p: 3,
+                        bgcolor: 'rgba(0, 0, 0, 0.6)',
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        maxHeight: '100%',
+                        overflow: 'auto',
+                      }}
+                    >
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          color: 'grey.200',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 6,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {collection.showDetails.description}
+                      </Typography>
+                    </Paper>
+                  </Box>
+                )}
+
+                {/* Content Overlay - Poster, Logo, Play button at bottom */}
                 <Box
                   sx={{
                     position: 'relative',
@@ -1018,9 +1171,9 @@ export function CollectionPage() {
                           </Typography>
                         </Box>
                       )}
-                      {childCollections.length > 0 && (
+                      {sortedSeasons.length > 0 && (
                         <Typography variant="body1" sx={{ color: 'grey.300' }}>
-                          {t('collection.seasonCount', '{{count}} Seasons', { count: childCollections.length })}
+                          {t('collection.seasonCount', '{{count}} Seasons', { count: sortedSeasons.length })}
                         </Typography>
                       )}
                     </Box>
@@ -1044,7 +1197,54 @@ export function CollectionPage() {
                     )}
 
                     {/* Action Buttons */}
-                    <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      {/* Season Selector - only show if more than one season */}
+                      {sortedSeasons.length > 1 && (
+                        <>
+                          <Button
+                            variant="outlined"
+                            size="large"
+                            onClick={(e) => setSeasonMenuAnchorEl(e.currentTarget)}
+                            endIcon={<KeyboardArrowDown />}
+                            sx={{
+                              color: 'white',
+                              borderColor: 'grey.500',
+                              '&:hover': {
+                                borderColor: 'white',
+                                bgcolor: 'rgba(255,255,255,0.1)',
+                              },
+                            }}
+                          >
+                            {currentSeason?.name || t('collection.selectSeason', 'Select Season')}
+                          </Button>
+                          <Menu
+                            anchorEl={seasonMenuAnchorEl}
+                            open={seasonMenuOpen}
+                            onClose={() => setSeasonMenuAnchorEl(null)}
+                            anchorOrigin={{
+                              vertical: 'top',
+                              horizontal: 'left',
+                            }}
+                            transformOrigin={{
+                              vertical: 'bottom',
+                              horizontal: 'left',
+                            }}
+                          >
+                            {sortedSeasons.map((season) => (
+                              <MenuItem
+                                key={season.id}
+                                selected={season.id === currentSeasonId}
+                                onClick={() => {
+                                  setSelectedSeasonId(season.id);
+                                  setSeasonMenuAnchorEl(null);
+                                }}
+                              >
+                                {season.name}
+                              </MenuItem>
+                            ))}
+                          </Menu>
+                        </>
+                      )}
                       {firstEpisodeId && (
                         <Button
                           variant="contained"
@@ -1072,55 +1272,45 @@ export function CollectionPage() {
             );
           })()}
 
-          {/* Show Description */}
-          {collection.showDetails?.description && (
-            <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
-              <Typography variant="body1" color="text.secondary">
-                {collection.showDetails.description}
-              </Typography>
-            </Paper>
-          )}
-
           {/* Seasons Grid */}
-          {childCollections.length > 0 && (
-            <>
+          {sortedSeasons.length > 0 && (
+            <Box sx={{ mt: 4 }}>
               <Typography variant="h5" sx={{ mb: 2 }}>
-                {t('collection.seasons', 'Seasons')} ({childCollections.length})
+                {t('collection.seasons', 'Seasons')} ({sortedSeasons.length})
               </Typography>
-              <Grid container spacing={2} sx={{ mb: 4 }}>
-                {childCollections.map((child) => {
-                  const primaryImage = child.images?.[0];
-                  const hasImage = primaryImage && child.collectionType === 'Season';
+              <Grid container spacing={2}>
+                {sortedSeasons.map((season) => {
+                  const primaryImage = season.images?.[0];
 
                   return (
-                    <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={child.id}>
+                    <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={season.id}>
                       <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                         <CardActionArea
-                          onClick={() => handleCollectionClick(child.id)}
+                          onClick={() => handleCollectionClick(season.id)}
                           sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                         >
-                          {hasImage ? (
+                          {primaryImage ? (
                             <>
                               <CardMedia
                                 component="img"
                                 image={apiClient.getImageUrl(primaryImage.id)}
-                                alt={child.name}
+                                alt={season.name}
                                 sx={{
                                   aspectRatio: '2/3',
                                   objectFit: 'cover',
                                 }}
                               />
                               <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                                <Typography variant="body2" noWrap title={child.name}>
-                                  {child.name}
+                                <Typography variant="body2" noWrap title={season.name}>
+                                  {season.name}
                                 </Typography>
                               </CardContent>
                             </>
                           ) : (
                             <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                              {getCollectionIcon(child.collectionType)}
-                              <Typography variant="body2" noWrap title={child.name}>
-                                {child.name}
+                              <Folder sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
+                              <Typography variant="body2" noWrap title={season.name}>
+                                {season.name}
                               </Typography>
                             </CardContent>
                           )}
@@ -1130,7 +1320,7 @@ export function CollectionPage() {
                   );
                 })}
               </Grid>
-            </>
+            </Box>
           )}
 
           {/* Show Cast Photo Grid */}
