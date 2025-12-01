@@ -103,7 +103,7 @@ export function LibraryPage() {
 
   if (error) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Alert severity="error">{error}</Alert>
       </Container>
     );
@@ -111,7 +111,7 @@ export function LibraryPage() {
 
   if (!library) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Alert severity="warning">{t('library.notFound')}</Alert>
       </Container>
     );
@@ -122,7 +122,7 @@ export function LibraryPage() {
   const rootMedia: MediaItem[] = [];
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
+    <Container maxWidth={false} sx={{ py: 4 }}>
       <Typography variant="h4" component="h1" sx={{ mb: 3 }}>
         {library.name}
       </Typography>

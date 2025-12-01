@@ -39,7 +39,6 @@ import {
   CalendarMonth,
   Star,
   PlayArrow,
-  Movie,
   MoreVert,
   Delete,
   Collections,
@@ -89,6 +88,12 @@ interface ChildCollection {
   name: string;
   collectionType?: CollectionType;
   images?: Image[];
+  media?: {
+    id: string;
+    videoDetails?: {
+      episode: number | null;
+    } | null;
+  }[];
 }
 
 interface BreadcrumbItem {
@@ -335,7 +340,7 @@ export function CollectionPage() {
 
   if (error) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Alert severity="error">{error}</Alert>
       </Container>
     );
@@ -343,7 +348,7 @@ export function CollectionPage() {
 
   if (!collection) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Alert severity="warning">{t('collection.notFound')}</Alert>
       </Container>
     );
@@ -354,7 +359,28 @@ export function CollectionPage() {
 
   // Check if this is a Film library collection (should be displayed as a movie)
   const isFilmLibrary = collection.library?.libraryType === 'Film';
+  const isShow = collection.collectionType === 'Show';
   const primaryMedia = rawMedia.length > 0 ? rawMedia[0] : null;
+
+  // Find first episode for Shows (first episode of first season)
+  const firstEpisodeId = isShow ? (() => {
+    // Sort seasons by name (Season 1, Season 2, etc.)
+    const sortedSeasons = [...childCollections].sort((a, b) => a.name.localeCompare(b.name));
+    for (const season of sortedSeasons) {
+      if (season.media && season.media.length > 0) {
+        // Sort episodes by episode number
+        const sortedEpisodes = [...season.media].sort((a, b) => {
+          const aEp = a.videoDetails?.episode ?? Infinity;
+          const bEp = b.videoDetails?.episode ?? Infinity;
+          return aEp - bEp;
+        });
+        if (sortedEpisodes.length > 0) {
+          return sortedEpisodes[0].id;
+        }
+      }
+    }
+    return null;
+  })() : null;
 
   // Sort media based on collection type
   const media = [...rawMedia].sort((a, b) => {
@@ -404,54 +430,231 @@ export function CollectionPage() {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* Breadcrumbs */}
-      <Breadcrumbs sx={{ mb: 2 }}>
-        {breadcrumbs.map((crumb) => (
-          <Link
-            key={crumb.id}
-            component="button"
-            variant="body2"
-            onClick={() => handleBreadcrumbClick(crumb)}
-            underline="hover"
-            color="inherit"
-            sx={{ cursor: 'pointer' }}
-          >
-            {crumb.name}
-          </Link>
-        ))}
-        <Typography color="text.primary">{collection.name}</Typography>
-      </Breadcrumbs>
+    <Container maxWidth={false} sx={{ py: 4 }}>
+      {/* Breadcrumbs - shown for non-hero views (film and show views have breadcrumbs in hero) */}
+      {!isFilmLibrary && !isShow && (
+        <Breadcrumbs sx={{ mb: 2 }}>
+          {breadcrumbs.map((crumb) => (
+            <Link
+              key={crumb.id}
+              component="button"
+              variant="body2"
+              onClick={() => handleBreadcrumbClick(crumb)}
+              underline="hover"
+              color="inherit"
+              sx={{ cursor: 'pointer' }}
+            >
+              {crumb.name}
+            </Link>
+          ))}
+          <Typography color="text.primary">{collection.name}</Typography>
+        </Breadcrumbs>
+      )}
 
       {/* Film Library - Movie Detail View */}
       {isFilmLibrary && primaryMedia ? (
         <>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-            <Box>
-              <Typography variant="h4" component="h1">
-                {collection.name}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <IconButton
-                onClick={handleMenuOpen}
-                aria-label={t('common.moreOptions', 'More options')}
-                aria-controls={menuOpen ? 'collection-menu' : undefined}
-                aria-haspopup="true"
-                aria-expanded={menuOpen ? 'true' : undefined}
+          {/* Hero Section with Backdrop */}
+          {(() => {
+            // Find images by type
+            const backdropImage = collection.images?.find(img => img.imageType === 'Backdrop');
+            const posterImage = collection.images?.find(img => img.imageType === 'Poster');
+            const logoImage = collection.images?.find(img => img.imageType === 'Logo');
+
+            return (
+              <Box
+                sx={{
+                  position: 'relative',
+                  mx: -3, // Extend beyond container padding
+                  mt: -4, // Pull up to top
+                  mb: 3,
+                  minHeight: { xs: 400, md: 450 },
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
               >
-                <MoreVert />
-              </IconButton>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={<PlayArrow />}
-                onClick={() => handlePlay(primaryMedia.id)}
-              >
-                {t('media.play', 'Play')}
-              </Button>
-            </Box>
-          </Box>
+                {/* Backdrop Image */}
+                {backdropImage ? (
+                  <Box
+                    component="img"
+                    src={apiClient.getImageUrl(backdropImage.id)}
+                    alt=""
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      zIndex: 0,
+                    }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      bgcolor: 'grey.900',
+                      zIndex: 0,
+                    }}
+                  />
+                )}
+
+                {/* Gradient Overlay */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0.3) 100%)',
+                    zIndex: 1,
+                  }}
+                />
+
+                {/* Breadcrumbs at top */}
+                <Breadcrumbs
+                  sx={{
+                    position: 'relative',
+                    zIndex: 2,
+                    px: 3,
+                    pt: 2,
+                    '& .MuiBreadcrumbs-separator': { color: 'grey.400' },
+                  }}
+                >
+                  {breadcrumbs.map((crumb) => (
+                    <Link
+                      key={crumb.id}
+                      component="button"
+                      variant="body2"
+                      onClick={() => handleBreadcrumbClick(crumb)}
+                      underline="hover"
+                      sx={{
+                        cursor: 'pointer',
+                        color: 'grey.300',
+                        '&:hover': { color: 'white' },
+                      }}
+                    >
+                      {crumb.name}
+                    </Link>
+                  ))}
+                  <Typography sx={{ color: 'grey.100' }}>{collection.name}</Typography>
+                </Breadcrumbs>
+
+                {/* Content Overlay */}
+                <Box
+                  sx={{
+                    position: 'relative',
+                    zIndex: 2,
+                    width: '100%',
+                    px: 3,
+                    pb: 3,
+                    mt: 'auto', // Push to bottom
+                    display: 'flex',
+                    gap: 3,
+                    alignItems: 'flex-end',
+                  }}
+                >
+                  {/* Poster */}
+                  {posterImage && (
+                    <Box
+                      component="img"
+                      src={apiClient.getImageUrl(posterImage.id)}
+                      alt={collection.name}
+                      sx={{
+                        width: { xs: 120, sm: 150, md: 200 },
+                        aspectRatio: '2/3',
+                        objectFit: 'cover',
+                        borderRadius: 1,
+                        boxShadow: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+
+                  {/* Title and Metadata */}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    {/* Logo or Title */}
+                    {logoImage ? (
+                      <Box
+                        component="img"
+                        src={apiClient.getImageUrl(logoImage.id)}
+                        alt={collection.name}
+                        sx={{
+                          maxWidth: { xs: 200, sm: 300, md: 400 },
+                          maxHeight: { xs: 60, sm: 80, md: 100 },
+                          objectFit: 'contain',
+                          objectPosition: 'left',
+                          mb: 1,
+                        }}
+                      />
+                    ) : (
+                      <Typography
+                        variant="h3"
+                        component="h1"
+                        sx={{
+                          color: 'white',
+                          fontWeight: 'bold',
+                          textShadow: '2px 2px 4px rgba(0,0,0,0.5)',
+                          mb: 1,
+                        }}
+                      >
+                        {collection.name}
+                      </Typography>
+                    )}
+
+                    {/* Metadata Row */}
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
+                      {primaryMedia.videoDetails?.releaseDate && (
+                        <Typography variant="body1" sx={{ color: 'grey.300' }}>
+                          {new Date(primaryMedia.videoDetails.releaseDate).getFullYear()}
+                        </Typography>
+                      )}
+                      {primaryMedia.duration && primaryMedia.duration > 0 && (
+                        <Typography variant="body1" sx={{ color: 'grey.300' }}>
+                          {formatDuration(primaryMedia.duration)}
+                        </Typography>
+                      )}
+                      {primaryMedia.videoDetails?.rating && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Star sx={{ color: 'warning.main', fontSize: 20 }} />
+                          <Typography variant="body1" sx={{ color: 'grey.300' }}>
+                            {primaryMedia.videoDetails.rating}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+
+                    {/* Action Buttons */}
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        variant="contained"
+                        size="large"
+                        startIcon={<PlayArrow />}
+                        onClick={() => handlePlay(primaryMedia.id)}
+                      >
+                        {t('media.play', 'Play')}
+                      </Button>
+                      <IconButton
+                        onClick={handleMenuOpen}
+                        aria-label={t('common.moreOptions', 'More options')}
+                        aria-controls={menuOpen ? 'collection-menu' : undefined}
+                        aria-haspopup="true"
+                        aria-expanded={menuOpen ? 'true' : undefined}
+                        sx={{ color: 'white' }}
+                      >
+                        <MoreVert />
+                      </IconButton>
+                    </Box>
+                  </Box>
+                </Box>
+              </Box>
+            );
+          })()}
 
           {/* Movie Details Card */}
           <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
@@ -462,74 +665,47 @@ export function CollectionPage() {
               </Typography>
             )}
 
-            {/* Basic info chips */}
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
-              <Chip
-                icon={<Movie />}
-                label="Movie"
-                size="small"
-              />
-              {primaryMedia.duration && primaryMedia.duration > 0 && (
-                <Chip label={formatDuration(primaryMedia.duration)} size="small" variant="outlined" />
-              )}
-              {primaryMedia.videoDetails?.rating && (
-                <Chip
-                  icon={<Star sx={{ fontSize: 16 }} />}
-                  label={`${primaryMedia.videoDetails.rating} / 10`}
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                />
-              )}
-              {primaryMedia.videoDetails?.releaseDate && (
-                <Chip label={new Date(primaryMedia.videoDetails.releaseDate).getFullYear()} size="small" variant="outlined" />
-              )}
-            </Box>
-
             {/* Cast & Crew text summary */}
             {primaryMedia.videoDetails?.credits && primaryMedia.videoDetails.credits.length > 0 && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {/* Directors */}
-                  {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Director').length > 0 && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        {t('media.director', 'Director')}
-                      </Typography>
-                      <Typography variant="body2">
-                        {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Director').map(c => c.name).join(', ')}
-                      </Typography>
-                    </Box>
-                  )}
-                  {/* Writers */}
-                  {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Writer').length > 0 && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        {t('media.writer', 'Writer')}
-                      </Typography>
-                      <Typography variant="body2">
-                        {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Writer').map(c => c.name).join(', ')}
-                      </Typography>
-                    </Box>
-                  )}
-                  {/* Cast */}
-                  {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Actor').length > 0 && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        {t('media.cast', 'Cast')}
-                      </Typography>
-                      <Typography variant="body2">
-                        {primaryMedia.videoDetails.credits
-                          .filter(c => c.creditType === 'Actor')
-                          .slice(0, 10)
-                          .map(c => c.role ? `${c.name} (${c.role})` : c.name)
-                          .join(', ')}
-                      </Typography>
-                    </Box>
-                  )}
-                </Box>
-              </>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {/* Directors */}
+                {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Director').length > 0 && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('media.director', 'Director')}
+                    </Typography>
+                    <Typography variant="body2">
+                      {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Director').map(c => c.name).join(', ')}
+                    </Typography>
+                  </Box>
+                )}
+                {/* Writers */}
+                {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Writer').length > 0 && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('media.writer', 'Writer')}
+                    </Typography>
+                    <Typography variant="body2">
+                      {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Writer').map(c => c.name).join(', ')}
+                    </Typography>
+                  </Box>
+                )}
+                {/* Cast */}
+                {primaryMedia.videoDetails.credits.filter(c => c.creditType === 'Actor').length > 0 && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('media.cast', 'Cast')}
+                    </Typography>
+                    <Typography variant="body2">
+                      {primaryMedia.videoDetails.credits
+                        .filter(c => c.creditType === 'Actor')
+                        .slice(0, 10)
+                        .map(c => c.role ? `${c.name} (${c.role})` : c.name)
+                        .join(', ')}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
             )}
           </Paper>
 
@@ -636,12 +812,12 @@ export function CollectionPage() {
                                 <Person sx={{ fontSize: 64, color: 'text.secondary' }} />
                               </Box>
                             )}
-                            <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1 }}>
-                              <Typography variant="body2" noWrap title={credit.name}>
+                            <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1, overflow: 'hidden' }}>
+                              <Typography variant="body2" noWrap title={credit.name} sx={{ textOverflow: 'ellipsis', overflow: 'hidden' }}>
                                 {credit.name}
                               </Typography>
                               {credit.creditType === 'Actor' && credit.role ? (
-                                <Typography variant="caption" color="text.secondary" noWrap title={credit.role}>
+                                <Typography variant="caption" color="text.secondary" noWrap title={credit.role} sx={{ display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                                   {credit.role}
                                 </Typography>
                               ) : credit.creditType !== 'Actor' && (
@@ -659,9 +835,370 @@ export function CollectionPage() {
             </Box>
           )}
         </>
+      ) : isShow ? (
+        <>
+          {/* Show Detail View with Hero */}
+          {(() => {
+            // Find images by type
+            const backdropImage = collection.images?.find(img => img.imageType === 'Backdrop');
+            const posterImage = collection.images?.find(img => img.imageType === 'Poster');
+            const logoImage = collection.images?.find(img => img.imageType === 'Logo');
+
+            return (
+              <Box
+                sx={{
+                  position: 'relative',
+                  mx: -3, // Extend beyond container padding
+                  mt: -4, // Pull up to top
+                  mb: 3,
+                  minHeight: { xs: 400, md: 450 },
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {/* Backdrop Image */}
+                {backdropImage ? (
+                  <Box
+                    component="img"
+                    src={apiClient.getImageUrl(backdropImage.id)}
+                    alt=""
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      zIndex: 0,
+                    }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      bgcolor: 'grey.900',
+                      zIndex: 0,
+                    }}
+                  />
+                )}
+
+                {/* Gradient Overlay */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0.3) 100%)',
+                    zIndex: 1,
+                  }}
+                />
+
+                {/* Breadcrumbs at top */}
+                <Breadcrumbs
+                  sx={{
+                    position: 'relative',
+                    zIndex: 2,
+                    px: 3,
+                    pt: 2,
+                    '& .MuiBreadcrumbs-separator': { color: 'grey.400' },
+                  }}
+                >
+                  {breadcrumbs.map((crumb) => (
+                    <Link
+                      key={crumb.id}
+                      component="button"
+                      variant="body2"
+                      onClick={() => handleBreadcrumbClick(crumb)}
+                      underline="hover"
+                      sx={{
+                        cursor: 'pointer',
+                        color: 'grey.300',
+                        '&:hover': { color: 'white' },
+                      }}
+                    >
+                      {crumb.name}
+                    </Link>
+                  ))}
+                  <Typography sx={{ color: 'grey.100' }}>{collection.name}</Typography>
+                </Breadcrumbs>
+
+                {/* Content Overlay */}
+                <Box
+                  sx={{
+                    position: 'relative',
+                    zIndex: 2,
+                    width: '100%',
+                    px: 3,
+                    pb: 3,
+                    mt: 'auto', // Push to bottom
+                    display: 'flex',
+                    gap: 3,
+                    alignItems: 'flex-end',
+                  }}
+                >
+                  {/* Poster */}
+                  {posterImage && (
+                    <Box
+                      component="img"
+                      src={apiClient.getImageUrl(posterImage.id)}
+                      alt={collection.name}
+                      sx={{
+                        width: { xs: 120, sm: 150, md: 200 },
+                        aspectRatio: '2/3',
+                        objectFit: 'cover',
+                        borderRadius: 1,
+                        boxShadow: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+
+                  {/* Title and Metadata */}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    {/* Logo or Title */}
+                    {logoImage ? (
+                      <Box
+                        component="img"
+                        src={apiClient.getImageUrl(logoImage.id)}
+                        alt={collection.name}
+                        sx={{
+                          maxWidth: { xs: 200, sm: 300, md: 400 },
+                          maxHeight: { xs: 60, sm: 80, md: 100 },
+                          objectFit: 'contain',
+                          objectPosition: 'left',
+                          mb: 1,
+                        }}
+                      />
+                    ) : (
+                      <Typography
+                        variant="h3"
+                        component="h1"
+                        sx={{
+                          color: 'white',
+                          fontWeight: 'bold',
+                          textShadow: '2px 2px 4px rgba(0,0,0,0.5)',
+                          mb: 1,
+                        }}
+                      >
+                        {collection.name}
+                      </Typography>
+                    )}
+
+                    {/* Metadata Row */}
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
+                      {collection.showDetails?.releaseDate && (
+                        <Typography variant="body1" sx={{ color: 'grey.300' }}>
+                          {new Date(collection.showDetails.releaseDate).getFullYear()}
+                          {collection.showDetails.endDate &&
+                            ` - ${new Date(collection.showDetails.endDate).getFullYear()}`}
+                        </Typography>
+                      )}
+                      {collection.showDetails?.status && (
+                        <Chip
+                          label={collection.showDetails.status}
+                          size="small"
+                          sx={{
+                            color: 'grey.100',
+                            borderColor: 'grey.500',
+                          }}
+                          variant="outlined"
+                        />
+                      )}
+                      {collection.showDetails?.rating && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Star sx={{ color: 'warning.main', fontSize: 20 }} />
+                          <Typography variant="body1" sx={{ color: 'grey.300' }}>
+                            {collection.showDetails.rating.toFixed(1)}
+                          </Typography>
+                        </Box>
+                      )}
+                      {childCollections.length > 0 && (
+                        <Typography variant="body1" sx={{ color: 'grey.300' }}>
+                          {t('collection.seasonCount', '{{count}} Seasons', { count: childCollections.length })}
+                        </Typography>
+                      )}
+                    </Box>
+
+                    {/* Genres */}
+                    {collection.showDetails?.genres && (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                        {collection.showDetails.genres.split(', ').map((genre) => (
+                          <Chip
+                            key={genre}
+                            label={genre}
+                            size="small"
+                            sx={{
+                              color: 'grey.100',
+                              borderColor: 'grey.600',
+                            }}
+                            variant="outlined"
+                          />
+                        ))}
+                      </Box>
+                    )}
+
+                    {/* Action Buttons */}
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      {firstEpisodeId && (
+                        <Button
+                          variant="contained"
+                          size="large"
+                          startIcon={<PlayArrow />}
+                          onClick={() => handlePlay(firstEpisodeId)}
+                        >
+                          {t('media.play', 'Play')}
+                        </Button>
+                      )}
+                      <IconButton
+                        onClick={handleMenuOpen}
+                        aria-label={t('common.moreOptions', 'More options')}
+                        aria-controls={menuOpen ? 'collection-menu' : undefined}
+                        aria-haspopup="true"
+                        aria-expanded={menuOpen ? 'true' : undefined}
+                        sx={{ color: 'white' }}
+                      >
+                        <MoreVert />
+                      </IconButton>
+                    </Box>
+                  </Box>
+                </Box>
+              </Box>
+            );
+          })()}
+
+          {/* Show Description */}
+          {collection.showDetails?.description && (
+            <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
+              <Typography variant="body1" color="text.secondary">
+                {collection.showDetails.description}
+              </Typography>
+            </Paper>
+          )}
+
+          {/* Seasons Grid */}
+          {childCollections.length > 0 && (
+            <>
+              <Typography variant="h5" sx={{ mb: 2 }}>
+                {t('collection.seasons', 'Seasons')} ({childCollections.length})
+              </Typography>
+              <Grid container spacing={2} sx={{ mb: 4 }}>
+                {childCollections.map((child) => {
+                  const primaryImage = child.images?.[0];
+                  const hasImage = primaryImage && child.collectionType === 'Season';
+
+                  return (
+                    <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={child.id}>
+                      <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        <CardActionArea
+                          onClick={() => handleCollectionClick(child.id)}
+                          sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                        >
+                          {hasImage ? (
+                            <>
+                              <CardMedia
+                                component="img"
+                                image={apiClient.getImageUrl(primaryImage.id)}
+                                alt={child.name}
+                                sx={{
+                                  aspectRatio: '2/3',
+                                  objectFit: 'cover',
+                                }}
+                              />
+                              <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                                <Typography variant="body2" noWrap title={child.name}>
+                                  {child.name}
+                                </Typography>
+                              </CardContent>
+                            </>
+                          ) : (
+                            <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                              {getCollectionIcon(child.collectionType)}
+                              <Typography variant="body2" noWrap title={child.name}>
+                                {child.name}
+                              </Typography>
+                            </CardContent>
+                          )}
+                        </CardActionArea>
+                      </Card>
+                    </Grid>
+                  );
+                })}
+              </Grid>
+            </>
+          )}
+
+          {/* Show Cast Photo Grid */}
+          {collection.showDetails?.credits && collection.showDetails.credits.filter((c: ShowCredit) => c.creditType === 'Actor').length > 0 && (
+            <Box sx={{ mt: 4 }}>
+              <Typography variant="h5" sx={{ mb: 2 }}>
+                {t('media.cast', 'Cast')}
+              </Typography>
+              <Grid container spacing={2}>
+                {(collection.showDetails.credits as ShowCreditWithPerson[])
+                  .filter((c) => c.creditType === 'Actor')
+                  .slice(0, 10)
+                  .map((credit) => {
+                    const primaryImage = credit.person?.images?.[0];
+
+                    return (
+                      <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={credit.id}>
+                        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                          <CardActionArea
+                            onClick={() => credit.personId && navigate(`/person/${credit.personId}`)}
+                            disabled={!credit.personId}
+                            sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                          >
+                            {primaryImage ? (
+                              <CardMedia
+                                component="img"
+                                image={apiClient.getImageUrl(primaryImage.id)}
+                                alt={credit.name}
+                                sx={{
+                                  aspectRatio: '2/3',
+                                  objectFit: 'cover',
+                                }}
+                              />
+                            ) : (
+                              <Box
+                                sx={{
+                                  aspectRatio: '2/3',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  bgcolor: 'action.hover',
+                                }}
+                              >
+                                <Person sx={{ fontSize: 64, color: 'text.secondary' }} />
+                              </Box>
+                            )}
+                            <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1, overflow: 'hidden' }}>
+                              <Typography variant="body2" noWrap title={credit.name} sx={{ textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                {credit.name}
+                              </Typography>
+                              {credit.role && (
+                                <Typography variant="caption" color="text.secondary" noWrap title={credit.role} sx={{ display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                  {credit.role}
+                                </Typography>
+                              )}
+                            </CardContent>
+                          </CardActionArea>
+                        </Card>
+                      </Grid>
+                    );
+                  })}
+              </Grid>
+            </Box>
+          )}
+        </>
       ) : (
         <>
-          {/* Standard Collection View */}
+          {/* Standard Collection View (Season, Album, Artist, etc.) */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Typography variant="h4" component="h1">
@@ -687,84 +1224,8 @@ export function CollectionPage() {
             </IconButton>
           </Box>
 
-          {/* Show Details */}
-      {collection.showDetails && (
-        <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
-          {/* Rating and Status Row */}
-          {(collection.showDetails.rating || collection.showDetails.status || collection.showDetails.releaseDate) && (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: (collection.showDetails.genres || collection.showDetails.description || (collection.showDetails.credits && collection.showDetails.credits.length > 0)) ? 2 : 0 }}>
-              {collection.showDetails.rating && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Star sx={{ color: 'warning.main', fontSize: 20 }} />
-                  <Typography variant="body2">
-                    {collection.showDetails.rating.toFixed(1)}
-                  </Typography>
-                </Box>
-              )}
-              {collection.showDetails.status && (
-                <Chip
-                  label={collection.showDetails.status}
-                  size="small"
-                  color={collection.showDetails.status === 'Ended' ? 'default' : 'success'}
-                  variant="outlined"
-                />
-              )}
-              {collection.showDetails.releaseDate && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <CalendarMonth sx={{ fontSize: 20, color: 'text.secondary' }} />
-                  <Typography variant="body2" color="text.secondary">
-                    {new Date(collection.showDetails.releaseDate).getFullYear()}
-                    {collection.showDetails.endDate &&
-                      ` - ${new Date(collection.showDetails.endDate).getFullYear()}`}
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          )}
-
-          {/* Genres */}
-          {collection.showDetails.genres && (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: (collection.showDetails.description || (collection.showDetails.credits && collection.showDetails.credits.length > 0)) ? 2 : 0 }}>
-              {collection.showDetails.genres.split(', ').map((genre) => (
-                <Chip key={genre} label={genre} size="small" variant="outlined" />
-              ))}
-            </Box>
-          )}
-
-          {/* Description */}
-          {collection.showDetails.description && (
-            <Typography variant="body2" color="text.secondary">
-              {collection.showDetails.description}
-            </Typography>
-          )}
-
-          {/* Cast summary */}
-          {collection.showDetails.credits && collection.showDetails.credits.length > 0 && (
-            <>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Cast
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {collection.showDetails.credits
-                  .filter((c: ShowCredit) => c.creditType === 'Actor')
-                  .slice(0, 10)
-                  .map((credit: ShowCredit) => (
-                    <Chip
-                      key={credit.id}
-                      label={credit.role ? `${credit.name} as ${credit.role}` : credit.name}
-                      size="small"
-                      variant="outlined"
-                    />
-                  ))}
-              </Box>
-            </>
-          )}
-        </Paper>
-      )}
-
-      {/* Season Details */}
-      {collection.seasonDetails && (collection.seasonDetails.releaseDate || collection.seasonDetails.description) && (
+          {/* Season Details */}
+          {collection.seasonDetails && (collection.seasonDetails.releaseDate || collection.seasonDetails.description) && (
         <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
           {collection.seasonDetails.releaseDate && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: collection.seasonDetails.description ? 2 : 0 }}>
@@ -1016,69 +1477,6 @@ export function CollectionPage() {
           )}
         </>
       )}
-
-          {/* Show Cast Photo Grid - at the bottom */}
-          {collection.showDetails?.credits && collection.showDetails.credits.filter((c: ShowCredit) => c.creditType === 'Actor').length > 0 && (
-            <Box sx={{ mt: 4 }}>
-              <Typography variant="h5" sx={{ mb: 2 }}>
-                Cast
-              </Typography>
-              <Grid container spacing={2}>
-                {(collection.showDetails.credits as ShowCreditWithPerson[])
-                  .filter((c) => c.creditType === 'Actor')
-                  .slice(0, 10)
-                  .map((credit) => {
-                    const primaryImage = credit.person?.images?.[0];
-
-                    return (
-                      <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={credit.id}>
-                        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                          <CardActionArea
-                            onClick={() => credit.personId && navigate(`/person/${credit.personId}`)}
-                            disabled={!credit.personId}
-                            sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
-                          >
-                            {primaryImage ? (
-                              <CardMedia
-                                component="img"
-                                image={apiClient.getImageUrl(primaryImage.id)}
-                                alt={credit.name}
-                                sx={{
-                                  aspectRatio: '2/3',
-                                  objectFit: 'cover',
-                                }}
-                              />
-                            ) : (
-                              <Box
-                                sx={{
-                                  aspectRatio: '2/3',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  bgcolor: 'action.hover',
-                                }}
-                              >
-                                <Person sx={{ fontSize: 64, color: 'text.secondary' }} />
-                              </Box>
-                            )}
-                            <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1 }}>
-                              <Typography variant="body2" noWrap title={credit.name}>
-                                {credit.name}
-                              </Typography>
-                              {credit.role && (
-                                <Typography variant="caption" color="text.secondary" noWrap title={credit.role}>
-                                  {credit.role}
-                                </Typography>
-                              )}
-                            </CardContent>
-                          </CardActionArea>
-                        </Card>
-                      </Grid>
-                    );
-                  })}
-              </Grid>
-            </Box>
-          )}
         </>
       )}
 

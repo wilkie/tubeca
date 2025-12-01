@@ -268,7 +268,7 @@ export function MediaPage() {
 
   if (error) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Alert severity="error">{error}</Alert>
       </Container>
     );
@@ -276,7 +276,7 @@ export function MediaPage() {
 
   if (!media) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Alert severity="warning">{t('media.notFound')}</Alert>
       </Container>
     );
@@ -293,7 +293,7 @@ export function MediaPage() {
   const episodeTitle = videoDetails?.showName ? media.name : null;
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
+    <Container maxWidth={false} sx={{ py: 4 }}>
       {/* Breadcrumbs */}
       {breadcrumbs.length > 0 && (
         <Breadcrumbs sx={{ mb: 2 }}>
@@ -512,12 +512,12 @@ export function MediaPage() {
                           <Person sx={{ fontSize: 64, color: 'text.secondary' }} />
                         </Box>
                       )}
-                      <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1 }}>
-                        <Typography variant="body2" noWrap title={credit.name}>
+                      <CardContent sx={{ textAlign: 'center', py: 1, flexGrow: 1, overflow: 'hidden' }}>
+                        <Typography variant="body2" noWrap title={credit.name} sx={{ textOverflow: 'ellipsis', overflow: 'hidden' }}>
                           {credit.name}
                         </Typography>
                         {credit.role && (
-                          <Typography variant="caption" color="text.secondary" noWrap title={credit.role}>
+                          <Typography variant="caption" color="text.secondary" noWrap title={credit.role} sx={{ display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                             {credit.role}
                           </Typography>
                         )}
