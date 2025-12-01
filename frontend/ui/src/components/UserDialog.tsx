@@ -86,7 +86,25 @@ export function UserDialog({ open, user, groups, onClose, onSave }: UserDialogPr
     setIsSaving(true);
 
     if (isEditing) {
-      // Update role and groups separately
+      // Update user name/password if changed
+      const updateData: { name?: string; password?: string } = {};
+      if (name.trim() !== user.name) {
+        updateData.name = name.trim();
+      }
+      if (password.trim()) {
+        updateData.password = password.trim();
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        const updateResult = await apiClient.updateUser(user.id, updateData);
+        if (updateResult.error) {
+          setError(updateResult.error);
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      // Update role
       const roleResult = await apiClient.updateUserRole(user.id, role);
       if (roleResult.error) {
         setError(roleResult.error);
@@ -94,6 +112,7 @@ export function UserDialog({ open, user, groups, onClose, onSave }: UserDialogPr
         return;
       }
 
+      // Update groups
       const groupsResult = await apiClient.updateUserGroups(user.id, selectedGroupIds);
       if (groupsResult.error) {
         setError(groupsResult.error);
@@ -142,20 +161,21 @@ export function UserDialog({ open, user, groups, onClose, onSave }: UserDialogPr
             fullWidth
             required
             autoFocus
-            disabled={isEditing}
-            helperText={isEditing ? t('users.usernameCannotChange') : undefined}
+            autoComplete="off"
+            name="new-username"
           />
 
-          {!isEditing && (
-            <TextField
-              label={t('users.password')}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              fullWidth
-              required
-            />
-          )}
+          <TextField
+            label={isEditing ? t('users.newPassword') : t('users.password')}
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            fullWidth
+            required={!isEditing}
+            helperText={isEditing ? t('users.passwordLeaveBlank') : undefined}
+            autoComplete="new-password"
+            name="new-password"
+          />
 
           <FormControl fullWidth>
             <InputLabel>{t('users.role')}</InputLabel>
