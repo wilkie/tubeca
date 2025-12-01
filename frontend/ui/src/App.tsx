@@ -5,6 +5,7 @@ import { Header, Sidebar } from './components';
 import { ActiveLibraryProvider } from './context/ActiveLibraryContext';
 import { SettingsPage } from './pages/SettingsPage';
 import { LibrariesPage } from './pages/LibrariesPage';
+import { UsersPage } from './pages/UsersPage';
 import { LibraryPage } from './pages/LibraryPage';
 import { CollectionPage } from './pages/CollectionPage';
 import { MediaPage } from './pages/MediaPage';
@@ -24,6 +25,7 @@ function App() {
           {/* Admin routes */}
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/admin/libraries" element={<LibrariesPage />} />
+          <Route path="/admin/users" element={<UsersPage />} />
           {/* Keep old route for backwards compatibility */}
           <Route path="/libraries" element={<LibrariesPage />} />
 

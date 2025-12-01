@@ -16,6 +16,7 @@ import { swaggerSpec } from './config/swagger.js';
 import { fileWatcherService } from './services/fileWatcherService';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
+import groupRoutes from './routes/groups';
 import libraryRoutes from './routes/libraries';
 import collectionRoutes from './routes/collections';
 import mediaRoutes from './routes/media';
@@ -40,6 +41,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
 // Auth and User routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/groups', groupRoutes);
 app.use('/api/libraries', libraryRoutes);
 app.use('/api/collections', collectionRoutes);
 app.use('/api/media', mediaRoutes);
