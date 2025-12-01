@@ -4,9 +4,9 @@ import type {
   AudioMetadata,
   VideoSearchOptions,
   AudioSearchOptions,
-} from '@tubeca/scraper-types'
-import { scraperManager } from '../plugins/scraperLoader'
-import { prisma } from '../config/database'
+} from '@tubeca/scraper-types';
+import { scraperManager } from '../plugins/scraperLoader';
+import { prisma } from '../config/database';
 
 /**
  * Service for scraping and applying metadata to media items
@@ -19,43 +19,43 @@ export class ScraperService {
     query: string,
     options?: VideoSearchOptions
   ): Promise<Array<SearchResult & { scraperId: string }>> {
-    const results: Array<SearchResult & { scraperId: string }> = []
-    const scrapers = scraperManager.getByMediaType('video').filter((s) => s.isConfigured())
+    const results: Array<SearchResult & { scraperId: string }> = [];
+    const scrapers = scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
 
     for (const scraper of scrapers) {
       if (scraper.searchVideo) {
         try {
-          const scraperResults = await scraper.searchVideo(query, options)
-          results.push(...scraperResults.map((r) => ({ ...r, scraperId: scraper.id })))
+          const scraperResults = await scraper.searchVideo(query, options);
+          results.push(...scraperResults.map((r) => ({ ...r, scraperId: scraper.id })));
         } catch (error) {
-          console.error(`Search failed for scraper ${scraper.id}:`, error)
+          console.error(`Search failed for scraper ${scraper.id}:`, error);
         }
       }
     }
 
     // Sort by confidence if available
-    return results.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+    return results.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
   }
 
   /**
    * Search for TV series
    */
   async searchSeries(query: string): Promise<Array<SearchResult & { scraperId: string }>> {
-    const results: Array<SearchResult & { scraperId: string }> = []
-    const scrapers = scraperManager.getByMediaType('video').filter((s) => s.isConfigured())
+    const results: Array<SearchResult & { scraperId: string }> = [];
+    const scrapers = scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
 
     for (const scraper of scrapers) {
       if (scraper.searchSeries) {
         try {
-          const scraperResults = await scraper.searchSeries(query)
-          results.push(...scraperResults.map((r) => ({ ...r, scraperId: scraper.id })))
+          const scraperResults = await scraper.searchSeries(query);
+          results.push(...scraperResults.map((r) => ({ ...r, scraperId: scraper.id })));
         } catch (error) {
-          console.error(`Series search failed for scraper ${scraper.id}:`, error)
+          console.error(`Series search failed for scraper ${scraper.id}:`, error);
         }
       }
     }
 
-    return results
+    return results;
   }
 
   /**
@@ -65,12 +65,12 @@ export class ScraperService {
     scraperId: string,
     externalId: string
   ): Promise<VideoMetadata | null> {
-    const scraper = scraperManager.get(scraperId)
+    const scraper = scraperManager.get(scraperId);
     if (!scraper || !scraper.getVideoMetadata) {
-      return null
+      return null;
     }
 
-    return scraper.getVideoMetadata(externalId)
+    return scraper.getVideoMetadata(externalId);
   }
 
   /**
@@ -82,12 +82,12 @@ export class ScraperService {
     season: number,
     episode: number
   ): Promise<VideoMetadata | null> {
-    const scraper = scraperManager.get(scraperId)
+    const scraper = scraperManager.get(scraperId);
     if (!scraper || !scraper.getEpisodeMetadata) {
-      return null
+      return null;
     }
 
-    return scraper.getEpisodeMetadata(seriesId, season, episode)
+    return scraper.getEpisodeMetadata(seriesId, season, episode);
   }
 
   /**
@@ -97,21 +97,21 @@ export class ScraperService {
     query: string,
     options?: AudioSearchOptions
   ): Promise<Array<SearchResult & { scraperId: string }>> {
-    const results: Array<SearchResult & { scraperId: string }> = []
-    const scrapers = scraperManager.getByMediaType('audio').filter((s) => s.isConfigured())
+    const results: Array<SearchResult & { scraperId: string }> = [];
+    const scrapers = scraperManager.getByMediaType('audio').filter((s) => s.isConfigured());
 
     for (const scraper of scrapers) {
       if (scraper.searchAudio) {
         try {
-          const scraperResults = await scraper.searchAudio(query, options)
-          results.push(...scraperResults.map((r) => ({ ...r, scraperId: scraper.id })))
+          const scraperResults = await scraper.searchAudio(query, options);
+          results.push(...scraperResults.map((r) => ({ ...r, scraperId: scraper.id })));
         } catch (error) {
-          console.error(`Audio search failed for scraper ${scraper.id}:`, error)
+          console.error(`Audio search failed for scraper ${scraper.id}:`, error);
         }
       }
     }
 
-    return results
+    return results;
   }
 
   /**
@@ -121,12 +121,12 @@ export class ScraperService {
     scraperId: string,
     externalId: string
   ): Promise<AudioMetadata | null> {
-    const scraper = scraperManager.get(scraperId)
+    const scraper = scraperManager.get(scraperId);
     if (!scraper || !scraper.getAudioMetadata) {
-      return null
+      return null;
     }
 
-    return scraper.getAudioMetadata(externalId)
+    return scraper.getAudioMetadata(externalId);
   }
 
   /**
@@ -153,27 +153,27 @@ export class ScraperService {
         releaseDate: metadata.releaseDate,
         rating: metadata.rating,
       },
-    })
+    });
 
     // Update media name if we have episode info
     if (metadata.episodeTitle) {
       await prisma.media.update({
         where: { id: mediaId },
         data: { name: metadata.episodeTitle },
-      })
+      });
     }
 
     // Add credits if available
     if (metadata.credits && metadata.credits.length > 0) {
       const videoDetails = await prisma.videoDetails.findUnique({
         where: { mediaId },
-      })
+      });
 
       if (videoDetails) {
         // Clear existing credits
         await prisma.credit.deleteMany({
           where: { videoDetailsId: videoDetails.id },
-        })
+        });
 
         // Add new credits
         await prisma.credit.createMany({
@@ -184,7 +184,7 @@ export class ScraperService {
             creditType: this.mapCreditType(credit.type),
             order: credit.order,
           })),
-        })
+        });
       }
     }
   }
@@ -215,14 +215,14 @@ export class ScraperService {
         year: metadata.year,
         genre: metadata.genre,
       },
-    })
+    });
 
     // Update media name if we have a title
     if (metadata.title) {
       await prisma.media.update({
         where: { id: mediaId },
         data: { name: metadata.title },
-      })
+      });
     }
   }
 
@@ -240,14 +240,14 @@ export class ScraperService {
       composer: 'Composer',
       cinematographer: 'Cinematographer',
       editor: 'Editor',
-    }
-    return mapping[type] ?? 'Actor'
+    };
+    return mapping[type] ?? 'Actor';
   }
 
   /**
    * Get list of available scrapers
    */
   listScrapers() {
-    return scraperManager.list()
+    return scraperManager.list();
   }
 }

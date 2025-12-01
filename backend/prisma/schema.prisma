@@ -29,14 +29,15 @@ model Group {
 }
 
 model Library {
-  id          String       @id @default(uuid())
-  name        String
-  path        String       // Filesystem path where media is stored
-  libraryType LibraryType
-  groups      Group[]      // Groups that can access this library
-  collections Collection[] // Collections within this library
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id              String       @id @default(uuid())
+  name            String
+  path            String       // Filesystem path where media is stored
+  libraryType     LibraryType
+  watchForChanges Boolean      @default(false) // Watch for filesystem changes
+  groups          Group[]      // Groups that can access this library
+  collections     Collection[] // Collections within this library
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 }
 
 model Collection {

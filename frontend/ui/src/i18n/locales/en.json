@@ -69,7 +69,10 @@
       "Television": "Television",
       "Film": "Film",
       "Music": "Music"
-    }
+    },
+    "watchForChanges": "Watch for changes",
+    "watchForChangesHelp": "Automatically detect and import new media files added to this library",
+    "notWatching": "Not watching for changes"
   },
   "library": {
     "notFound": "Library not found",

@@ -19,7 +19,7 @@ import {
   LinearProgress,
   Tooltip,
 } from '@mui/material';
-import { Add, Edit, Delete, Refresh, Stop } from '@mui/icons-material';
+import { Add, Edit, Delete, Refresh, Stop, Visibility, VisibilityOff } from '@mui/icons-material';
 import { apiClient, type Library, type ScanStatusResponse } from '../api/client';
 import { LibraryDialog } from '../components/LibraryDialog';
 
@@ -231,7 +231,20 @@ export function LibrariesPage() {
 
                 return (
                   <TableRow key={library.id}>
-                    <TableCell>{library.name}</TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {library.watchForChanges ? (
+                          <Tooltip title={t('libraries.watchForChanges')}>
+                            <Visibility fontSize="small" color="action" sx={{ opacity: 0.6 }} />
+                          </Tooltip>
+                        ) : (
+                          <Tooltip title={t('libraries.notWatching')}>
+                            <VisibilityOff fontSize="small" sx={{ opacity: 0.25, color: 'text.disabled' }} />
+                          </Tooltip>
+                        )}
+                        {library.name}
+                      </Box>
+                    </TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
                       {library.path}
                     </TableCell>

@@ -1,6 +1,6 @@
-import { Person, Prisma } from '@prisma/client'
-import type { CreditInfo, PersonMetadata } from '@tubeca/scraper-types'
-import { prisma } from '../config/database'
+import { Person, Prisma } from '@prisma/client';
+import type { CreditInfo, PersonMetadata } from '@tubeca/scraper-types';
+import { prisma } from '../config/database';
 
 export interface PersonWithFilmography extends Person {
   filmography: {
@@ -89,10 +89,10 @@ export class PersonService {
     if (creditInfo.imdbId) {
       const personByImdb = await prisma.person.findUnique({
         where: { imdbId: creditInfo.imdbId },
-      })
+      });
       if (personByImdb) {
         // Update with any new external IDs
-        return this.updateExternalIds(personByImdb, creditInfo)
+        return this.updateExternalIds(personByImdb, creditInfo);
       }
     }
 
@@ -100,9 +100,9 @@ export class PersonService {
     if (creditInfo.tmdbId) {
       const personByTmdb = await prisma.person.findUnique({
         where: { tmdbId: creditInfo.tmdbId },
-      })
+      });
       if (personByTmdb) {
-        return this.updateExternalIds(personByTmdb, creditInfo)
+        return this.updateExternalIds(personByTmdb, creditInfo);
       }
     }
 
@@ -110,18 +110,18 @@ export class PersonService {
     if (creditInfo.tvdbId) {
       const personByTvdb = await prisma.person.findUnique({
         where: { tvdbId: creditInfo.tvdbId },
-      })
+      });
       if (personByTvdb) {
-        return this.updateExternalIds(personByTvdb, creditInfo)
+        return this.updateExternalIds(personByTvdb, creditInfo);
       }
     }
 
     // 4. Try to find by exact name match (less reliable but helps with legacy data)
     const personByName = await prisma.person.findFirst({
       where: { name: creditInfo.name },
-    })
+    });
     if (personByName) {
-      return this.updateExternalIds(personByName, creditInfo)
+      return this.updateExternalIds(personByName, creditInfo);
     }
 
     // 5. No match found, create new person
@@ -132,7 +132,7 @@ export class PersonService {
         tvdbId: creditInfo.tvdbId,
         imdbId: creditInfo.imdbId,
       },
-    })
+    });
   }
 
   /**
@@ -142,26 +142,26 @@ export class PersonService {
     person: Person,
     creditInfo: CreditInfo
   ): Promise<Person> {
-    const updates: Prisma.PersonUpdateInput = {}
+    const updates: Prisma.PersonUpdateInput = {};
 
     if (creditInfo.tmdbId && !person.tmdbId) {
-      updates.tmdbId = creditInfo.tmdbId
+      updates.tmdbId = creditInfo.tmdbId;
     }
     if (creditInfo.tvdbId && !person.tvdbId) {
-      updates.tvdbId = creditInfo.tvdbId
+      updates.tvdbId = creditInfo.tvdbId;
     }
     if (creditInfo.imdbId && !person.imdbId) {
-      updates.imdbId = creditInfo.imdbId
+      updates.imdbId = creditInfo.imdbId;
     }
 
     if (Object.keys(updates).length > 0) {
       return prisma.person.update({
         where: { id: person.id },
         data: updates,
-      })
+      });
     }
 
-    return person
+    return person;
   }
 
   /**
@@ -179,10 +179,10 @@ export class PersonService {
           },
         },
       },
-    })
+    });
 
     if (!person) {
-      return null
+      return null;
     }
 
     // Get show credits (ShowCredit -> ShowDetails -> Collection with collectionType='Show')
@@ -203,7 +203,7 @@ export class PersonService {
           },
         },
       },
-    })
+    });
 
     // Get video credits (Credit -> VideoDetails -> Media)
     const videoCredits = await prisma.credit.findMany({
@@ -240,15 +240,15 @@ export class PersonService {
           },
         },
       },
-    })
+    });
 
     // Separate films from episodes
-    const films: PersonWithFilmography['filmography']['films'] = []
-    const episodes: PersonWithFilmography['filmography']['episodes'] = []
+    const films: PersonWithFilmography['filmography']['films'] = [];
+    const episodes: PersonWithFilmography['filmography']['episodes'] = [];
 
     for (const credit of videoCredits) {
-      const media = credit.videoDetails.media
-      const collection = media.collection
+      const media = credit.videoDetails.media;
+      const collection = media.collection;
 
       // If no show/episode info, it's a film
       if (!credit.videoDetails.showName && collection?.collectionType === 'Film') {
@@ -268,14 +268,14 @@ export class PersonService {
             role: credit.role,
             creditType: credit.creditType,
           },
-        })
+        });
       } else {
         // It's an episode
         // Prefer thumbnail, then backdrop, then poster from media, then poster from collection
-        const thumbnailImage = media.images?.find((img) => img.imageType === 'Thumbnail')
-        const backdropImage = media.images?.find((img) => img.imageType === 'Backdrop')
-        const posterImage = media.images?.find((img) => img.imageType === 'Poster')
-        const episodeImage = thumbnailImage || backdropImage || posterImage || collection?.images?.[0]
+        const thumbnailImage = media.images?.find((img) => img.imageType === 'Thumbnail');
+        const backdropImage = media.images?.find((img) => img.imageType === 'Backdrop');
+        const posterImage = media.images?.find((img) => img.imageType === 'Poster');
+        const episodeImage = thumbnailImage || backdropImage || posterImage || collection?.images?.[0];
 
         episodes.push({
           media: {
@@ -300,7 +300,7 @@ export class PersonService {
             role: credit.role,
             creditType: credit.creditType,
           },
-        })
+        });
       }
     }
 
@@ -323,7 +323,7 @@ export class PersonService {
         films,
         episodes,
       },
-    }
+    };
   }
 
   /**
@@ -335,15 +335,15 @@ export class PersonService {
     imdbId?: string
   ): Promise<Person | null> {
     if (imdbId) {
-      return prisma.person.findUnique({ where: { imdbId } })
+      return prisma.person.findUnique({ where: { imdbId } });
     }
     if (tmdbId) {
-      return prisma.person.findUnique({ where: { tmdbId } })
+      return prisma.person.findUnique({ where: { tmdbId } });
     }
     if (tvdbId) {
-      return prisma.person.findUnique({ where: { tvdbId } })
+      return prisma.person.findUnique({ where: { tvdbId } });
     }
-    return null
+    return null;
   }
 
   /**
@@ -366,7 +366,7 @@ export class PersonService {
         tvdbId: metadata.tvdbId ?? undefined,
         imdbId: metadata.imdbId ?? undefined,
       },
-    })
+    });
   }
 
   /**
@@ -381,6 +381,6 @@ export class PersonService {
       },
       take: limit,
       orderBy: { name: 'asc' },
-    })
+    });
   }
 }

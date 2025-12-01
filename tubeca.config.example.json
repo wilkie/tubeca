@@ -1,4 +1,9 @@
 {
+  "fileWatcher": {
+    "enabled": true,
+    "usePolling": false,
+    "pollInterval": 1000
+  },
   "scrapers": {
     "tmdb": {
       "enabled": true,

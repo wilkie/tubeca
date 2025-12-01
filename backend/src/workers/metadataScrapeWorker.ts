@@ -1,14 +1,14 @@
-import { Worker, Job } from 'bullmq'
-import { redisConnection } from '../config/redis'
-import { prisma } from '../config/database'
-import { scraperManager } from '../plugins/scraperLoader'
-import { ImageService } from '../services/imageService'
-import { PersonService } from '../services/personService'
-import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue'
-import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types'
+import { Worker, Job } from 'bullmq';
+import { redisConnection } from '../config/redis';
+import { prisma } from '../config/database';
+import { scraperManager } from '../plugins/scraperLoader';
+import { ImageService } from '../services/imageService';
+import { PersonService } from '../services/personService';
+import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue';
+import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types';
 
-const imageService = new ImageService()
-const personService = new PersonService()
+const imageService = new ImageService();
+const personService = new PersonService();
 
 interface ScrapeResult {
   success: boolean
@@ -21,28 +21,28 @@ interface ScrapeResult {
 export const metadataScrapeWorker = new Worker<MetadataScrapeJobData, ScrapeResult>(
   'metadata-scrape',
   async (job: Job<MetadataScrapeJobData>) => {
-    const { mediaId, mediaName, mediaType } = job.data
+    const { mediaId, mediaName, mediaType } = job.data;
 
-    console.log(`🔍 Scraping metadata for: ${mediaName} (${mediaId})`)
+    console.log(`🔍 Scraping metadata for: ${mediaName} (${mediaId})`);
 
     try {
       // Verify media still exists
       const media = await prisma.media.findUnique({
         where: { id: mediaId },
-      })
+      });
 
       if (!media) {
-        return { success: false, error: 'Media not found' }
+        return { success: false, error: 'Media not found' };
       }
 
       if (mediaType === 'Video') {
-        return await scrapeVideoMetadata(job)
+        return await scrapeVideoMetadata(job);
       } else {
-        return await scrapeAudioMetadata(job)
+        return await scrapeAudioMetadata(job);
       }
     } catch (error) {
-      console.error(`❌ Metadata scrape failed for ${mediaName}:`, error)
-      throw error // Let BullMQ handle retries
+      console.error(`❌ Metadata scrape failed for ${mediaName}:`, error);
+      throw error; // Let BullMQ handle retries
     }
   },
   {
@@ -53,88 +53,88 @@ export const metadataScrapeWorker = new Worker<MetadataScrapeJobData, ScrapeResu
       duration: 10000, // Per 10 seconds (1 request/second average)
     },
   }
-)
+);
 
 async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeResult> {
-  const { mediaId, mediaName, year, showName, season, episode, scraperId, externalId, skipImages, imagesOnly } = job.data
+  const { mediaId, mediaName, year, showName, season, episode, scraperId, externalId, skipImages, imagesOnly } = job.data;
 
   // If we have an external ID, fetch directly
   if (externalId && scraperId) {
-    const scraper = scraperManager.get(scraperId)
+    const scraper = scraperManager.get(scraperId);
     if (scraper?.getVideoMetadata) {
-      const metadata = await scraper.getVideoMetadata(externalId)
+      const metadata = await scraper.getVideoMetadata(externalId);
       if (metadata) {
-        await applyVideoMetadata(mediaId, metadata, scraperId, skipImages, imagesOnly)
-        return { success: true, scraperId, externalId }
+        await applyVideoMetadata(mediaId, metadata, scraperId, skipImages, imagesOnly);
+        return { success: true, scraperId, externalId };
       }
     }
   }
 
   // Determine if this is likely a TV episode
-  const isEpisode = season !== undefined && episode !== undefined
+  const isEpisode = season !== undefined && episode !== undefined;
 
   // Get configured scrapers
   const scrapers = scraperId
     ? [scraperManager.get(scraperId)].filter(Boolean)
-    : scraperManager.getByMediaType('video').filter((s) => s.isConfigured())
+    : scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
 
   if (scrapers.length === 0) {
-    return { success: false, error: 'No video scrapers configured' }
+    return { success: false, error: 'No video scrapers configured' };
   }
 
   // Try to find a match
   for (const scraper of scrapers) {
-    if (!scraper) continue
+    if (!scraper) continue;
 
     try {
-      let metadata: VideoMetadata | null = null
+      let metadata: VideoMetadata | null = null;
 
       if (isEpisode && scraper.searchSeries && scraper.getEpisodeMetadata) {
         // Search for the TV series first
-        const searchQuery = showName || extractShowName(mediaName)
-        const seriesResults = await scraper.searchSeries(searchQuery)
+        const searchQuery = showName || extractShowName(mediaName);
+        const seriesResults = await scraper.searchSeries(searchQuery);
 
         if (seriesResults.length > 0) {
           // Use the best match
-          const bestMatch = seriesResults[0]
-          metadata = await scraper.getEpisodeMetadata(bestMatch.externalId, season!, episode!)
+          const bestMatch = seriesResults[0];
+          metadata = await scraper.getEpisodeMetadata(bestMatch.externalId, season!, episode!);
         }
       } else if (scraper.searchVideo && scraper.getVideoMetadata) {
         // Search for movie/video
-        const results = await scraper.searchVideo(mediaName, { year })
+        const results = await scraper.searchVideo(mediaName, { year });
 
         if (results.length > 0) {
           // Use the best match (results should be sorted by confidence)
-          const bestMatch = results[0]
-          metadata = await scraper.getVideoMetadata(bestMatch.externalId)
+          const bestMatch = results[0];
+          metadata = await scraper.getVideoMetadata(bestMatch.externalId);
         }
       }
 
       if (metadata) {
-        await applyVideoMetadata(mediaId, metadata, scraper.id, skipImages, imagesOnly)
-        console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`)
-        return { success: true, scraperId: scraper.id, externalId: metadata.externalId }
+        await applyVideoMetadata(mediaId, metadata, scraper.id, skipImages, imagesOnly);
+        console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`);
+        return { success: true, scraperId: scraper.id, externalId: metadata.externalId };
       }
     } catch (error) {
-      console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error)
+      console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error);
       // Continue to next scraper
     }
   }
 
-  return { success: false, error: 'No metadata found from any scraper' }
+  return { success: false, error: 'No metadata found from any scraper' };
 }
 
 async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeResult> {
-  const { mediaId, mediaName, scraperId, externalId } = job.data
+  const { mediaId, mediaName, scraperId, externalId } = job.data;
 
   // If we have an external ID, fetch directly
   if (externalId && scraperId) {
-    const scraper = scraperManager.get(scraperId)
+    const scraper = scraperManager.get(scraperId);
     if (scraper?.getAudioMetadata) {
-      const metadata = await scraper.getAudioMetadata(externalId)
+      const metadata = await scraper.getAudioMetadata(externalId);
       if (metadata) {
-        await applyAudioMetadata(mediaId, metadata, scraperId)
-        return { success: true, scraperId, externalId }
+        await applyAudioMetadata(mediaId, metadata, scraperId);
+        return { success: true, scraperId, externalId };
       }
     }
   }
@@ -142,36 +142,36 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
   // Get configured audio scrapers
   const scrapers = scraperId
     ? [scraperManager.get(scraperId)].filter(Boolean)
-    : scraperManager.getByMediaType('audio').filter((s) => s.isConfigured())
+    : scraperManager.getByMediaType('audio').filter((s) => s.isConfigured());
 
   if (scrapers.length === 0) {
-    return { success: false, error: 'No audio scrapers configured' }
+    return { success: false, error: 'No audio scrapers configured' };
   }
 
   // Try to find a match
   for (const scraper of scrapers) {
-    if (!scraper || !scraper.searchAudio || !scraper.getAudioMetadata) continue
+    if (!scraper || !scraper.searchAudio || !scraper.getAudioMetadata) continue;
 
     try {
-      const results = await scraper.searchAudio(mediaName)
+      const results = await scraper.searchAudio(mediaName);
 
       if (results.length > 0) {
-        const bestMatch = results[0]
-        const metadata = await scraper.getAudioMetadata(bestMatch.externalId)
+        const bestMatch = results[0];
+        const metadata = await scraper.getAudioMetadata(bestMatch.externalId);
 
         if (metadata) {
-          await applyAudioMetadata(mediaId, metadata, scraper.id)
-          console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`)
-          return { success: true, scraperId: scraper.id, externalId: metadata.externalId }
+          await applyAudioMetadata(mediaId, metadata, scraper.id);
+          console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`);
+          return { success: true, scraperId: scraper.id, externalId: metadata.externalId };
         }
       }
     } catch (error) {
-      console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error)
+      console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error);
       // Continue to next scraper
     }
   }
 
-  return { success: false, error: 'No metadata found from any scraper' }
+  return { success: false, error: 'No metadata found from any scraper' };
 }
 
 /**
@@ -180,9 +180,9 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
 async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scraperId?: string, skipImages?: boolean, imagesOnly?: boolean): Promise<void> {
   // If imagesOnly is set, only download images and skip metadata updates
   if (imagesOnly) {
-    await downloadMediaImages(mediaId, metadata, scraperId)
-    console.log(`📷 Refreshed images for media ${mediaId}`)
-    return
+    await downloadMediaImages(mediaId, metadata, scraperId);
+    console.log(`📷 Refreshed images for media ${mediaId}`);
+    return;
   }
 
   // Create or update VideoDetails
@@ -205,24 +205,24 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
       releaseDate: metadata.releaseDate,
       rating: metadata.rating,
     },
-  })
+  });
 
   // Update media name if we have an episode title
   if (metadata.episodeTitle) {
     await prisma.media.update({
       where: { id: mediaId },
       data: { name: metadata.episodeTitle },
-    })
+    });
   }
 
   // Download images for media (unless skipImages is set and media already has images)
   if (!skipImages) {
-    await downloadMediaImages(mediaId, metadata, scraperId)
+    await downloadMediaImages(mediaId, metadata, scraperId);
   } else {
     // Even with skipImages, download if media has no images yet
-    const existingImages = await prisma.image.count({ where: { mediaId } })
+    const existingImages = await prisma.image.count({ where: { mediaId } });
     if (existingImages === 0) {
-      await downloadMediaImages(mediaId, metadata, scraperId)
+      await downloadMediaImages(mediaId, metadata, scraperId);
     }
   }
 
@@ -230,18 +230,18 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
   if (metadata.credits && metadata.credits.length > 0) {
     const videoDetails = await prisma.videoDetails.findUnique({
       where: { mediaId },
-    })
+    });
 
     if (videoDetails) {
       // Clear existing credits
       await prisma.credit.deleteMany({
         where: { videoDetailsId: videoDetails.id },
-      })
+      });
 
       // Add new credits (without downloading photos if skipImages is set)
       for (const credit of metadata.credits) {
         // Find or create person for this credit
-        let personId: string | undefined
+        let personId: string | undefined;
         try {
           const person = await personService.findOrCreatePerson({
             name: credit.name,
@@ -249,10 +249,10 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
             tmdbId: credit.tmdbId,
             tvdbId: credit.tvdbId,
             imdbId: credit.imdbId,
-          })
-          personId = person.id
+          });
+          personId = person.id;
         } catch (error) {
-          console.warn(`Failed to link person for ${credit.name}:`, error)
+          console.warn(`Failed to link person for ${credit.name}:`, error);
         }
 
         await prisma.credit.create({
@@ -264,7 +264,7 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
             order: credit.order,
             personId,
           },
-        })
+        });
 
         // Download credit photo to person if available and person doesn't have one yet
         if (credit.photoUrl && personId) {
@@ -272,18 +272,18 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
             // Check if person already has a photo
             const existingPhoto = await prisma.image.findFirst({
               where: { personId, imageType: 'Photo', isPrimary: true },
-            })
+            });
             if (!existingPhoto) {
               await imageService.downloadAndSaveImage(credit.photoUrl, {
                 imageType: 'Photo',
                 personId,
                 isPrimary: true,
                 scraperId,
-              })
-              console.log(`📷 Downloaded photo for ${credit.name}`)
+              });
+              console.log(`📷 Downloaded photo for ${credit.name}`);
             }
           } catch (error) {
-            console.warn(`Failed to download photo for ${credit.name}:`, error)
+            console.warn(`Failed to download photo for ${credit.name}:`, error);
           }
         }
       }
@@ -299,7 +299,7 @@ async function downloadMediaImages(
   metadata: VideoMetadata | AudioMetadata,
   scraperId?: string
 ): Promise<void> {
-  const imagePromises: Promise<void>[] = []
+  const imagePromises: Promise<void>[] = [];
 
   // Check for poster (video) or album art (audio)
   if ('posterUrl' in metadata && metadata.posterUrl) {
@@ -311,12 +311,12 @@ async function downloadMediaImages(
         scraperId,
       }).then((result) => {
         if (result.success) {
-          console.log(`📷 Downloaded poster for media ${mediaId}`)
+          console.log(`📷 Downloaded poster for media ${mediaId}`);
         }
       }).catch((error) => {
-        console.warn(`Failed to download poster:`, error)
+        console.warn(`Failed to download poster:`, error);
       })
-    )
+    );
   }
 
   // Check for backdrop (video only)
@@ -329,12 +329,12 @@ async function downloadMediaImages(
         scraperId,
       }).then((result) => {
         if (result.success) {
-          console.log(`📷 Downloaded backdrop for media ${mediaId}`)
+          console.log(`📷 Downloaded backdrop for media ${mediaId}`);
         }
       }).catch((error) => {
-        console.warn(`Failed to download backdrop:`, error)
+        console.warn(`Failed to download backdrop:`, error);
       })
-    )
+    );
   }
 
   // Check for thumbnail (video only - highest rated English backdrop)
@@ -347,12 +347,12 @@ async function downloadMediaImages(
         scraperId,
       }).then((result) => {
         if (result.success) {
-          console.log(`📷 Downloaded thumbnail for media ${mediaId}`)
+          console.log(`📷 Downloaded thumbnail for media ${mediaId}`);
         }
       }).catch((error) => {
-        console.warn(`Failed to download thumbnail:`, error)
+        console.warn(`Failed to download thumbnail:`, error);
       })
-    )
+    );
   }
 
   // Check for album art (audio only)
@@ -365,16 +365,16 @@ async function downloadMediaImages(
         scraperId,
       }).then((result) => {
         if (result.success) {
-          console.log(`📷 Downloaded album art for media ${mediaId}`)
+          console.log(`📷 Downloaded album art for media ${mediaId}`);
         }
       }).catch((error) => {
-        console.warn(`Failed to download album art:`, error)
+        console.warn(`Failed to download album art:`, error);
       })
-    )
+    );
   }
 
   // Wait for all image downloads
-  await Promise.all(imagePromises)
+  await Promise.all(imagePromises);
 }
 
 /**
@@ -402,18 +402,18 @@ async function applyAudioMetadata(mediaId: string, metadata: AudioMetadata, scra
       year: metadata.year,
       genre: metadata.genre,
     },
-  })
+  });
 
   // Update media name with track title
   if (metadata.title) {
     await prisma.media.update({
       where: { id: mediaId },
       data: { name: metadata.title },
-    })
+    });
   }
 
   // Download album art if available
-  await downloadMediaImages(mediaId, metadata, scraperId)
+  await downloadMediaImages(mediaId, metadata, scraperId);
 }
 
 /**
@@ -428,14 +428,14 @@ function extractShowName(filename: string): string {
     /\s*-?\s*\d{1,2}\d{2}.*/, // 101 (season 1 episode 01)
     /\s*\[.*\].*/, // [anything]
     /\s*\(.*\).*/, // (anything)
-  ]
+  ];
 
-  let result = filename
+  let result = filename;
   for (const pattern of patterns) {
-    result = result.replace(pattern, '')
+    result = result.replace(pattern, '');
   }
 
-  return result.trim()
+  return result.trim();
 }
 
 /**
@@ -452,27 +452,27 @@ function mapCreditType(
     composer: 'Composer',
     cinematographer: 'Cinematographer',
     editor: 'Editor',
-  }
-  return mapping[type] ?? 'Actor'
+  };
+  return mapping[type] ?? 'Actor';
 }
 
 // Worker event handlers
 metadataScrapeWorker.on('completed', (job, result) => {
   if (result.success) {
-    console.log(`✅ Metadata scrape ${job.id} completed via ${result.scraperId}`)
+    console.log(`✅ Metadata scrape ${job.id} completed via ${result.scraperId}`);
   } else {
-    console.log(`⚠️ Metadata scrape ${job.id} completed but no metadata found`)
+    console.log(`⚠️ Metadata scrape ${job.id} completed but no metadata found`);
   }
-})
+});
 
 metadataScrapeWorker.on('failed', (job, error) => {
-  console.error(`❌ Metadata scrape ${job?.id} failed:`, error.message)
-})
+  console.error(`❌ Metadata scrape ${job?.id} failed:`, error.message);
+});
 
 metadataScrapeWorker.on('error', (error) => {
-  console.error('Metadata scrape worker error:', error)
-})
+  console.error('Metadata scrape worker error:', error);
+});
 
 metadataScrapeWorker.on('ready', () => {
-  console.log('🔍 Metadata scrape worker is ready')
-})
+  console.log('🔍 Metadata scrape worker is ready');
+});

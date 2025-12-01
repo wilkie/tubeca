@@ -1,5 +1,5 @@
-import { Queue } from 'bullmq'
-import { redisConnection } from '../config/redis'
+import { Queue } from 'bullmq';
+import { redisConnection } from '../config/redis';
 
 export interface MetadataScrapeJobData {
   mediaId: string
@@ -38,22 +38,22 @@ export const metadataScrapeQueue = new Queue<MetadataScrapeJobData>('metadata-sc
       age: 7 * 24 * 3600, // Keep failed jobs for 7 days
     },
   },
-})
+});
 
 // Queue event handlers
 metadataScrapeQueue.on('error', (error: Error) => {
-  console.error('Metadata scrape queue error:', error)
-})
+  console.error('Metadata scrape queue error:', error);
+});
 
 /**
  * Add a single metadata scrape job
  */
 export async function addMetadataScrapeJob(data: MetadataScrapeJobData) {
   // Use timestamp in job ID to allow re-scraping the same media
-  const jobId = `scrape-${data.mediaId}-${Date.now()}`
+  const jobId = `scrape-${data.mediaId}-${Date.now()}`;
   return await metadataScrapeQueue.add('scrape', data, {
     jobId,
-  })
+  });
 }
 
 /**
@@ -66,9 +66,9 @@ export async function addBulkMetadataScrapeJobs(jobs: MetadataScrapeJobData[]) {
     opts: {
       jobId: `scrape-${data.mediaId}`,
     },
-  }))
+  }));
 
-  return await metadataScrapeQueue.addBulk(bulkJobs)
+  return await metadataScrapeQueue.addBulk(bulkJobs);
 }
 
 /**
@@ -80,7 +80,7 @@ export async function getMetadataScrapeQueueStatus() {
     metadataScrapeQueue.getActiveCount(),
     metadataScrapeQueue.getCompletedCount(),
     metadataScrapeQueue.getFailedCount(),
-  ])
+  ]);
 
-  return { waiting, active, completed, failed }
+  return { waiting, active, completed, failed };
 }
