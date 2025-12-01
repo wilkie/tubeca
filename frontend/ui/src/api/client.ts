@@ -4,6 +4,13 @@ import type {
   UserGroup,
   LoginResponse,
   UserResponse,
+  UsersResponse,
+  CreateUserInput,
+  Group,
+  GroupResponse,
+  GroupsResponse,
+  CreateGroupInput,
+  UpdateGroupInput,
   SetupStatusResponse,
   Settings,
   SettingsResponse,
@@ -54,6 +61,13 @@ export type {
   UserGroup,
   LoginResponse,
   UserResponse,
+  UsersResponse,
+  CreateUserInput,
+  Group,
+  GroupResponse,
+  GroupsResponse,
+  CreateGroupInput,
+  UpdateGroupInput,
   SetupStatusResponse,
   Settings,
   SettingsResponse,
@@ -164,6 +178,63 @@ class ApiClient {
 
   async getCurrentUser(): Promise<ApiResponse<UserResponse>> {
     return this.request<UserResponse>('/users/me');
+  }
+
+  // User management methods (Admin only)
+  async getUsers(): Promise<ApiResponse<UsersResponse>> {
+    return this.request<UsersResponse>('/users');
+  }
+
+  async createUser(user: CreateUserInput): Promise<ApiResponse<UserResponse>> {
+    return this.request<UserResponse>('/users', {
+      method: 'POST',
+      body: JSON.stringify(user),
+    });
+  }
+
+  async updateUserRole(id: string, role: UserRole): Promise<ApiResponse<UserResponse>> {
+    return this.request<UserResponse>(`/users/${id}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  async updateUserGroups(id: string, groupIds: string[]): Promise<ApiResponse<UserResponse>> {
+    return this.request<UserResponse>(`/users/${id}/groups`, {
+      method: 'PATCH',
+      body: JSON.stringify({ groupIds }),
+    });
+  }
+
+  async deleteUser(id: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/users/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Group management methods (Admin only)
+  async getGroups(): Promise<ApiResponse<GroupsResponse>> {
+    return this.request<GroupsResponse>('/groups');
+  }
+
+  async createGroup(group: CreateGroupInput): Promise<ApiResponse<GroupResponse>> {
+    return this.request<GroupResponse>('/groups', {
+      method: 'POST',
+      body: JSON.stringify(group),
+    });
+  }
+
+  async updateGroup(id: string, group: UpdateGroupInput): Promise<ApiResponse<GroupResponse>> {
+    return this.request<GroupResponse>(`/groups/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(group),
+    });
+  }
+
+  async deleteGroup(id: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/groups/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   async checkSetup(): Promise<ApiResponse<SetupStatusResponse>> {

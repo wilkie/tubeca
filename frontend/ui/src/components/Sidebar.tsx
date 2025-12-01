@@ -14,6 +14,7 @@ import {
 import {
   Settings as SettingsIcon,
   VideoLibrary,
+  People,
   Tv,
   Movie,
   MusicNote,
@@ -107,6 +108,17 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   <VideoLibrary />
                 </ListItemIcon>
                 <ListItemText primary={t('nav.libraries')} />
+              </ListItemButton>
+            </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                selected={location.pathname === '/admin/users'}
+                onClick={() => handleNavigate('/admin/users')}
+              >
+                <ListItemIcon>
+                  <People />
+                </ListItemIcon>
+                <ListItemText primary={t('nav.users')} />
               </ListItemButton>
             </ListItem>
             <ListItem disablePadding>

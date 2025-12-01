@@ -32,6 +32,44 @@ export interface UserResponse {
   user: User
 }
 
+export interface UsersResponse {
+  users: User[]
+}
+
+export interface CreateUserInput {
+  name: string
+  password: string
+  role?: UserRole
+  groupIds?: string[]
+}
+
+export interface Group {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  _count?: {
+    users: number
+    libraries: number
+  }
+}
+
+export interface GroupResponse {
+  group: Group
+}
+
+export interface GroupsResponse {
+  groups: Group[]
+}
+
+export interface CreateGroupInput {
+  name: string
+}
+
+export interface UpdateGroupInput {
+  name: string
+}
+
 export interface SetupStatusResponse {
   needsSetup: boolean
 }

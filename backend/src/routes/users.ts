@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import bcrypt from 'bcrypt';
 import { prisma } from '../config/database';
 import { authenticate, requireRole } from '../middleware/auth';
 
 const router = Router();
+const SALT_ROUNDS = 10;
 
 // All user routes require authentication
 router.use(authenticate);
@@ -96,6 +98,151 @@ router.get('/', requireRole('Admin'), async (_req, res) => {
     res.json({ users });
   } catch {
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/users:
+ *   post:
+ *     tags:
+ *       - Users
+ *     summary: Create a new user
+ *     description: Create a new user account (Admin only)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - password
+ *             properties:
+ *               name:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *                 enum: [Admin, Editor, Viewer]
+ *                 default: Viewer
+ *               groupIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *     responses:
+ *       201:
+ *         description: User created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Invalid request or username already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Forbidden - Admin role required
+ */
+router.post('/', requireRole('Admin'), async (req, res) => {
+  try {
+    const { name, password, role = 'Viewer', groupIds = [] } = req.body;
+
+    if (!name || !password) {
+      return res.status(400).json({ error: 'Name and password are required' });
+    }
+
+    if (role && !['Admin', 'Editor', 'Viewer'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    // Check if username already exists
+    const existingUser = await prisma.user.findUnique({ where: { name } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        passwordHash,
+        role,
+        groups: {
+          connect: groupIds.map((id: string) => ({ id })),
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        groups: true,
+        createdAt: true,
+      },
+    });
+
+    res.status(201).json({ user });
+  } catch {
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/users/{id}:
+ *   delete:
+ *     tags:
+ *       - Users
+ *     summary: Delete a user
+ *     description: Delete a user account (Admin only). Cannot delete yourself.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       204:
+ *         description: User deleted
+ *       400:
+ *         description: Cannot delete yourself
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Forbidden - Admin role required
+ *       404:
+ *         description: User not found
+ */
+router.delete('/:id', requireRole('Admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent self-deletion
+    if (id === req.user!.userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    // Check user exists
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.user.delete({ where: { id } });
+    res.status(204).send();
+  } catch {
+    res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 
