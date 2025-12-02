@@ -273,6 +273,42 @@ export interface AlbumDetails {
   credits: AlbumCredit[]
 }
 
+// Film metadata
+export interface FilmCredit {
+  id: string
+  name: string
+  role: string | null
+  creditType: CreditType
+  order: number | null
+  personId: string | null
+  images?: Image[]
+}
+
+export interface FilmDetails {
+  id: string
+  collectionId: string
+  scraperId: string | null
+  externalId: string | null
+  description: string | null
+  tagline: string | null
+  releaseDate: string | null
+  runtime: number | null
+  contentRating: string | null // "PG-13", "R", etc.
+  rating: number | null // Average rating (e.g., 7.5)
+  genres: string | null
+  originalTitle: string | null
+  status: string | null
+  budget: number | null
+  revenue: number | null
+  credits: FilmCredit[]
+}
+
+// Keywords/Tags for search and recommendations
+export interface Keyword {
+  id: string
+  name: string
+}
+
 export interface Collection {
   id: string
   name: string
@@ -286,8 +322,10 @@ export interface Collection {
   images?: Image[]
   showDetails?: ShowDetails | null
   seasonDetails?: SeasonDetails | null
+  filmDetails?: FilmDetails | null
   artistDetails?: ArtistDetails | null
   albumDetails?: AlbumDetails | null
+  keywords?: Keyword[]
   _count?: { media: number; children: number }
   createdAt: string
   updatedAt: string

@@ -60,11 +60,15 @@ model Collection {
   // Type-specific metadata (one-to-one, based on collectionType)
   showDetails   ShowDetails?
   seasonDetails SeasonDetails?
+  filmDetails   FilmDetails?
   artistDetails ArtistDetails?
   albumDetails  AlbumDetails?
 
   // Images associated with this collection
   images    Image[]
+
+  // Keywords/tags for search and recommendations
+  keywords  Keyword[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -361,6 +365,67 @@ model SeasonDetails {
   @@index([scraperId, externalId])
 }
 
+// Film metadata
+model FilmDetails {
+  id           String   @id @default(uuid())
+
+  // Relationship to Collection
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId String     @unique
+
+  // External scraper reference
+  scraperId    String?  // Which scraper provided this data
+  externalId   String?  // ID in the external system (e.g., TMDB ID)
+
+  // Film information
+  description  String?  // Plot summary / overview
+  tagline      String?  // Movie tagline
+  releaseDate  DateTime? // Theatrical release date
+  runtime      Int?     // Runtime in minutes
+  contentRating String? // "PG-13", "R", etc.
+  rating       Float?   // Average rating (e.g., 7.5)
+  genres       String?  // Comma-separated genres
+  originalTitle String? // Original title (if different from localized)
+  status       String?  // "Released", "In Production", etc.
+  budget       Int?     // Production budget in dollars
+  revenue      Int?     // Box office revenue in dollars
+
+  // Cast and crew
+  credits      FilmCredit[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([scraperId, externalId])
+}
+
+// Credits for films
+model FilmCredit {
+  id            String      @id @default(uuid())
+
+  filmDetails   FilmDetails @relation(fields: [filmDetailsId], references: [id], onDelete: Cascade)
+  filmDetailsId String
+
+  name          String      // Person's name
+  role          String?     // Character name (for actors) or job title
+  creditType    CreditType  // Actor, Director, Writer, etc.
+  order         Int?        // Display order
+
+  // Link to Person entity
+  person        Person?     @relation(fields: [personId], references: [id], onDelete: SetNull)
+  personId      String?
+
+  // Images (photos) for this person
+  images        Image[]
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([filmDetailsId])
+  @@index([creditType])
+  @@index([personId])
+}
+
 // Music Artist metadata
 model ArtistDetails {
   id           String   @id @default(uuid())
@@ -476,6 +541,7 @@ model Image {
   mediaId      String?
   collectionId String?
   showCreditId String?
+  filmCreditId String?
   creditId     String?
   personId     String?
 
@@ -500,14 +566,32 @@ model Image {
   media        Media?      @relation(fields: [mediaId], references: [id], onDelete: Cascade)
   collection   Collection? @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   showCredit   ShowCredit? @relation(fields: [showCreditId], references: [id], onDelete: Cascade)
+  filmCredit   FilmCredit? @relation(fields: [filmCreditId], references: [id], onDelete: Cascade)
   credit       Credit?     @relation(fields: [creditId], references: [id], onDelete: Cascade)
   person       Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([mediaId, imageType])
   @@index([collectionId, imageType])
   @@index([showCreditId])
+  @@index([filmCreditId])
   @@index([creditId])
   @@index([personId])
+}
+
+// ============================================
+// Keywords/Tags for Search and Recommendations
+// ============================================
+
+model Keyword {
+  id          String       @id @default(uuid())
+  name        String       @unique // The keyword text, e.g., "time travel", "based on novel"
+
+  // Many-to-many with collections (films, shows)
+  collections Collection[]
+
+  createdAt   DateTime     @default(now())
+
+  @@index([name])
 }
 
 // ============================================
@@ -537,6 +621,7 @@ model Person {
   // Relations
   credits      Credit[]
   showCredits  ShowCredit[]
+  filmCredits  FilmCredit[]
   albumCredits AlbumCredit[]
   images       Image[]
 

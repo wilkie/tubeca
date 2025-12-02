@@ -53,6 +53,8 @@ export interface VideoMetadata {
   runtime?: number
   /** Genres */
   genres?: string[]
+  /** Keywords/tags for search and recommendations */
+  keywords?: string[]
   /** URL to poster image */
   posterUrl?: string
   /** URL to backdrop/fanart image (highest rated overall) */
@@ -156,6 +158,8 @@ export interface SeriesMetadata {
   rating?: number
   /** Genres */
   genres?: string[]
+  /** Keywords/tags for search and recommendations */
+  keywords?: string[]
   /** URL to poster image */
   posterUrl?: string
   /** URL to backdrop/fanart image (highest rated overall) */

@@ -4,7 +4,6 @@ import { prisma } from '../config/database';
 import { scraperManager } from '../plugins/scraperLoader';
 import { ImageService } from '../services/imageService';
 import { PersonService } from '../services/personService';
-import { addMetadataScrapeJob } from '../queues/metadataScrapeQueue';
 import type { CollectionScrapeJobData } from '../queues/collectionScrapeQueue';
 import type { SeriesMetadata, SeasonMetadata, VideoMetadata } from '@tubeca/scraper-types';
 
@@ -224,6 +223,38 @@ async function scrapeAlbumMetadata(job: Job<CollectionScrapeJobData>): Promise<S
 }
 
 /**
+ * Save keywords for a collection
+ * Finds or creates keywords and connects them to the collection
+ */
+async function saveKeywords(collectionId: string, keywords: string[]): Promise<void> {
+  if (!keywords || keywords.length === 0) return;
+
+  // Normalize keywords (lowercase, trim)
+  const normalizedKeywords = keywords.map((k) => k.toLowerCase().trim()).filter((k) => k.length > 0);
+
+  // Find or create each keyword and connect to collection
+  for (const keywordName of normalizedKeywords) {
+    const keyword = await prisma.keyword.upsert({
+      where: { name: keywordName },
+      create: { name: keywordName },
+      update: {},
+    });
+
+    // Connect keyword to collection (if not already connected)
+    await prisma.collection.update({
+      where: { id: collectionId },
+      data: {
+        keywords: {
+          connect: { id: keyword.id },
+        },
+      },
+    });
+  }
+
+  console.log(`🏷️ Saved ${normalizedKeywords.length} keywords for collection ${collectionId}`);
+}
+
+/**
  * Apply show metadata to the database
  */
 async function applyShowMetadata(
@@ -333,6 +364,11 @@ async function applyShowMetadata(
         }
       }
     }
+  }
+
+  // Save keywords for search and recommendations
+  if (metadata.keywords && metadata.keywords.length > 0) {
+    await saveKeywords(collectionId, metadata.keywords);
   }
 }
 
@@ -486,7 +522,7 @@ async function downloadCollectionImages(
 }
 
 /**
- * Apply film metadata to the collection and its media items
+ * Apply film metadata to the collection
  */
 async function applyFilmMetadata(
   collectionId: string,
@@ -499,53 +535,107 @@ async function applyFilmMetadata(
   if (imagesOnly) {
     await downloadFilmImages(collectionId, metadata, scraperId);
     console.log(`📷 Refreshed images for film collection ${collectionId}`);
-
-    // Also refresh images for media items in this collection
-    const mediaItems = await prisma.media.findMany({
-      where: { collectionId },
-      select: { id: true, name: true, type: true },
-    });
-
-    for (const media of mediaItems) {
-      if (media.type === 'Video') {
-        await addMetadataScrapeJob({
-          mediaId: media.id,
-          mediaName: metadata.title || media.name,
-          mediaType: 'Video',
-          scraperId,
-          externalId: metadata.externalId,
-          imagesOnly: true, // Only refresh images for media items
-        });
-        console.log(`📋 Queued image refresh for film media: ${media.name}`);
-      }
-    }
     return;
   }
+
+  // Upsert FilmDetails
+  const filmDetails = await prisma.filmDetails.upsert({
+    where: { collectionId },
+    create: {
+      collectionId,
+      scraperId,
+      externalId: metadata.externalId,
+      description: metadata.description,
+      releaseDate: metadata.releaseDate,
+      runtime: metadata.runtime,
+      contentRating: metadata.rating,
+      genres: metadata.genres?.join(', '),
+      originalTitle: metadata.originalTitle,
+    },
+    update: {
+      scraperId,
+      externalId: metadata.externalId,
+      description: metadata.description,
+      releaseDate: metadata.releaseDate,
+      runtime: metadata.runtime,
+      contentRating: metadata.rating,
+      genres: metadata.genres?.join(', '),
+      originalTitle: metadata.originalTitle,
+    },
+  });
 
   // Download images for the collection (unless skipImages is set)
   if (!skipImages) {
     await downloadFilmImages(collectionId, metadata, scraperId);
+  } else {
+    // Even with skipImages, download if collection has no images yet
+    const existingImages = await prisma.image.count({ where: { collectionId } });
+    if (existingImages === 0) {
+      await downloadFilmImages(collectionId, metadata, scraperId);
+    }
   }
 
-  // For films, the actual metadata (description, credits) is stored on the Media item's VideoDetails
-  // Queue metadata scrape jobs for all media items in this collection
-  const mediaItems = await prisma.media.findMany({
-    where: { collectionId },
-    select: { id: true, name: true, type: true },
-  });
+  // Add credits if available
+  if (metadata.credits && metadata.credits.length > 0) {
+    // Clear existing credits
+    await prisma.filmCredit.deleteMany({
+      where: { filmDetailsId: filmDetails.id },
+    });
 
-  for (const media of mediaItems) {
-    if (media.type === 'Video') {
-      await addMetadataScrapeJob({
-        mediaId: media.id,
-        mediaName: metadata.title || media.name, // Use the scraped title for better matching
-        mediaType: 'Video',
-        scraperId,
-        externalId: metadata.externalId,
-        skipImages, // Pass through the skipImages flag
+    // Add new credits
+    for (const credit of metadata.credits) {
+      // Find or create person for this credit
+      let personId: string | undefined;
+      try {
+        const person = await personService.findOrCreatePerson({
+          name: credit.name,
+          type: credit.type,
+          tmdbId: credit.tmdbId,
+          tvdbId: credit.tvdbId,
+          imdbId: credit.imdbId,
+        });
+        personId = person.id;
+      } catch (error) {
+        console.warn(`Failed to link person for ${credit.name}:`, error);
+      }
+
+      await prisma.filmCredit.create({
+        data: {
+          filmDetailsId: filmDetails.id,
+          name: credit.name,
+          role: credit.role,
+          creditType: mapCreditType(credit.type),
+          order: credit.order,
+          personId,
+        },
       });
-      console.log(`📋 Queued metadata scrape for film media: ${media.name}`);
+
+      // Download credit photo to person if available and person doesn't have one yet
+      if (credit.photoUrl && personId) {
+        try {
+          // Check if person already has a photo
+          const existingPhoto = await prisma.image.findFirst({
+            where: { personId, imageType: 'Photo', isPrimary: true },
+          });
+          if (!existingPhoto) {
+            await imageService.downloadAndSaveImage(credit.photoUrl, {
+              imageType: 'Photo',
+              personId,
+              isPrimary: true,
+              scraperId,
+            });
+            console.log(`📷 Downloaded photo for ${credit.name}`);
+          }
+        } catch (error) {
+          console.warn(`Failed to download photo for ${credit.name}:`, error);
+        }
+      }
     }
+  }
+
+  // Save keywords for search and recommendations
+  if (metadata.keywords && metadata.keywords.length > 0) {
+    await saveKeywords(collectionId, metadata.keywords);
   }
 }
 

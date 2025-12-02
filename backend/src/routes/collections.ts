@@ -314,6 +314,9 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => 
       scraperId = collection.seasonDetails.scraperId ?? undefined;
       externalId = collection.seasonDetails.externalId ?? undefined;
       seasonNumber = collection.seasonDetails.seasonNumber ?? undefined;
+    } else if (collection.filmDetails) {
+      scraperId = collection.filmDetails.scraperId ?? undefined;
+      externalId = collection.filmDetails.externalId ?? undefined;
     } else if (collection.artistDetails) {
       scraperId = collection.artistDetails.scraperId ?? undefined;
       externalId = collection.artistDetails.externalId ?? undefined;
@@ -402,6 +405,9 @@ router.post('/:id/refresh-images', requireRole('Editor'), async (req, res) => {
       scraperId = collection.seasonDetails.scraperId ?? undefined;
       externalId = collection.seasonDetails.externalId ?? undefined;
       seasonNumber = collection.seasonDetails.seasonNumber ?? undefined;
+    } else if (collection.filmDetails) {
+      scraperId = collection.filmDetails.scraperId ?? undefined;
+      externalId = collection.filmDetails.externalId ?? undefined;
     } else if (collection.artistDetails) {
       scraperId = collection.artistDetails.scraperId ?? undefined;
       externalId = collection.artistDetails.externalId ?? undefined;

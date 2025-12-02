@@ -160,6 +160,17 @@ interface TMDBPersonDetails {
   imdb_id: string | null
 }
 
+interface TMDBKeyword {
+  id: number
+  name: string
+}
+
+interface TMDBKeywordsResponse {
+  id: number
+  keywords?: TMDBKeyword[] // For movies
+  results?: TMDBKeyword[] // For TV shows
+}
+
 class TMDBScraper implements ScraperPlugin {
   readonly id = 'tmdb'
   readonly name = 'The Movie Database'
@@ -322,9 +333,9 @@ class TMDBScraper implements ScraperPlugin {
   }
 
   private async getMovieMetadata(movieId: number): Promise<VideoMetadata> {
-    const movie = await this.request<TMDBMovieDetails>(
+    const movie = await this.request<TMDBMovieDetails & { keywords?: { keywords: TMDBKeyword[] } }>(
       `/movie/${movieId}`,
-      { append_to_response: 'credits,release_dates' }
+      { append_to_response: 'credits,release_dates,keywords' }
     )
 
     // Get US certification
@@ -337,6 +348,9 @@ class TMDBScraper implements ScraperPlugin {
     // Get images (backdrop, thumbnail, logo)
     const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('movie', movieId, movie.backdrop_path)
 
+    // Extract keywords
+    const keywords = movie.keywords?.keywords?.map((k) => k.name)
+
     return {
       externalId: `movie-${movie.id}`,
       title: movie.title,
@@ -346,6 +360,7 @@ class TMDBScraper implements ScraperPlugin {
       rating: usRating,
       runtime: movie.runtime,
       genres: movie.genres.map((g) => g.name),
+      keywords,
       posterUrl: this.getImageUrl(movie.poster_path),
       backdropUrl,
       thumbnailUrl,
@@ -434,15 +449,18 @@ class TMDBScraper implements ScraperPlugin {
       // Remove prefix if present
       const tvId = parseInt(seriesId.replace('tv-', ''), 10)
 
-      const tv = await this.request<TMDBTVDetails>(
+      const tv = await this.request<TMDBTVDetails & { keywords?: { results: TMDBKeyword[] } }>(
         `/tv/${tvId}`,
-        { append_to_response: 'credits,content_ratings' }
+        { append_to_response: 'credits,content_ratings,keywords' }
       )
 
       const credits = this.mapCredits(tv.credits?.cast ?? [], tv.credits?.crew ?? [])
 
       // Get images (backdrop, thumbnail, logo)
       const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('tv', tvId, tv.backdrop_path)
+
+      // Extract keywords (TV uses 'results' instead of 'keywords')
+      const keywords = tv.keywords?.results?.map((k) => k.name)
 
       return {
         externalId: `tv-${tv.id}`,
@@ -454,6 +472,7 @@ class TMDBScraper implements ScraperPlugin {
         status: tv.status,
         rating: tv.vote_average,
         genres: tv.genres.map((g) => g.name),
+        keywords,
         posterUrl: this.getImageUrl(tv.poster_path),
         backdropUrl,
         thumbnailUrl,
