@@ -3,7 +3,7 @@ import { render, RenderOptions } from '@testing-library/react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
-import i18n from '../i18n';
+import i18n from './i18n';
 
 // Create a test theme
 const theme = createTheme({
