@@ -18,7 +18,7 @@ interface ChildCollection {
 }
 
 interface ChildCollectionGridProps {
-  children: ChildCollection[];
+  collections: ChildCollection[];
   parentCollectionType?: CollectionType;
   onCollectionClick: (collectionId: string) => void;
   title?: string;
@@ -40,14 +40,14 @@ function getCollectionIcon(collectionType?: CollectionType) {
 }
 
 export function ChildCollectionGrid({
-  children,
+  collections,
   parentCollectionType,
   onCollectionClick,
   title,
 }: ChildCollectionGridProps) {
   const { t } = useTranslation();
 
-  if (children.length === 0) return null;
+  if (collections.length === 0) return null;
 
   const getChildLabel = () => {
     switch (parentCollectionType) {
@@ -63,10 +63,10 @@ export function ChildCollectionGrid({
   return (
     <>
       <Typography variant="h6" sx={{ mb: 2 }}>
-        {title || getChildLabel()} ({children.length})
+        {title || getChildLabel()} ({collections.length})
       </Typography>
       <Grid container spacing={2} sx={{ mb: 4 }}>
-        {children.map((child) => {
+        {collections.map((child) => {
           const primaryImage = child.images?.[0];
           const hasImage = primaryImage && child.collectionType === 'Season';
 

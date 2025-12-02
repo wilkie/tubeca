@@ -282,7 +282,7 @@ export function StandardCollectionView({
           {/* Child Collections */}
           {childCollections.length > 0 && (
             <ChildCollectionGrid
-              children={childCollections}
+              collections={childCollections}
               parentCollectionType={collection.collectionType}
               onCollectionClick={onCollectionClick}
             />

@@ -23,7 +23,7 @@ const mockSeasons = [
     collectionType: 'Season' as const,
     images: [],
   },
-] as Parameters<typeof ChildCollectionGrid>[0]['children'];
+] as Parameters<typeof ChildCollectionGrid>[0]['collections'];
 
 const mockAlbums = [
   {
@@ -38,7 +38,7 @@ const mockAlbums = [
     collectionType: 'Album' as const,
     images: [],
   },
-] as Parameters<typeof ChildCollectionGrid>[0]['children'];
+] as Parameters<typeof ChildCollectionGrid>[0]['collections'];
 
 describe('ChildCollectionGrid', () => {
   const mockOnCollectionClick = jest.fn();
@@ -51,7 +51,7 @@ describe('ChildCollectionGrid', () => {
     it('does not render when children array is empty', () => {
       const { container } = render(
         <ChildCollectionGrid
-          children={[]}
+          collections={[]}
           onCollectionClick={mockOnCollectionClick}
         />
       );
@@ -62,7 +62,7 @@ describe('ChildCollectionGrid', () => {
     it('renders collection count', () => {
       render(
         <ChildCollectionGrid
-          children={mockSeasons}
+          collections={mockSeasons}
           parentCollectionType="Show"
           onCollectionClick={mockOnCollectionClick}
         />
@@ -74,7 +74,7 @@ describe('ChildCollectionGrid', () => {
     it('renders custom title with count', () => {
       render(
         <ChildCollectionGrid
-          children={mockSeasons}
+          collections={mockSeasons}
           onCollectionClick={mockOnCollectionClick}
           title="All Seasons"
         />
@@ -86,7 +86,7 @@ describe('ChildCollectionGrid', () => {
     it('renders collection names', () => {
       render(
         <ChildCollectionGrid
-          children={mockSeasons}
+          collections={mockSeasons}
           parentCollectionType="Show"
           onCollectionClick={mockOnCollectionClick}
         />
@@ -101,7 +101,7 @@ describe('ChildCollectionGrid', () => {
     it('shows Seasons label for Show parent', () => {
       render(
         <ChildCollectionGrid
-          children={mockSeasons}
+          collections={mockSeasons}
           parentCollectionType="Show"
           onCollectionClick={mockOnCollectionClick}
         />
@@ -113,7 +113,7 @@ describe('ChildCollectionGrid', () => {
     it('shows Albums label for Artist parent', () => {
       render(
         <ChildCollectionGrid
-          children={mockAlbums}
+          collections={mockAlbums}
           parentCollectionType="Artist"
           onCollectionClick={mockOnCollectionClick}
         />
@@ -125,7 +125,7 @@ describe('ChildCollectionGrid', () => {
     it('shows Subfolders label for other parent types', () => {
       render(
         <ChildCollectionGrid
-          children={mockSeasons}
+          collections={mockSeasons}
           parentCollectionType="Film"
           onCollectionClick={mockOnCollectionClick}
         />
@@ -139,7 +139,7 @@ describe('ChildCollectionGrid', () => {
     it('shows Folder icon for season without image', () => {
       render(
         <ChildCollectionGrid
-          children={[mockSeasons[1]]}
+          collections={[mockSeasons[1]]}
           parentCollectionType="Show"
           onCollectionClick={mockOnCollectionClick}
         />
@@ -151,7 +151,7 @@ describe('ChildCollectionGrid', () => {
     it('shows Album icon for album collection', () => {
       render(
         <ChildCollectionGrid
-          children={mockAlbums}
+          collections={mockAlbums}
           parentCollectionType="Artist"
           onCollectionClick={mockOnCollectionClick}
         />
@@ -167,7 +167,7 @@ describe('ChildCollectionGrid', () => {
 
       render(
         <ChildCollectionGrid
-          children={shows}
+          collections={shows}
           onCollectionClick={mockOnCollectionClick}
         />
       );
@@ -182,7 +182,7 @@ describe('ChildCollectionGrid', () => {
 
       render(
         <ChildCollectionGrid
-          children={artists}
+          collections={artists}
           onCollectionClick={mockOnCollectionClick}
         />
       );
@@ -197,7 +197,7 @@ describe('ChildCollectionGrid', () => {
 
       render(
         <ChildCollectionGrid
-          children={mockSeasons}
+          collections={mockSeasons}
           parentCollectionType="Show"
           onCollectionClick={mockOnCollectionClick}
         />
