@@ -135,6 +135,33 @@ app.get('/api/media', async (_req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/media/videos:
+ *   get:
+ *     tags:
+ *       - Media
+ *     summary: Get all videos
+ *     description: Retrieve all video media items
+ *     responses:
+ *       200:
+ *         description: List of video items
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 videos:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Media'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.get('/api/media/videos', async (_req, res) => {
   try {
     const videos = await mediaService.getAllVideos();
@@ -144,6 +171,33 @@ app.get('/api/media/videos', async (_req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/media/audio:
+ *   get:
+ *     tags:
+ *       - Media
+ *     summary: Get all audio
+ *     description: Retrieve all audio media items
+ *     responses:
+ *       200:
+ *         description: List of audio items
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 audio:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Media'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.get('/api/media/audio', async (_req, res) => {
   try {
     const audio = await mediaService.getAllAudio();
@@ -153,6 +207,44 @@ app.get('/api/media/audio', async (_req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/media/{id}:
+ *   get:
+ *     tags:
+ *       - Media
+ *     summary: Get media by ID
+ *     description: Retrieve a specific media item by its ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Media ID
+ *     responses:
+ *       200:
+ *         description: Media item found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 media:
+ *                   $ref: '#/components/schemas/Media'
+ *       404:
+ *         description: Media not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.get('/api/media/:id', async (req, res) => {
   try {
     const media = await mediaService.getMediaById(req.params.id);
@@ -224,6 +316,51 @@ app.post('/api/media/video', async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/media/audio:
+ *   post:
+ *     tags:
+ *       - Media
+ *     summary: Create a new audio
+ *     description: Add a new audio file to the media library
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - path
+ *               - duration
+ *               - name
+ *             properties:
+ *               path:
+ *                 type: string
+ *                 description: File path
+ *               duration:
+ *                 type: integer
+ *                 description: Duration in seconds
+ *               name:
+ *                 type: string
+ *                 description: Audio name
+ *     responses:
+ *       201:
+ *         description: Audio created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 audio:
+ *                   $ref: '#/components/schemas/Media'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.post('/api/media/audio', async (req, res) => {
   try {
     const { path, duration, name } = req.body;
@@ -314,6 +451,60 @@ app.patch('/api/settings', async (req, res) => {
 });
 
 // Background job endpoints
+
+/**
+ * @openapi
+ * /api/jobs/transcode:
+ *   post:
+ *     tags:
+ *       - Jobs
+ *     summary: Queue a transcode job
+ *     description: Queue a background job to transcode a media file
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - mediaId
+ *               - inputPath
+ *               - outputPath
+ *             properties:
+ *               mediaId:
+ *                 type: string
+ *                 description: Media ID to transcode
+ *               inputPath:
+ *                 type: string
+ *                 description: Input file path
+ *               outputPath:
+ *                 type: string
+ *                 description: Output file path
+ *               resolution:
+ *                 type: string
+ *                 description: Target resolution (e.g., "1080p", "720p")
+ *               format:
+ *                 type: string
+ *                 description: Output format (e.g., "mp4", "webm")
+ *     responses:
+ *       202:
+ *         description: Job queued successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 jobId:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.post('/api/jobs/transcode', async (req, res) => {
   try {
     const { mediaId, inputPath, outputPath, resolution, format } = req.body;
@@ -325,6 +516,56 @@ app.post('/api/jobs/transcode', async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/jobs/thumbnail:
+ *   post:
+ *     tags:
+ *       - Jobs
+ *     summary: Queue a thumbnail generation job
+ *     description: Queue a background job to generate a thumbnail from a video
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - mediaId
+ *               - videoPath
+ *               - thumbnailPath
+ *             properties:
+ *               mediaId:
+ *                 type: string
+ *                 description: Media ID
+ *               videoPath:
+ *                 type: string
+ *                 description: Path to the video file
+ *               thumbnailPath:
+ *                 type: string
+ *                 description: Output path for the thumbnail
+ *               timestamp:
+ *                 type: number
+ *                 description: Timestamp in seconds to capture thumbnail
+ *     responses:
+ *       202:
+ *         description: Job queued successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 jobId:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.post('/api/jobs/thumbnail', async (req, res) => {
   try {
     const { mediaId, videoPath, thumbnailPath, timestamp } = req.body;
@@ -336,6 +577,49 @@ app.post('/api/jobs/thumbnail', async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /api/jobs/analyze:
+ *   post:
+ *     tags:
+ *       - Jobs
+ *     summary: Queue a media analysis job
+ *     description: Queue a background job to analyze a media file (extract metadata, streams, etc.)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - mediaId
+ *               - filePath
+ *             properties:
+ *               mediaId:
+ *                 type: string
+ *                 description: Media ID to analyze
+ *               filePath:
+ *                 type: string
+ *                 description: Path to the media file
+ *     responses:
+ *       202:
+ *         description: Job queued successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 jobId:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.post('/api/jobs/analyze', async (req, res) => {
   try {
     const { mediaId, filePath } = req.body;
