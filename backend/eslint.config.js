@@ -28,4 +28,12 @@ export default [
       'semi': ['error', 'always'],
     },
   },
+  {
+    files: ['**/*.test.ts', '**/__tests__/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.jest,
+      },
+    },
+  },
 ];
