@@ -21,18 +21,18 @@ const createMockProps = (overrides: Record<string, any> = {}): any => ({
       { id: 'backdrop-1', imageType: 'Backdrop' },
     ],
     library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+    filmDetails: {
+      description: 'A computer hacker learns the truth about reality.',
+      releaseDate: '1999-03-31',
+      rating: 8.7,
+      credits: [],
+    },
   },
   primaryMedia: {
     id: 'media-1',
     name: 'The Matrix',
     type: 'Video',
     duration: 8160,
-    videoDetails: {
-      description: 'A computer hacker learns the truth about reality.',
-      releaseDate: '1999-03-31',
-      rating: '8.7',
-      credits: [],
-    },
     images: [],
   },
   additionalMedia: [],
@@ -134,12 +134,13 @@ describe('FilmHeroView', () => {
 
     it('does not render metadata when not provided', () => {
       const props = createMockProps({
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {},
-          images: [],
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {},
         },
       });
 
@@ -155,17 +156,18 @@ describe('FilmHeroView', () => {
       const onPersonClick = jest.fn();
       const props = createMockProps({
         onPersonClick,
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Lana Wachowski', creditType: 'Director', personId: 'person-1' },
               { id: 'cred-2', name: 'Lilly Wachowski', creditType: 'Director', personId: 'person-2' },
             ],
           },
-          images: [],
         },
       });
 
@@ -182,16 +184,17 @@ describe('FilmHeroView', () => {
 
     it('renders director name without link when no personId', () => {
       const props = createMockProps({
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Unknown Director', creditType: 'Director', personId: null },
             ],
           },
-          images: [],
         },
       });
 
@@ -208,16 +211,17 @@ describe('FilmHeroView', () => {
       const onPersonClick = jest.fn();
       const props = createMockProps({
         onPersonClick,
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Lana Wachowski', creditType: 'Writer', personId: 'person-1' },
             ],
           },
-          images: [],
         },
       });
 
@@ -233,16 +237,17 @@ describe('FilmHeroView', () => {
 
     it('renders writer name without link when no personId', () => {
       const props = createMockProps({
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Unknown Writer', creditType: 'Writer', personId: null },
             ],
           },
-          images: [],
         },
       });
 
@@ -259,16 +264,17 @@ describe('FilmHeroView', () => {
       const onPersonClick = jest.fn();
       const props = createMockProps({
         onPersonClick,
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Keanu Reeves', role: 'Neo', creditType: 'Actor', personId: 'person-1' },
             ],
           },
-          images: [],
         },
       });
 
@@ -285,16 +291,17 @@ describe('FilmHeroView', () => {
 
     it('renders actor without role when role is null', () => {
       const props = createMockProps({
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Extra Actor', role: null, creditType: 'Actor', personId: 'person-1' },
             ],
           },
-          images: [],
         },
       });
 
@@ -307,16 +314,17 @@ describe('FilmHeroView', () => {
 
     it('renders actor without link when no personId', () => {
       const props = createMockProps({
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Unknown Actor', role: 'Background', creditType: 'Actor', personId: null },
             ],
           },
-          images: [],
         },
       });
 
@@ -328,16 +336,17 @@ describe('FilmHeroView', () => {
 
     it('renders actor name only when no personId and no role', () => {
       const props = createMockProps({
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             credits: [
               { id: 'cred-1', name: 'Anonymous Extra', role: null, creditType: 'Actor', personId: null },
             ],
           },
-          images: [],
         },
       });
 
@@ -457,15 +466,16 @@ describe('FilmHeroView', () => {
   describe('no description or credits', () => {
     it('does not render description box when no description and no credits', () => {
       const props = createMockProps({
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             description: null,
             credits: [],
           },
-          images: [],
         },
       });
 
@@ -484,11 +494,13 @@ describe('FilmHeroView', () => {
       const onPersonClick = jest.fn();
       const props = createMockProps({
         onPersonClick,
-        primaryMedia: {
-          id: 'media-1',
+        collection: {
+          id: 'film-1',
           name: 'The Matrix',
-          type: 'Video',
-          videoDetails: {
+          collectionType: 'Film',
+          images: [{ id: 'backdrop-1', imageType: 'Backdrop' }],
+          library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
+          filmDetails: {
             description: 'Test description',
             credits: [
               { id: 'cred-1', name: 'Director Person', creditType: 'Director', personId: 'person-1' },
@@ -496,7 +508,6 @@ describe('FilmHeroView', () => {
               { id: 'cred-3', name: 'Actor Person', role: 'Lead', creditType: 'Actor', personId: 'person-3' },
             ],
           },
-          images: [],
         },
       });
 
