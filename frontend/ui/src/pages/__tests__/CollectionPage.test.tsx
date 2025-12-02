@@ -42,20 +42,21 @@ const createMockFilmCollection = () => ({
   library: { id: 'lib-1', name: 'Films', libraryType: 'Film' },
   parent: null,
   children: [],
+  filmDetails: {
+    description: 'A computer hacker learns the truth about reality.',
+    releaseDate: '1999-03-31',
+    contentRating: 'R',
+    rating: 8.7,
+    credits: [
+      { id: 'cred-1', name: 'Keanu Reeves', role: 'Neo', creditType: 'Actor', personId: 'person-1' },
+    ],
+  },
   media: [
     {
       id: 'media-1',
       name: 'The Matrix',
       type: 'Video',
       duration: 8160,
-      videoDetails: {
-        description: 'A computer hacker learns the truth about reality.',
-        releaseDate: '1999-03-31',
-        rating: 'R',
-        credits: [
-          { id: 'cred-1', name: 'Keanu Reeves', role: 'Neo', creditType: 'Actor', personId: 'person-1' },
-        ],
-      },
       images: [{ id: 'still-1', imageType: 'Still' }],
     },
   ],
