@@ -28,52 +28,30 @@ tubeca/
 pnpm dev              # Start all services (turbo)
 pnpm build            # Build all packages
 pnpm lint             # Lint all packages
+pnpm test             # Run tests in all packages
 
-# Backend specific (from /backend)
-pnpm dev              # Start backend with hot reload
-pnpm db:migrate       # Run Prisma migrations
-pnpm db:studio        # Open Prisma Studio
-
-# Frontend specific (from /frontend/ui)
-pnpm dev              # Start Vite dev server
-pnpm lint             # ESLint check
+# Run commands in specific workspace
+pnpm --filter @tubeca/backend <command>
+pnpm --filter @tubeca/ui <command>
 ```
 
-## Key Directories
+## Package-Specific Documentation
 
-### Backend (`/backend/src/`)
-- `routes/` - Express route handlers (auth, users, groups, libraries, collections, media, etc.)
-- `services/` - Business logic (authService, libraryService, collectionService, etc.)
-- `workers/` - BullMQ workers (libraryScanWorker, metadataScrapeWorker, etc.)
-- `queues/` - Job queue definitions
-- `middleware/` - Express middleware (auth)
-- `config/` - Database, Redis, app config
-- `prisma/schema.prisma` - Database schema
+Each package has its own CLAUDE.md with detailed patterns and conventions:
+- `backend/CLAUDE.md` - Backend-specific patterns, routes, services, workers
+- `frontend/ui/CLAUDE.md` - Frontend-specific patterns, components, testing
 
-### Frontend (`/frontend/ui/src/`)
-- `pages/` - Page components (LibraryPage, CollectionPage, MediaPage, UsersPage, etc.)
-- `components/` - Reusable components (Header, Sidebar, dialogs)
-- `context/` - React contexts (AuthContext, ActiveLibraryContext)
-- `api/client.ts` - API client with all backend endpoints
-- `i18n/locales/en.json` - Translation strings
+## Shared Types
 
-## Code Patterns
+Types shared between frontend and backend are defined in `packages/shared-types/src/index.ts`:
 
-### Backend Routes
-- All routes use Express Router with OpenAPI JSDoc annotations
-- Auth via `authenticate` middleware, role checks via `requireRole('Admin')`
-- Responses follow `{ data }` or `{ error }` pattern
+```bash
+# After modifying shared types
+cd packages/shared-types && pnpm build
+```
 
-### Frontend
-- Pages fetch data in `useEffect` with cancellation pattern (avoid setState-in-effect lint errors)
-- Forms use `useState` + ref pattern for tracking edit state changes
-- All user-facing strings use `useTranslation()` from i18next
-- API calls through `apiClient` singleton
-
-### Shared Types
-- Define types in `packages/shared-types/src/index.ts`
-- Run `pnpm build` in shared-types after changes
-- Import in frontend: `import type { ... } from '@tubeca/shared-types'`
+Import in frontend: `import type { ... } from '@tubeca/shared-types'`
+Import in backend: `import type { ... } from '@tubeca/shared-types'`
 
 ## Database
 
@@ -84,14 +62,28 @@ Prisma with SQLite. Key models:
 - `Collection` - Hierarchical content (Shows, Seasons, Films, Artists, Albums)
 - `Media` - Individual media files (Video, Audio)
 - `Image` - Associated artwork (Poster, Backdrop, Logo, etc.)
+- `Person` - Cast and crew with filmography
 
-## ESLint Notes
+```bash
+# Database commands (from /backend)
+pnpm db:migrate       # Run migrations
+pnpm db:studio        # Open Prisma Studio GUI
+npx prisma migrate reset --force  # Reset database (destructive)
+```
 
-The frontend has strict React hooks linting:
-- Don't call `loadData()` directly in useEffect - use inline async function with cancellation
-- Use ref pattern for form state reset on prop changes (not useEffect with setState)
-- Import `SelectChangeEvent` from `@mui/material/Select`, not main package
+## Configuration
 
-## Testing
+- **Environment**: `backend/.env` (see `backend/.env.example`)
+- **App Config**: `tubeca.config.json` in repo root (scraper API keys, file watcher settings)
 
-Backend and frontend use Jest. Run `pnpm test` from respective directories.
+## API Documentation
+
+- **Swagger UI**: `http://localhost:3000/api-docs` (when server running)
+- **Generate OpenAPI spec**: `pnpm --filter @tubeca/backend docs:generate`
+
+## Code Style
+
+- All endpoints documented with OpenAPI JSDoc annotations
+- All user-facing strings use i18next translations
+- TypeScript strict mode enabled throughout
+- ESLint + Prettier for consistent formatting
