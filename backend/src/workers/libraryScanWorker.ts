@@ -258,12 +258,19 @@ async function scanDirectory(
 
       const filePath = path.join(dirPath, file.name);
       const mediaType = VIDEO_EXTENSIONS.includes(ext) ? 'Video' : 'Audio';
-      const mediaName = path.basename(file.name, ext);
+      const fileBaseName = path.basename(file.name, ext);
+
+      // For Film libraries, use the collection/folder name as media name (cleaner than filename)
+      // The folder name typically has the proper movie title like "The Matrix (1999)"
+      const mediaName = (libraryType === 'Film' && collectionPath.length > 0)
+        ? collectionPath[collectionPath.length - 1]
+        : fileBaseName;
 
       // Check for corresponding .trickplay folder for video thumbnails
+      // Use the file basename (not mediaName) since trickplay folder is named after the file
       let thumbnails: string | null = null;
       if (mediaType === 'Video') {
-        const trickplayPath = path.join(dirPath, `${mediaName}.trickplay`);
+        const trickplayPath = path.join(dirPath, `${fileBaseName}.trickplay`);
         if (fs.existsSync(trickplayPath) && fs.statSync(trickplayPath).isDirectory()) {
           thumbnails = trickplayPath;
         }

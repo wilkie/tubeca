@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import sharp from 'sharp';
 import { authenticate } from '../middleware/auth';
 import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
@@ -138,19 +139,26 @@ router.get('/video/:id', async (req, res) => {
         ffmpegArgs.push('-map', '0:a:0?');
       }
 
-      // If source is native format, copy video stream to avoid re-encoding
+      // If source is native format, copy both video AND audio to maintain sync
+      // When copying, both streams are cut at the same keyframe boundary
+      // If we re-encode audio but copy video, they desync because audio starts
+      // at exact seek point but video starts at nearest keyframe
       if (nativeFormat) {
         ffmpegArgs.push('-c:v', 'copy');
+        ffmpegArgs.push('-c:a', 'copy');
       } else {
         ffmpegArgs.push(
           '-c:v', 'libx264',
           '-preset', 'ultrafast',
           '-tune', 'zerolatency'
         );
+        ffmpegArgs.push('-c:a', 'aac');
       }
 
+      // Reset timestamps to start from 0 to avoid negative timestamp issues
+      ffmpegArgs.push('-avoid_negative_ts', 'make_zero');
+
       ffmpegArgs.push(
-        '-c:a', 'aac',
         '-movflags', 'frag_keyframe+empty_moov+faststart',
         '-f', 'mp4',
         '-'
@@ -424,6 +432,221 @@ router.get('/audio/:id', async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to stream audio' });
     }
+  }
+});
+
+/**
+ * @openapi
+ * /api/stream/trickplay/{id}:
+ *   get:
+ *     tags:
+ *       - Streaming
+ *     summary: Get trickplay metadata
+ *     description: Get metadata about available trickplay thumbnails for scrubbing preview
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: JWT token (alternative to Authorization header)
+ *     responses:
+ *       200:
+ *         description: Trickplay metadata
+ *       404:
+ *         description: Media not found or no trickplay available
+ */
+router.get('/trickplay/:id', async (req, res) => {
+  try {
+    const media = await mediaService.getVideoById(req.params.id);
+    if (!media) {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+
+    if (!media.thumbnails) {
+      return res.json({
+        trickplay: {
+          available: false,
+          resolutions: [],
+        },
+      });
+    }
+
+    const trickplayPath = media.thumbnails;
+
+    if (!fs.existsSync(trickplayPath)) {
+      return res.json({
+        trickplay: {
+          available: false,
+          resolutions: [],
+        },
+      });
+    }
+
+    // Read the trickplay directory to find available resolutions
+    // Format: "{width} - {columns}x{rows}" e.g., "320 - 10x10"
+    const entries = fs.readdirSync(trickplayPath, { withFileTypes: true });
+    const resolutions = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      // Parse folder name: "{width} - {columns}x{rows}"
+      const match = entry.name.match(/^(\d+)\s*-\s*(\d+)x(\d+)$/);
+      if (!match) continue;
+
+      const width = parseInt(match[1], 10);
+      const columns = parseInt(match[2], 10);
+      const rows = parseInt(match[3], 10);
+      const tilesPerSprite = columns * rows;
+
+      // Count sprite files (0.jpg, 1.jpg, etc.)
+      const resolutionPath = path.join(trickplayPath, entry.name);
+      const files = fs.readdirSync(resolutionPath);
+      const spriteFiles = files.filter((f) => /^\d+\.jpg$/.test(f));
+      const spriteCount = spriteFiles.length;
+
+      if (spriteCount === 0) continue;
+
+      // Read actual image dimensions from the first sprite
+      const firstSpritePath = path.join(resolutionPath, '0.jpg');
+      let tileWidth = width;
+      let tileHeight = Math.round(width * (9 / 16)); // Fallback to 16:9 aspect ratio
+
+      try {
+        const metadata = await sharp(firstSpritePath).metadata();
+        if (metadata.width && metadata.height) {
+          tileWidth = Math.floor(metadata.width / columns);
+          tileHeight = Math.floor(metadata.height / rows);
+        }
+      } catch (imgError) {
+        console.warn(`Could not read sprite dimensions from ${firstSpritePath}:`, imgError);
+      }
+
+      resolutions.push({
+        width,
+        tileWidth,
+        tileHeight,
+        tileCount: tilesPerSprite,
+        interval: 10, // 10 seconds between frames as specified
+        spriteCount,
+        columns,
+        rows,
+      });
+    }
+
+    // Sort by width (prefer larger resolution)
+    resolutions.sort((a, b) => b.width - a.width);
+
+    return res.json({
+      trickplay: {
+        available: resolutions.length > 0,
+        resolutions,
+      },
+    });
+  } catch (error) {
+    console.error('Trickplay metadata error:', error);
+    return res.status(500).json({ error: 'Failed to get trickplay metadata' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/stream/trickplay/{id}/{width}/{index}:
+ *   get:
+ *     tags:
+ *       - Streaming
+ *     summary: Get trickplay sprite image
+ *     description: Get a specific trickplay sprite sheet image
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: width
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Thumbnail width resolution
+ *       - in: path
+ *         name: index
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Sprite sheet index (0, 1, 2, etc.)
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: JWT token (alternative to Authorization header)
+ *     responses:
+ *       200:
+ *         description: Sprite sheet image
+ *         content:
+ *           image/jpeg:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       404:
+ *         description: Sprite not found
+ */
+router.get('/trickplay/:id/:width/:index', async (req, res) => {
+  try {
+    const media = await mediaService.getVideoById(req.params.id);
+    if (!media) {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+
+    if (!media.thumbnails) {
+      return res.status(404).json({ error: 'No trickplay available' });
+    }
+
+    const trickplayPath = media.thumbnails;
+    const requestedWidth = parseInt(req.params.width, 10);
+    const spriteIndex = parseInt(req.params.index, 10);
+
+    // Find the matching resolution folder
+    const entries = fs.readdirSync(trickplayPath, { withFileTypes: true });
+    let resolutionFolder: string | null = null;
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const match = entry.name.match(/^(\d+)\s*-\s*\d+x\d+$/);
+      if (match && parseInt(match[1], 10) === requestedWidth) {
+        resolutionFolder = entry.name;
+        break;
+      }
+    }
+
+    if (!resolutionFolder) {
+      return res.status(404).json({ error: 'Resolution not found' });
+    }
+
+    const spritePath = path.join(trickplayPath, resolutionFolder, `${spriteIndex}.jpg`);
+
+    if (!fs.existsSync(spritePath)) {
+      return res.status(404).json({ error: 'Sprite not found' });
+    }
+
+    const stat = fs.statSync(spritePath);
+
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+
+    fs.createReadStream(spritePath).pipe(res);
+  } catch (error) {
+    console.error('Trickplay sprite error:', error);
+    return res.status(500).json({ error: 'Failed to get trickplay sprite' });
   }
 });
 

@@ -467,6 +467,30 @@ export interface MediaListResponse {
 }
 
 // ============================================
+// Trickplay Types
+// ============================================
+
+export interface TrickplayResolution {
+  width: number
+  tileWidth: number
+  tileHeight: number
+  columns: number
+  rows: number
+  tileCount: number // columns * rows (tiles per sprite sheet)
+  interval: number // seconds between frames
+  spriteCount: number // number of sprite sheet images (0.jpg, 1.jpg, etc.)
+}
+
+export interface TrickplayInfo {
+  available: boolean
+  resolutions: TrickplayResolution[]
+}
+
+export interface TrickplayInfoResponse {
+  trickplay: TrickplayInfo
+}
+
+// ============================================
 // Person Types
 // ============================================
 
