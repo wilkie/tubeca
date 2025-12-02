@@ -2,6 +2,8 @@
 
 Base URL: `http://localhost:3000/api`
 
+Interactive documentation available at `http://localhost:3000/api-docs` when the server is running.
+
 ## Authentication
 
 Most endpoints require authentication via JWT token. Include the token in the `Authorization` header:
@@ -21,6 +23,23 @@ For streaming and image endpoints that use browser elements (`<video>`, `<audio>
 - **Admin** - Full access to all endpoints
 - **Editor** - Can modify content (create/update/delete media, collections, etc.)
 - **Viewer** - Read-only access
+
+---
+
+## Health
+
+### GET /health
+
+Health check endpoint.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "message": "Tubeca API is running",
+  "database": "connected"
+}
+```
 
 ---
 
@@ -102,7 +121,12 @@ Get the current authenticated user.
     "id": "string",
     "name": "string",
     "role": "Admin|Editor|Viewer",
-    "groups": [],
+    "groups": [
+      {
+        "id": "string",
+        "name": "string"
+      }
+    ],
     "createdAt": "datetime"
   }
 }
@@ -119,16 +143,34 @@ Get all users. **Requires Admin role.**
 }
 ```
 
-### PATCH /users/:id/groups
+### POST /users
 
-Update a user's groups. **Requires Admin role.**
+Create a new user. **Requires Admin role.**
 
 **Request Body:**
 ```json
 {
-  "groupIds": ["string"]
+  "name": "string",
+  "password": "string",
+  "role": "Admin|Editor|Viewer"
 }
 ```
+
+### PATCH /users/:id
+
+Update a user. **Requires Admin role.**
+
+**Request Body:**
+```json
+{
+  "name": "string",
+  "password": "string"
+}
+```
+
+### DELETE /users/:id
+
+Delete a user. **Requires Admin role.**
 
 ### PATCH /users/:id/role
 
@@ -140,6 +182,70 @@ Update a user's role. **Requires Admin role.**
   "role": "Admin|Editor|Viewer"
 }
 ```
+
+### PATCH /users/:id/groups
+
+Update a user's group memberships. **Requires Admin role.**
+
+**Request Body:**
+```json
+{
+  "groupIds": ["string"]
+}
+```
+
+---
+
+## Group Endpoints
+
+All group endpoints require Admin role.
+
+### GET /groups
+
+Get all groups.
+
+**Response:**
+```json
+{
+  "groups": [
+    {
+      "id": "string",
+      "name": "string",
+      "description": "string",
+      "createdAt": "datetime",
+      "updatedAt": "datetime"
+    }
+  ]
+}
+```
+
+### POST /groups
+
+Create a new group.
+
+**Request Body:**
+```json
+{
+  "name": "string",
+  "description": "string"
+}
+```
+
+### PATCH /groups/:id
+
+Update a group.
+
+**Request Body:**
+```json
+{
+  "name": "string",
+  "description": "string"
+}
+```
+
+### DELETE /groups/:id
+
+Delete a group.
 
 ---
 
@@ -154,7 +260,9 @@ Get system settings.
 {
   "settings": {
     "id": "string",
-    "instanceName": "string"
+    "instanceName": "string",
+    "createdAt": "datetime",
+    "updatedAt": "datetime"
   }
 }
 ```
@@ -178,7 +286,7 @@ All library endpoints require authentication.
 
 ### GET /libraries
 
-Get all libraries.
+Get all libraries accessible to the current user.
 
 **Response:**
 ```json
@@ -188,7 +296,10 @@ Get all libraries.
       "id": "string",
       "name": "string",
       "path": "string",
-      "libraryType": "Television|Film|Music"
+      "libraryType": "Television|Film|Music",
+      "watchForChanges": false,
+      "createdAt": "datetime",
+      "updatedAt": "datetime"
     }
   ]
 }
@@ -208,7 +319,8 @@ Create a new library. **Requires Admin role.**
   "name": "string",
   "path": "string",
   "libraryType": "Television|Film|Music",
-  "groupIds": ["string"] // optional
+  "watchForChanges": false,
+  "groupIds": ["string"]
 }
 ```
 
@@ -222,13 +334,14 @@ Update a library. **Requires Admin role.**
   "name": "string",
   "path": "string",
   "libraryType": "Television|Film|Music",
+  "watchForChanges": false,
   "groupIds": ["string"]
 }
 ```
 
 ### DELETE /libraries/:id
 
-Delete a library. **Requires Admin role.**
+Delete a library and all its content. **Requires Admin role.**
 
 ### POST /libraries/:id/scan
 
@@ -259,7 +372,7 @@ Get scan status for a library.
 
 ### DELETE /libraries/:id/scan
 
-Cancel a library scan. **Requires Admin role.**
+Cancel a running library scan. **Requires Admin role.**
 
 ---
 
@@ -269,7 +382,7 @@ All collection endpoints require authentication.
 
 ### GET /collections/library/:libraryId
 
-Get all collections for a library.
+Get all root collections for a library.
 
 **Response:**
 ```json
@@ -280,7 +393,30 @@ Get all collections for a library.
 
 ### GET /collections/:id
 
-Get a single collection with full details.
+Get a single collection with full details including children, media, and images.
+
+**Response:**
+```json
+{
+  "collection": {
+    "id": "string",
+    "name": "string",
+    "sortName": "string",
+    "collectionType": "Show|Season|Film|Artist|Album|Folder",
+    "libraryId": "string",
+    "parentId": "string|null",
+    "images": [...],
+    "children": [...],
+    "media": [...],
+    "showDetails": {...},
+    "seasonDetails": {...},
+    "filmDetails": {...},
+    "artistDetails": {...},
+    "albumDetails": {...},
+    "keywords": [...]
+  }
+}
+```
 
 ### POST /collections
 
@@ -290,8 +426,9 @@ Create a collection. **Requires Editor role.**
 ```json
 {
   "name": "string",
+  "collectionType": "Show|Season|Film|Artist|Album|Folder",
   "libraryId": "string",
-  "parentId": "string" // optional
+  "parentId": "string"
 }
 ```
 
@@ -325,6 +462,39 @@ Refresh images for a collection from scrapers. **Requires Editor role.**
 
 All media endpoints require authentication.
 
+### GET /media
+
+Get all media items.
+
+**Response:**
+```json
+{
+  "media": [...]
+}
+```
+
+### GET /media/videos
+
+Get all video media items.
+
+**Response:**
+```json
+{
+  "videos": [...]
+}
+```
+
+### GET /media/audio
+
+Get all audio media items.
+
+**Response:**
+```json
+{
+  "audio": [...]
+}
+```
+
 ### GET /media/:id
 
 Get a single media item with full details including streams.
@@ -338,6 +508,7 @@ Get a single media item with full details including streams.
     "path": "string",
     "type": "Video|Audio",
     "duration": 3600,
+    "size": 1234567890,
     "streams": [
       {
         "streamIndex": 0,
@@ -351,10 +522,44 @@ Get a single media item with full details including streams.
         "isForced": false
       }
     ],
-    "videoDetails": {...},
-    "audioDetails": {...},
-    "collection": {...}
+    "videoDetails": {
+      "episode": 1,
+      "description": "string",
+      "releaseDate": "date"
+    },
+    "audioDetails": {
+      "track": 1,
+      "disc": 1
+    },
+    "collection": {...},
+    "images": [...]
   }
+}
+```
+
+### POST /media/video
+
+Create a new video entry. **Requires Editor role.**
+
+**Request Body:**
+```json
+{
+  "path": "string",
+  "duration": 3600,
+  "name": "string"
+}
+```
+
+### POST /media/audio
+
+Create a new audio entry. **Requires Editor role.**
+
+**Request Body:**
+```json
+{
+  "path": "string",
+  "duration": 180,
+  "name": "string"
 }
 ```
 
@@ -471,11 +676,18 @@ Get image metadata.
 Get all images for a media item.
 
 **Query Parameters:**
-- `type` - Filter by image type (Poster, Backdrop, etc.)
+- `type` - Filter by image type (Poster, Backdrop, Banner, Thumb, Logo, Photo)
 
 ### GET /images/collection/:collectionId
 
 Get all images for a collection.
+
+**Query Parameters:**
+- `type` - Filter by image type
+
+### GET /images/person/:personId
+
+Get all images for a person.
 
 ### POST /images/download
 
@@ -488,6 +700,7 @@ Download and save an image from URL. **Requires Editor role.**
   "imageType": "Poster|Backdrop|Banner|Thumb|Logo|Photo",
   "mediaId": "string",
   "collectionId": "string",
+  "personId": "string",
   "isPrimary": true,
   "scraperId": "tmdb"
 }
@@ -519,6 +732,15 @@ Stream a video file. Transcodes non-native formats to MP4 using FFmpeg.
 - Non-native formats are transcoded on-the-fly
 - Selecting an audio track forces transcoding
 
+### GET /stream/audio/:id
+
+Stream an audio file.
+
+**Query Parameters:**
+- `token` - Auth token
+
+**Response:** Audio stream with appropriate content type
+
 ### GET /stream/subtitles/:id
 
 Extract and stream subtitles as WebVTT.
@@ -529,14 +751,118 @@ Extract and stream subtitles as WebVTT.
 
 **Response:** WebVTT subtitle file (text/vtt)
 
-### GET /stream/audio/:id
+### GET /stream/trickplay/:id
 
-Stream an audio file.
+Get trickplay sprite sheet information for a video.
 
 **Query Parameters:**
 - `token` - Auth token
 
-**Response:** Audio stream with appropriate content type
+**Response:**
+```json
+{
+  "trickplay": {
+    "available": true,
+    "resolutions": [
+      {
+        "width": 320,
+        "tileWidth": 160,
+        "tileHeight": 90,
+        "columns": 5,
+        "rows": 5,
+        "tileCount": 25,
+        "interval": 10,
+        "spriteCount": 10
+      }
+    ]
+  }
+}
+```
+
+### GET /stream/trickplay/:id/:width/:index
+
+Get a trickplay sprite sheet image.
+
+**Path Parameters:**
+- `id` - Media ID
+- `width` - Resolution width (e.g., 320)
+- `index` - Sprite sheet index (0-based)
+
+**Query Parameters:**
+- `token` - Auth token
+
+**Response:** JPEG image containing grid of video thumbnails
+
+---
+
+## Jobs Endpoints
+
+Background job management endpoints.
+
+### POST /jobs/transcode
+
+Queue a transcode job.
+
+**Request Body:**
+```json
+{
+  "mediaId": "string",
+  "inputPath": "string",
+  "outputPath": "string",
+  "resolution": "1080p|720p|480p",
+  "format": "mp4|webm"
+}
+```
+
+**Response:**
+```json
+{
+  "jobId": "string",
+  "message": "Transcode job queued"
+}
+```
+
+### POST /jobs/thumbnail
+
+Queue a thumbnail generation job.
+
+**Request Body:**
+```json
+{
+  "mediaId": "string",
+  "videoPath": "string",
+  "thumbnailPath": "string",
+  "timestamp": 30
+}
+```
+
+**Response:**
+```json
+{
+  "jobId": "string",
+  "message": "Thumbnail job queued"
+}
+```
+
+### POST /jobs/analyze
+
+Queue a media analysis job.
+
+**Request Body:**
+```json
+{
+  "mediaId": "string",
+  "filePath": "string"
+}
+```
+
+**Response:**
+```json
+{
+  "jobId": "string",
+  "message": "Analyze job queued"
+}
+```
 
 ---
 
