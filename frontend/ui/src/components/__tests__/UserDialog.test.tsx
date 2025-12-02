@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from './test-utils';
+import { render, screen, waitFor } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
-import { UserDialog } from '../components/UserDialog';
-import { apiClient } from '../api/client';
+import { UserDialog } from '../UserDialog';
+import { apiClient } from '../../api/client';
 
 // Mock the API client
-jest.mock('../api/client', () => ({
+jest.mock('../../api/client', () => ({
   apiClient: {
     createUser: jest.fn(),
     updateUser: jest.fn(),

@@ -33,6 +33,7 @@ import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Colle
 import { apiClient, type Media, type Image, type CollectionType } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { ImagesDialog } from '../components/ImagesDialog';
+import { formatDuration } from '../utils/format';
 
 interface CreditWithPerson {
   id: string;
@@ -631,18 +632,4 @@ export function MediaPage() {
       />
     </Container>
   );
-}
-
-function formatDuration(seconds: number): string {
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  if (hrs > 0) {
-    return `${hrs}h ${mins}m ${secs}s`;
-  }
-  if (mins > 0) {
-    return `${mins}m ${secs}s`;
-  }
-  return `${secs}s`;
 }

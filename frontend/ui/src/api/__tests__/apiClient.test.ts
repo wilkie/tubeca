@@ -25,7 +25,7 @@ const mockLocalStorage = (() => {
 Object.defineProperty(window, 'localStorage', { value: mockLocalStorage });
 
 // Import after mocks are set up
-import { apiClient } from '../api/client';
+import { apiClient } from '../client';
 
 describe('ApiClient', () => {
   beforeEach(() => {

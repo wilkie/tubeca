@@ -1,11 +1,11 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { AuthProvider, useAuth } from '../context/AuthContext';
-import { apiClient } from '../api/client';
+import { AuthProvider, useAuth } from '../AuthContext';
+import { apiClient } from '../../api/client';
 
 // Mock the API client
-jest.mock('../api/client', () => ({
+jest.mock('../../api/client', () => ({
   apiClient: {
     checkSetup: jest.fn(),
     hasToken: jest.fn(),
