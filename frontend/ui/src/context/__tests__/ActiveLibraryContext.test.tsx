@@ -71,7 +71,6 @@ describe('ActiveLibraryContext', () => {
 
   describe('collection routes', () => {
     it('fetches library ID for /collection/:id routes', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockApiClient.getCollection.mockResolvedValue({
         data: {
           collection: {
@@ -80,7 +79,7 @@ describe('ActiveLibraryContext', () => {
             library: { id: 'fetched-lib-id' },
           },
         },
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(
         <MemoryRouter initialEntries={['/collection/col-123']}>
@@ -102,7 +101,6 @@ describe('ActiveLibraryContext', () => {
     });
 
     it('handles missing library in collection response', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockApiClient.getCollection.mockResolvedValue({
         data: {
           collection: {
@@ -111,7 +109,7 @@ describe('ActiveLibraryContext', () => {
             // No library field
           },
         },
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(
         <MemoryRouter initialEntries={['/collection/col-123']}>
@@ -132,7 +130,6 @@ describe('ActiveLibraryContext', () => {
 
   describe('media routes', () => {
     it('fetches library ID for /media/:id routes', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockApiClient.getMedia.mockResolvedValue({
         data: {
           media: {
@@ -142,7 +139,7 @@ describe('ActiveLibraryContext', () => {
             },
           },
         },
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(
         <MemoryRouter initialEntries={['/media/media-123']}>
@@ -203,7 +200,6 @@ describe('ActiveLibraryContext', () => {
       const user = userEvent.setup();
 
       // Start with a collection route where fetched library ID would apply
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockApiClient.getCollection.mockResolvedValue({
         data: {
           collection: {
@@ -212,7 +208,7 @@ describe('ActiveLibraryContext', () => {
             library: { id: 'original-lib-id' },
           },
         },
-      } as any);
+      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       render(
         <MemoryRouter initialEntries={['/collection/col-123']}>
