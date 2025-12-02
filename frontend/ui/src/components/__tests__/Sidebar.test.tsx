@@ -77,10 +77,14 @@ describe('Sidebar', () => {
       expect(librariesElements.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('shows no libraries message when library list is empty', () => {
+    it('shows no libraries message when library list is empty', async () => {
       mockApiClient.getLibraries.mockResolvedValue({ data: { libraries: [] } });
 
       render(<Sidebar open={true} onClose={mockOnClose} />);
+
+      await waitFor(() => {
+        expect(mockApiClient.getLibraries).toHaveBeenCalled();
+      });
 
       expect(screen.getByText(/no libraries available/i)).toBeInTheDocument();
     });
