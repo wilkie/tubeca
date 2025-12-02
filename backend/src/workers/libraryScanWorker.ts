@@ -246,9 +246,30 @@ async function scanDirectory(
     return;
   }
 
-  // Separate files and directories
-  const files = entries.filter(e => e.isFile());
-  const dirs = entries.filter(e => e.isDirectory());
+  // Separate files and directories (following symlinks)
+  const files = entries.filter(e => {
+    if (e.isFile()) return true;
+    if (e.isSymbolicLink()) {
+      try {
+        return fs.statSync(path.join(dirPath, e.name)).isFile();
+      } catch {
+        return false; // Broken symlink
+      }
+    }
+    return false;
+  });
+
+  const dirs = entries.filter(e => {
+    if (e.isDirectory()) return true;
+    if (e.isSymbolicLink()) {
+      try {
+        return fs.statSync(path.join(dirPath, e.name)).isDirectory();
+      } catch {
+        return false; // Broken symlink
+      }
+    }
+    return false;
+  });
 
   // Process media files in this directory
   for (const file of files) {

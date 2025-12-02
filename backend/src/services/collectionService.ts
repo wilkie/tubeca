@@ -148,6 +148,23 @@ export class CollectionService {
           },
         },
         seasonDetails: true,
+        filmDetails: {
+          include: {
+            credits: {
+              orderBy: { order: 'asc' },
+              include: {
+                person: {
+                  include: {
+                    images: {
+                      where: { isPrimary: true, imageType: 'Photo' },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         artistDetails: {
           include: {
             members: true,
@@ -158,6 +175,7 @@ export class CollectionService {
             credits: true,
           },
         },
+        keywords: true,
         images: true,
       },
     });
@@ -294,7 +312,7 @@ export class CollectionService {
       },
     });
 
-    // Get all images for the collection itself (and related show/season details)
+    // Get all images for the collection itself (and related show/season/film details)
     const collection = await prisma.collection.findUnique({
       where: { id },
       include: {
@@ -309,6 +327,15 @@ export class CollectionService {
           },
         },
         seasonDetails: true,
+        filmDetails: {
+          include: {
+            credits: {
+              include: {
+                images: true,
+              },
+            },
+          },
+        },
         artistDetails: {
           include: {
             members: true,
@@ -366,6 +393,15 @@ export class CollectionService {
     // Delete show credit images from disk
     if (collection.showDetails?.credits) {
       for (const credit of collection.showDetails.credits) {
+        for (const image of credit.images) {
+          deleteImageFile(image.path);
+        }
+      }
+    }
+
+    // Delete film credit images from disk
+    if (collection.filmDetails?.credits) {
+      for (const credit of collection.filmDetails.credits) {
         for (const image of credit.images) {
           deleteImageFile(image.path);
         }

@@ -11,15 +11,16 @@ import {
   Button,
   IconButton,
   Link,
+  Chip,
 } from '@mui/material';
 import { Star, PlayArrow, MoreVert, VideoFile } from '@mui/icons-material';
-import { apiClient, type Collection, type Image, type Credit } from '../api/client';
+import { apiClient, type Collection, type Image, type FilmCredit } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
 import { CastCrewGrid } from './CastCrewGrid';
 
-interface CreditWithPerson extends Credit {
+interface FilmCreditWithPerson extends FilmCredit {
   person?: {
     id: string;
     images?: Image[];
@@ -31,12 +32,6 @@ interface MediaItem {
   name: string;
   type: 'Video' | 'Audio';
   duration?: number;
-  videoDetails?: {
-    description?: string | null;
-    releaseDate?: string | null;
-    rating?: string | null;
-    credits?: CreditWithPerson[];
-  } | null;
   images?: Image[];
 }
 
@@ -71,7 +66,8 @@ export function FilmHeroView({
   const posterImage = collection.images?.find((img) => img.imageType === 'Poster');
   const logoImage = collection.images?.find((img) => img.imageType === 'Logo');
 
-  const credits = primaryMedia.videoDetails?.credits || [];
+  const filmDetails = collection.filmDetails;
+  const credits = (filmDetails?.credits || []) as FilmCreditWithPerson[];
 
   return (
     <>
@@ -87,7 +83,7 @@ export function FilmHeroView({
         </Box>
 
         {/* Description Card */}
-        {(primaryMedia.videoDetails?.description || credits.length > 0) && (
+        {(filmDetails?.description || credits.length > 0) && (
           <Box
             sx={{
               position: 'relative',
@@ -109,7 +105,7 @@ export function FilmHeroView({
                 overflow: 'auto',
               }}
             >
-              {primaryMedia.videoDetails?.description && (
+              {filmDetails?.description && (
                 <Typography
                   variant="body1"
                   sx={{
@@ -121,7 +117,7 @@ export function FilmHeroView({
                     overflow: 'hidden',
                   }}
                 >
-                  {primaryMedia.videoDetails.description}
+                  {filmDetails.description}
                 </Typography>
               )}
 
@@ -270,9 +266,9 @@ export function FilmHeroView({
 
             {/* Metadata Row */}
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
-              {primaryMedia.videoDetails?.releaseDate && (
+              {filmDetails?.releaseDate && (
                 <Typography variant="body1" sx={{ color: 'grey.300' }}>
-                  {new Date(primaryMedia.videoDetails.releaseDate).getFullYear()}
+                  {new Date(filmDetails.releaseDate).getFullYear()}
                 </Typography>
               )}
               {primaryMedia.duration && primaryMedia.duration > 0 && (
@@ -280,15 +276,53 @@ export function FilmHeroView({
                   {formatDuration(primaryMedia.duration)}
                 </Typography>
               )}
-              {primaryMedia.videoDetails?.rating && (
+              {filmDetails?.contentRating && (
+                <Chip
+                  label={filmDetails.contentRating}
+                  size="small"
+                  sx={{ color: 'grey.100', borderColor: 'grey.500' }}
+                  variant="outlined"
+                />
+              )}
+              {filmDetails?.rating && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <Star sx={{ color: 'warning.main', fontSize: 20 }} />
                   <Typography variant="body1" sx={{ color: 'grey.300' }}>
-                    {primaryMedia.videoDetails.rating}
+                    {filmDetails.rating.toFixed(1)}
                   </Typography>
                 </Box>
               )}
             </Box>
+
+            {/* Genres */}
+            {filmDetails?.genres && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                {filmDetails.genres.split(', ').map((genre) => (
+                  <Chip
+                    key={genre}
+                    label={genre}
+                    size="small"
+                    sx={{ color: 'grey.100', borderColor: 'grey.500' }}
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            )}
+
+            {/* Keywords */}
+            {collection.keywords && collection.keywords.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                {collection.keywords.slice(0, 10).map((keyword) => (
+                  <Chip
+                    key={keyword.id}
+                    label={keyword.name}
+                    size="small"
+                    sx={{ color: 'grey.300', borderColor: 'grey.700', fontSize: '0.7rem' }}
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            )}
 
             {/* Action Buttons */}
             <Box sx={{ display: 'flex', gap: 1 }}>

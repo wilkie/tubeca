@@ -235,6 +235,21 @@ export function ShowHeroView({
               </Box>
             )}
 
+            {/* Keywords */}
+            {collection.keywords && collection.keywords.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                {collection.keywords.slice(0, 10).map((keyword) => (
+                  <Chip
+                    key={keyword.id}
+                    label={keyword.name}
+                    size="small"
+                    sx={{ color: 'grey.300', borderColor: 'grey.700', fontSize: '0.7rem' }}
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            )}
+
             {/* Action Buttons */}
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               {sortedSeasons.length > 1 && (
