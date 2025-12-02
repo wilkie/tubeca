@@ -1,5 +1,5 @@
-import { ReactElement, ReactNode } from 'react';
-import { render, RenderOptions } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
+import { render, type RenderOptions } from '@testing-library/react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';

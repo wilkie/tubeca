@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      husky:
+        specifier: ^9.1.7
+        version: 9.1.7
       turbo:
         specifier: ^2.3.3
         version: 2.6.1
@@ -5276,6 +5279,7 @@ packages:
   /fill-range@7.1.1:
     resolution: {integrity: sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==}
     engines: {node: '>=8'}
+    requiresBuild: true
     dependencies:
       to-regex-range: 5.0.1
     dev: true
@@ -5703,6 +5707,12 @@ packages:
     engines: {node: '>=10.17.0'}
     dev: true
 
+  /husky@9.1.7:
+    resolution: {integrity: sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==}
+    engines: {node: '>=18'}
+    hasBin: true
+    dev: true
+
   /i18next-browser-languagedetector@8.2.0:
     resolution: {integrity: sha512-P+3zEKLnOF0qmiesW383vsLdtQVyKtCNA9cjSoKCppTKPQVfKd2W8hbVo5ZhNJKDqeM7BOcvNoKJOjpHh4Js9g==}
     dependencies:
@@ -5977,6 +5987,7 @@ packages:
   /is-number@7.0.0:
     resolution: {integrity: sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==}
     engines: {node: '>=0.12.0'}
+    requiresBuild: true
     dev: true
 
   /is-potential-custom-element-name@1.0.1:
@@ -8755,6 +8766,7 @@ packages:
   /to-regex-range@5.0.1:
     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
     engines: {node: '>=8.0'}
+    requiresBuild: true
     dependencies:
       is-number: 7.0.0
     dev: true

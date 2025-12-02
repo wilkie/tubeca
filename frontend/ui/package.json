@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "author": "wilkie",
   "license": "MIT",
