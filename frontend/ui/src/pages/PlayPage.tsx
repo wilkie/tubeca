@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Box, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
-import { apiClient, type Media } from '../api/client';
+import { apiClient, type Media, type TrickplayResolution } from '../api/client';
 import { VideoPlayer, type AudioTrackInfo, type SubtitleTrackInfo } from '../components/VideoPlayer';
 
 export function PlayPage() {
@@ -15,6 +15,7 @@ export function PlayPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number | undefined>(undefined);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState<number | null>(null);
+  const [trickplay, setTrickplay] = useState<TrickplayResolution | undefined>(undefined);
 
   useEffect(() => {
     if (!mediaId) return;
@@ -32,6 +33,15 @@ export function PlayPage() {
         setError(result.error);
       } else if (result.data) {
         setMedia(result.data.media);
+
+        // Fetch trickplay info for video media
+        if (result.data.media.type === 'Video') {
+          const trickplayResult = await apiClient.getTrickplayInfo(mediaId!);
+          if (!cancelled && trickplayResult.data?.trickplay?.available) {
+            // Use the first (highest resolution) trickplay
+            setTrickplay(trickplayResult.data.trickplay.resolutions[0]);
+          }
+        }
       }
 
       setIsLoading(false);
@@ -221,6 +231,8 @@ export function PlayPage() {
             subtitleTracks={subtitleTracks}
             currentSubtitleTrack={currentSubtitleTrack}
             onSubtitleTrackChange={handleSubtitleTrackChange}
+            trickplay={trickplay}
+            mediaId={mediaId}
           />
         </Box>
       ) : (

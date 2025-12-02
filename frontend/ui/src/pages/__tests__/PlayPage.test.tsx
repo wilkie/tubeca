@@ -12,6 +12,7 @@ jest.mock('../../api/client', () => ({
     getAudioStreamUrl: jest.fn((id) => `http://localhost/api/audio/${id}`),
     getSubtitleUrl: jest.fn((id, idx) => `http://localhost/api/subtitles/${id}/${idx}`),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
+    getTrickplayInfo: jest.fn(() => Promise.resolve({ data: { trickplay: { available: false, resolutions: [] } } })),
   },
 }));
 

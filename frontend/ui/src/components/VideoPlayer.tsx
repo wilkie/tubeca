@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Box,
   IconButton,
@@ -21,6 +21,7 @@ import {
   Subtitles,
   Check,
 } from '@mui/icons-material';
+import { apiClient, type TrickplayResolution } from '../api/client';
 
 export interface AudioTrackInfo {
   streamIndex: number;
@@ -53,6 +54,8 @@ interface VideoPlayerProps {
   subtitleTracks?: SubtitleTrackInfo[]; // Available subtitle tracks
   currentSubtitleTrack?: number | null; // Current subtitle track stream index (null = off)
   onSubtitleTrackChange?: (streamIndex: number | null) => void; // Callback when subtitle track changes
+  trickplay?: TrickplayResolution; // Trickplay thumbnail data for preview on hover
+  mediaId?: string; // Media ID for fetching trickplay sprites
 }
 
 function formatTime(seconds: number): string {
@@ -157,9 +160,12 @@ export function VideoPlayer({
   subtitleTracks,
   currentSubtitleTrack,
   onSubtitleTrackChange,
+  trickplay,
+  mediaId,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(mediaDuration || 0);
@@ -175,6 +181,11 @@ export function VideoPlayer({
   // Audio track menu state
   const [audioMenuAnchor, setAudioMenuAnchor] = useState<null | HTMLElement>(null);
   const audioMenuOpen = Boolean(audioMenuAnchor);
+
+  // Trickplay preview state
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewTime, setPreviewTime] = useState(0);
+  const [previewX, setPreviewX] = useState(0);
 
   // Subtitle track menu state
   const [subtitleMenuAnchor, setSubtitleMenuAnchor] = useState<null | HTMLElement>(null);
@@ -332,6 +343,46 @@ export function VideoPlayer({
     handlePlayPause();
   };
 
+  // Trickplay preview handlers
+  const handleSliderMouseMove = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!trickplay || !mediaId || !sliderRef.current) return;
+
+      const rect = sliderRef.current.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const percent = Math.max(0, Math.min(1, x / rect.width));
+      const time = percent * duration;
+
+      setPreviewTime(time);
+      setPreviewX(x);
+      setPreviewVisible(true);
+    },
+    [trickplay, mediaId, duration]
+  );
+
+  const handleSliderMouseLeave = useCallback(() => {
+    setPreviewVisible(false);
+  }, []);
+
+  // Calculate trickplay sprite and tile position
+  const getTrickplayStyle = useCallback(() => {
+    if (!trickplay || !mediaId) return null;
+
+    const { interval, columns, tileWidth, tileHeight, tileCount, width } = trickplay;
+    const frameIndex = Math.floor(previewTime / interval);
+    const spriteIndex = Math.floor(frameIndex / tileCount);
+    const tileIndex = frameIndex % tileCount;
+    const col = tileIndex % columns;
+    const row = Math.floor(tileIndex / columns);
+
+    return {
+      backgroundImage: `url(${apiClient.getTrickplaySpriteUrl(mediaId, width, spriteIndex)})`,
+      backgroundPosition: `-${col * tileWidth}px -${row * tileHeight}px`,
+      width: tileWidth,
+      height: tileHeight,
+    };
+  }, [trickplay, mediaId, previewTime]);
+
   const handleAudioMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     event.stopPropagation();
     setAudioMenuAnchor(event.currentTarget);
@@ -463,20 +514,64 @@ export function VideoPlayer({
           </Typography>
         )}
 
-        {/* Progress bar */}
-        <Slider
-          value={currentTime}
-          max={duration || 100}
-          onChange={handleSeekChange}
-          onChangeCommitted={handleSeekCommit}
-          sx={{
-            color: 'primary.main',
-            '& .MuiSlider-thumb': {
-              width: 12,
-              height: 12,
-            },
-          }}
-        />
+        {/* Progress bar with trickplay preview */}
+        <Box
+          ref={sliderRef}
+          onMouseMove={handleSliderMouseMove}
+          onMouseLeave={handleSliderMouseLeave}
+          sx={{ position: 'relative' }}
+        >
+          {/* Trickplay preview tooltip */}
+          {trickplay && mediaId && previewVisible && (
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: 20,
+                left: previewX,
+                transform: 'translateX(-50%)',
+                zIndex: 10,
+                pointerEvents: 'none',
+              }}
+            >
+              <Box
+                sx={{
+                  ...getTrickplayStyle(),
+                  borderRadius: 1,
+                  boxShadow: 3,
+                  overflow: 'hidden',
+                }}
+              />
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  textAlign: 'center',
+                  color: 'white',
+                  bgcolor: 'rgba(0,0,0,0.7)',
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: 0.5,
+                  mt: 0.5,
+                }}
+              >
+                {formatTime(previewTime)}
+              </Typography>
+            </Box>
+          )}
+          <Slider
+            value={currentTime}
+            max={duration || 100}
+            onChange={handleSeekChange}
+            onChangeCommitted={handleSeekCommit}
+            sx={{
+              color: 'primary.main',
+              '& .MuiSlider-thumb': {
+                width: 12,
+                height: 12,
+              },
+            }}
+          />
+        </Box>
 
         {/* Controls row */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

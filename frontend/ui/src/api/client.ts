@@ -53,6 +53,9 @@ import type {
   PersonFilmographyShow,
   PersonFilmographyFilm,
   PersonFilmographyEpisode,
+  TrickplayInfo,
+  TrickplayResolution,
+  TrickplayInfoResponse,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -111,6 +114,9 @@ export type {
   PersonFilmographyShow,
   PersonFilmographyFilm,
   PersonFilmographyEpisode,
+  TrickplayInfo,
+  TrickplayResolution,
+  TrickplayInfoResponse,
 };
 
 const API_BASE = '/api';
@@ -431,6 +437,17 @@ class ApiClient {
     return this.request<{ message: string; person: PersonWithFilmography }>(`/persons/${id}/refresh`, {
       method: 'POST',
     });
+  }
+
+  // Trickplay methods
+  async getTrickplayInfo(mediaId: string): Promise<ApiResponse<TrickplayInfoResponse>> {
+    return this.request<TrickplayInfoResponse>(`/stream/trickplay/${mediaId}`);
+  }
+
+  // Get URL for a trickplay sprite sheet (includes auth token)
+  getTrickplaySpriteUrl(mediaId: string, width: number, index: number): string {
+    const token = this.getToken();
+    return `${API_BASE}/stream/trickplay/${mediaId}/${width}/${index}?token=${token}`;
   }
 }
 
