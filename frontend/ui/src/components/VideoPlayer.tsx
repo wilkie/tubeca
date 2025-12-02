@@ -353,8 +353,13 @@ export function VideoPlayer({
       const percent = Math.max(0, Math.min(1, x / rect.width));
       const time = percent * duration;
 
+      // Clamp position so preview stays within slider bounds
+      const previewWidth = trickplay.tileWidth;
+      const halfWidth = previewWidth / 2;
+      const clampedX = Math.max(halfWidth, Math.min(rect.width - halfWidth, x));
+
       setPreviewTime(time);
-      setPreviewX(x);
+      setPreviewX(clampedX);
       setPreviewVisible(true);
     },
     [trickplay, mediaId, duration]
@@ -524,6 +529,8 @@ export function VideoPlayer({
           {/* Trickplay preview tooltip */}
           {trickplay && mediaId && previewVisible && (
             <Box
+              data-testid="trickplay-preview"
+              data-preview-x={previewX}
               sx={{
                 position: 'absolute',
                 bottom: 20,
