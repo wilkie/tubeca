@@ -113,6 +113,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           size="large"
           color="inherit"
           aria-label={t('header.search')}
+          onClick={() => navigate('/search')}
         >
           <Search />
         </IconButton>

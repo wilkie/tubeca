@@ -637,3 +637,12 @@ export interface PersonResponse {
 export interface PersonsResponse {
   persons: Person[]
 }
+
+// ============================================
+// Search Types
+// ============================================
+
+export interface SearchResponse {
+  collections: Collection[]
+  media: Media[]
+}

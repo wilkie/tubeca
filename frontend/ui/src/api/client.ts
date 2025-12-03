@@ -59,6 +59,7 @@ import type {
   TrickplayInfo,
   TrickplayResolution,
   TrickplayInfoResponse,
+  SearchResponse,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -123,6 +124,7 @@ export type {
   TrickplayInfo,
   TrickplayResolution,
   TrickplayInfoResponse,
+  SearchResponse,
 };
 
 const API_BASE = '/api';
@@ -454,6 +456,15 @@ class ApiClient {
   getTrickplaySpriteUrl(mediaId: string, width: number, index: number): string {
     const token = this.getToken();
     return `${API_BASE}/stream/trickplay/${mediaId}/${width}/${index}?token=${token}`;
+  }
+
+  // Search methods
+  async search(query: string, limit?: number): Promise<ApiResponse<SearchResponse>> {
+    const params = new URLSearchParams({ q: query });
+    if (limit) {
+      params.set('limit', limit.toString());
+    }
+    return this.request<SearchResponse>(`/search?${params.toString()}`);
   }
 }
 
