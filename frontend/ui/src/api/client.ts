@@ -60,6 +60,16 @@ import type {
   TrickplayResolution,
   TrickplayInfoResponse,
   SearchResponse,
+  UserCollection,
+  UserCollectionItem,
+  UserCollectionItemCollection,
+  UserCollectionItemMedia,
+  UserCollectionsResponse,
+  UserCollectionResponse,
+  UserCollectionItemResponse,
+  CreateUserCollectionInput,
+  UpdateUserCollectionInput,
+  AddUserCollectionItemInput,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -125,6 +135,16 @@ export type {
   TrickplayResolution,
   TrickplayInfoResponse,
   SearchResponse,
+  UserCollection,
+  UserCollectionItem,
+  UserCollectionItemCollection,
+  UserCollectionItemMedia,
+  UserCollectionsResponse,
+  UserCollectionResponse,
+  UserCollectionItemResponse,
+  CreateUserCollectionInput,
+  UpdateUserCollectionInput,
+  AddUserCollectionItemInput,
 };
 
 const API_BASE = '/api';
@@ -465,6 +485,59 @@ class ApiClient {
       params.set('limit', limit.toString());
     }
     return this.request<SearchResponse>(`/search?${params.toString()}`);
+  }
+
+  // User Collection methods
+  async getUserCollections(): Promise<ApiResponse<UserCollectionsResponse>> {
+    return this.request<UserCollectionsResponse>('/user-collections');
+  }
+
+  async getPublicCollections(): Promise<ApiResponse<UserCollectionsResponse>> {
+    return this.request<UserCollectionsResponse>('/user-collections/public');
+  }
+
+  async getUserCollection(id: string): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>(`/user-collections/${id}`);
+  }
+
+  async createUserCollection(input: CreateUserCollectionInput): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>('/user-collections', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateUserCollection(id: string, input: UpdateUserCollectionInput): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>(`/user-collections/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteUserCollection(id: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/user-collections/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async addUserCollectionItem(collectionId: string, input: AddUserCollectionItemInput): Promise<ApiResponse<UserCollectionItemResponse>> {
+    return this.request<UserCollectionItemResponse>(`/user-collections/${collectionId}/items`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async removeUserCollectionItem(collectionId: string, itemId: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/user-collections/${collectionId}/items/${itemId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async reorderUserCollectionItems(collectionId: string, itemIds: string[]): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>(`/user-collections/${collectionId}/items/reorder`, {
+      method: 'PATCH',
+      body: JSON.stringify({ itemIds }),
+    });
   }
 }
 

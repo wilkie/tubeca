@@ -646,3 +646,97 @@ export interface SearchResponse {
   collections: Collection[]
   media: Media[]
 }
+
+// ============================================
+// User Collection Types
+// ============================================
+
+export interface UserCollection {
+  id: string
+  name: string
+  description: string | null
+  isPublic: boolean
+  userId: string
+  user?: { id: string; name: string }
+  items?: UserCollectionItem[]
+  _count?: { items: number }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UserCollectionItem {
+  id: string
+  position: number
+  addedAt: string
+  userCollectionId: string
+  collectionId: string | null
+  mediaId: string | null
+  collection?: UserCollectionItemCollection | null
+  media?: UserCollectionItemMedia | null
+}
+
+export interface UserCollectionItemCollection {
+  id: string
+  name: string
+  collectionType: CollectionType
+  images?: Image[]
+  library?: {
+    id: string
+    name: string
+    libraryType: LibraryType
+  }
+}
+
+export interface UserCollectionItemMedia {
+  id: string
+  name: string
+  type: MediaType
+  duration: number
+  images?: Image[]
+  collection?: {
+    id: string
+    name: string
+    library?: {
+      id: string
+      name: string
+      libraryType: LibraryType
+    }
+  } | null
+  videoDetails?: {
+    season: number | null
+    episode: number | null
+  } | null
+  audioDetails?: {
+    track: number | null
+    disc: number | null
+  } | null
+}
+
+export interface UserCollectionsResponse {
+  userCollections: UserCollection[]
+}
+
+export interface UserCollectionResponse {
+  userCollection: UserCollection
+}
+
+export interface UserCollectionItemResponse {
+  item: UserCollectionItem
+}
+
+export interface CreateUserCollectionInput {
+  name: string
+  description?: string
+  isPublic?: boolean
+}
+
+export interface UpdateUserCollectionInput {
+  name?: string
+  description?: string
+  isPublic?: boolean
+}
+
+export interface AddUserCollectionItemInput {
+  collectionId?: string
+  mediaId?: string
+}

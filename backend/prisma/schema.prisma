@@ -10,13 +10,14 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  name         String   @unique
-  passwordHash String
-  role         Role     @default(Viewer)
-  groups       Group[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String           @id @default(uuid())
+  name            String           @unique
+  passwordHash    String
+  role            Role             @default(Viewer)
+  groups          Group[]
+  userCollections UserCollection[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 }
 
 model Group {
@@ -69,6 +70,9 @@ model Collection {
 
   // Keywords/tags for search and recommendations
   keywords  Keyword[]
+
+  // User collection items referencing this collection
+  userCollectionItems UserCollectionItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -127,6 +131,9 @@ model Media {
 
   // Media streams (audio/video/subtitle tracks)
   streams     MediaStream[]
+
+  // User collection items referencing this media
+  userCollectionItems UserCollectionItem[]
 
   // Timestamps
   createdAt   DateTime  @default(now())
@@ -626,4 +633,50 @@ model Person {
   images       Image[]
 
   @@index([name])
+}
+
+// ============================================
+// User Collections (Playlists/Watchlists)
+// ============================================
+
+// User-owned collection for playlists/watchlists
+model UserCollection {
+  id          String               @id @default(uuid())
+  name        String
+  description String?
+  isPublic    Boolean              @default(false)
+
+  // Owner
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+
+  // Items in this collection (ordered)
+  items       UserCollectionItem[]
+
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([isPublic])
+}
+
+// Items within a user collection (references library content)
+model UserCollectionItem {
+  id               String         @id @default(uuid())
+  position         Int            // For ordering items
+  addedAt          DateTime       @default(now())
+
+  // Parent user collection
+  userCollection   UserCollection @relation(fields: [userCollectionId], references: [id], onDelete: Cascade)
+  userCollectionId String
+
+  // Reference to library content (one of these will be set)
+  collection       Collection?    @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId     String?
+  media            Media?         @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId          String?
+
+  @@unique([userCollectionId, collectionId])
+  @@unique([userCollectionId, mediaId])
+  @@index([userCollectionId])
 }

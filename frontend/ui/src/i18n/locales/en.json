@@ -149,5 +149,31 @@
   "errors": {
     "networkError": "Network error",
     "unknownError": "An error occurred"
+  },
+  "userCollections": {
+    "title": "My Collections",
+    "publicCollections": "Public Collections",
+    "create": "Create Collection",
+    "edit": "Edit Collection",
+    "delete": "Delete Collection",
+    "name": "Name",
+    "description": "Description",
+    "public": "Public",
+    "private": "Private",
+    "makePublic": "Make Public",
+    "makePrivate": "Make Private",
+    "empty": "No collections yet",
+    "emptyPublic": "No public collections available",
+    "itemCount": "{{count}} items",
+    "itemCount_one": "{{count}} item",
+    "addToCollection": "Add to Collection",
+    "removeFromCollection": "Remove from Collection",
+    "confirmDelete": "Are you sure you want to delete this collection?",
+    "collectionEmpty": "This collection is empty",
+    "createdBy": "by {{name}}",
+    "noItems": "No items in this collection. Add shows, films, episodes or tracks from your libraries.",
+    "validation": {
+      "nameRequired": "Name is required"
+    }
   }
 }
