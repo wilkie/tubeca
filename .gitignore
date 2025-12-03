@@ -16,6 +16,9 @@ out/
 .env.development.local
 .env.test.local
 
+# Configuration
+tubeca.config.json
+
 # Logs
 logs/
 *.log
