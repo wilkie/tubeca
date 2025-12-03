@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -12,9 +13,14 @@ import {
   IconButton,
   Link,
   Chip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  Divider,
 } from '@mui/material';
-import { Star, PlayArrow, MoreVert, VideoFile } from '@mui/icons-material';
-import { apiClient, type Collection, type Image, type FilmCredit } from '../api/client';
+import { Star, PlayArrow, MoreVert, VideoFile, Add, FolderSpecial } from '@mui/icons-material';
+import { apiClient, type Collection, type Image, type FilmCredit, type UserCollection } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
@@ -46,6 +52,7 @@ interface FilmHeroViewProps {
   onMediaClick: (mediaId: string) => void;
   onPersonClick: (personId: string) => void;
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
+  onAddToCollection?: () => void;
 }
 
 export function FilmHeroView({
@@ -59,8 +66,51 @@ export function FilmHeroView({
   onMediaClick,
   onPersonClick,
   onMenuOpen,
+  onAddToCollection,
 }: FilmHeroViewProps) {
   const { t } = useTranslation();
+  const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
+  const addMenuOpen = Boolean(addMenuAnchor);
+  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
+  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+
+  // Fetch most recent user collection when menu opens
+  useEffect(() => {
+    if (addMenuOpen) {
+      apiClient.getUserCollections().then((result) => {
+        if (result.data && result.data.userCollections.length > 0) {
+          // Collections are already sorted by updatedAt desc from the API
+          setRecentCollection(result.data.userCollections[0]);
+        }
+      });
+    }
+  }, [addMenuOpen]);
+
+  const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAddMenuAnchor(event.currentTarget);
+  };
+
+  const handleAddMenuClose = () => {
+    setAddMenuAnchor(null);
+  };
+
+  const handleAddToCollection = () => {
+    handleAddMenuClose();
+    onAddToCollection?.();
+  };
+
+  const handleQuickAddToRecent = async () => {
+    if (!recentCollection) return;
+    setIsAddingToRecent(true);
+    try {
+      await apiClient.addUserCollectionItem(recentCollection.id, { collectionId: collection.id });
+    } catch (error) {
+      console.error('Failed to add to collection:', error);
+    } finally {
+      setIsAddingToRecent(false);
+      handleAddMenuClose();
+    }
+  };
 
   const backdropImage = collection.images?.find((img) => img.imageType === 'Backdrop');
   const posterImage = collection.images?.find((img) => img.imageType === 'Poster');
@@ -334,6 +384,42 @@ export function FilmHeroView({
               >
                 {t('media.play', 'Play')}
               </Button>
+              <IconButton
+                onClick={handleAddMenuClick}
+                aria-label={t('common.add', 'Add')}
+                aria-controls={addMenuOpen ? 'add-menu' : undefined}
+                aria-haspopup="true"
+                aria-expanded={addMenuOpen ? 'true' : undefined}
+                sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
+              >
+                <Add />
+              </IconButton>
+              <Menu
+                id="add-menu"
+                anchorEl={addMenuAnchor}
+                open={addMenuOpen}
+                onClose={handleAddMenuClose}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              >
+                {recentCollection && (
+                  <>
+                    <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
+                      <ListItemIcon>
+                        <FolderSpecial fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText>{recentCollection.name}</ListItemText>
+                    </MenuItem>
+                    <Divider />
+                  </>
+                )}
+                <MenuItem onClick={handleAddToCollection}>
+                  <ListItemIcon>
+                    <Add fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{t('userCollections.addToCollection')}</ListItemText>
+                </MenuItem>
+              </Menu>
               <IconButton
                 onClick={onMenuOpen}
                 aria-label={t('common.moreOptions', 'More options')}

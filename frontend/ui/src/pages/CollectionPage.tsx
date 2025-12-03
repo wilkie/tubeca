@@ -11,6 +11,7 @@ import { DeleteCollectionDialog } from '../components/DeleteCollectionDialog';
 import { FilmHeroView } from '../components/FilmHeroView';
 import { ShowHeroView } from '../components/ShowHeroView';
 import { StandardCollectionView } from '../components/StandardCollectionView';
+import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 
 interface CreditWithPerson extends Credit {
   person?: {
@@ -76,6 +77,9 @@ export function CollectionPage() {
   // Refresh states
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingImages, setIsRefreshingImages] = useState(false);
+
+  // Add to collection dialog state
+  const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
 
@@ -220,6 +224,10 @@ export function CollectionPage() {
     navigate(`/person/${personId}`);
   };
 
+  const handleAddToCollection = () => {
+    setAddToCollectionOpen(true);
+  };
+
   if (isLoading) {
     return (
       <Box
@@ -273,6 +281,7 @@ export function CollectionPage() {
           onMediaClick={handleMediaClick}
           onPersonClick={handlePersonClick}
           onMenuOpen={handleMenuOpen}
+          onAddToCollection={handleAddToCollection}
         />
       );
     }
@@ -348,6 +357,13 @@ export function CollectionPage() {
         onClose={() => setImagesDialogOpen(false)}
         images={collection.images || []}
         title={t('collection.imagesTitle', 'Collection Images')}
+      />
+
+      <AddToCollectionDialog
+        open={addToCollectionOpen}
+        onClose={() => setAddToCollectionOpen(false)}
+        collectionId={collection.id}
+        itemName={collection.name}
       />
     </Container>
   );

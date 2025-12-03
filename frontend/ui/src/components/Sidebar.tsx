@@ -18,6 +18,7 @@ import {
   Tv,
   Movie,
   MusicNote,
+  FolderSpecial,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
@@ -94,6 +95,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </ListItem>
           ))
         )}
+
+        {/* My Collections */}
+        <ListItem disablePadding sx={{ mt: 1 }}>
+          <ListItemButton
+            selected={location.pathname.startsWith('/my-collections')}
+            onClick={() => handleNavigate('/my-collections')}
+          >
+            <ListItemIcon>
+              <FolderSpecial />
+            </ListItemIcon>
+            <ListItemText primary={t('userCollections.title')} />
+          </ListItemButton>
+        </ListItem>
 
         {/* Administration section (Admin only) */}
         {isAdmin && (
