@@ -139,6 +139,13 @@
       "groupNameRequired": "Group name is required"
     }
   },
+  "search": {
+    "title": "Search",
+    "placeholder": "Search for shows, movies, episodes...",
+    "noResults": "No results found",
+    "collections": "Shows & Movies",
+    "media": "Episodes & Tracks"
+  },
   "errors": {
     "networkError": "Network error",
     "unknownError": "An error occurred"

@@ -11,6 +11,7 @@ import { CollectionPage } from './pages/CollectionPage';
 import { MediaPage } from './pages/MediaPage';
 import { PlayPage } from './pages/PlayPage';
 import { PersonPage } from './pages/PersonPage';
+import { SearchPage } from './pages/SearchPage';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -35,6 +36,7 @@ function App() {
           <Route path="/media/:mediaId" element={<MediaPage />} />
           <Route path="/play/:mediaId" element={<PlayPage />} />
           <Route path="/person/:personId" element={<PersonPage />} />
+          <Route path="/search" element={<SearchPage />} />
 
             <Route path="/" element={<Box />} />
           </Routes>

@@ -23,6 +23,7 @@ import mediaRoutes from './routes/media';
 import streamRoutes from './routes/stream';
 import imageRoutes from './routes/images';
 import personRoutes from './routes/persons';
+import searchRoutes from './routes/search';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -48,6 +49,7 @@ app.use('/api/media', mediaRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/images', imageRoutes);
 app.use('/api/persons', personRoutes);
+app.use('/api/search', searchRoutes);
 
 /**
  * @openapi
