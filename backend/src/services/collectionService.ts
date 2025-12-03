@@ -41,6 +41,25 @@ export class CollectionService {
             children: true,
           },
         },
+        // Include sortable metadata fields
+        showDetails: {
+          select: {
+            releaseDate: true,
+            rating: true,
+          },
+        },
+        filmDetails: {
+          select: {
+            releaseDate: true,
+            rating: true,
+            runtime: true,
+          },
+        },
+        albumDetails: {
+          select: {
+            releaseDate: true,
+          },
+        },
       },
       orderBy: { name: 'asc' },
     });
