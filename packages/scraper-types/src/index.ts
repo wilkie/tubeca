@@ -49,6 +49,8 @@ export interface VideoMetadata {
   releaseDate?: Date
   /** Content rating (e.g., "PG-13", "TV-MA") */
   rating?: string
+  /** User/audience rating (e.g., 7.5 out of 10) */
+  voteAverage?: number
   /** Runtime in minutes */
   runtime?: number
   /** Genres */

@@ -80,7 +80,17 @@
     "empty": "This library is empty. Run a scan to discover media.",
     "folders": "{{count}} folders",
     "seasons": "{{count}} seasons",
-    "items": "{{count}} items"
+    "items": "{{count}} items",
+    "sortBy": "Sort by",
+    "sort": {
+      "name": "Name",
+      "dateAdded": "Date Added",
+      "releaseDate": "Release Date",
+      "rating": "Rating",
+      "runtime": "Runtime",
+      "ascending": "Ascending",
+      "descending": "Descending"
+    }
   },
   "collection": {
     "notFound": "Collection not found",

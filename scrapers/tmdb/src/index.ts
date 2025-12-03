@@ -358,6 +358,7 @@ class TMDBScraper implements ScraperPlugin {
       description: movie.overview,
       releaseDate: movie.release_date ? new Date(movie.release_date) : undefined,
       rating: usRating,
+      voteAverage: movie.vote_average,
       runtime: movie.runtime,
       genres: movie.genres.map((g) => g.name),
       keywords,
