@@ -17,7 +17,7 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
-  Divider,
+  ListSubheader,
 } from '@mui/material';
 import { Star, PlayArrow, MoreVert, VideoFile, Add, FolderSpecial } from '@mui/icons-material';
 import { apiClient, type Collection, type Image, type FilmCredit, type UserCollection } from '../api/client';
@@ -402,22 +402,20 @@ export function FilmHeroView({
                 anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
                 transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
               >
+                <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
                 {recentCollection && (
-                  <>
-                    <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
-                      <ListItemIcon>
-                        <FolderSpecial fontSize="small" />
-                      </ListItemIcon>
-                      <ListItemText>{recentCollection.name}</ListItemText>
-                    </MenuItem>
-                    <Divider />
-                  </>
+                  <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
+                    <ListItemIcon>
+                      <FolderSpecial fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>{recentCollection.name}</ListItemText>
+                  </MenuItem>
                 )}
                 <MenuItem onClick={handleAddToCollection}>
                   <ListItemIcon>
                     <Add fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText>{t('userCollections.addToCollection')}</ListItemText>
+                  <ListItemText>{t('userCollections.choose', 'Choose...')}</ListItemText>
                 </MenuItem>
               </Menu>
               <IconButton
