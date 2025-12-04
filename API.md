@@ -795,6 +795,275 @@ Get a trickplay sprite sheet image.
 
 ---
 
+## User Collections Endpoints
+
+User-created collections for organizing content (playlists, watchlists, etc.). All endpoints require authentication.
+
+### GET /user-collections
+
+Get all collections owned by the current user.
+
+**Response:**
+```json
+{
+  "userCollections": [
+    {
+      "id": "string",
+      "name": "string",
+      "description": "string|null",
+      "isPublic": false,
+      "isSystem": false,
+      "systemType": null,
+      "userId": "string",
+      "createdAt": "datetime",
+      "updatedAt": "datetime",
+      "_count": {
+        "items": 5
+      }
+    }
+  ]
+}
+```
+
+### GET /user-collections/public
+
+Get all public collections from other users.
+
+**Response:**
+```json
+{
+  "userCollections": [...]
+}
+```
+
+### GET /user-collections/:id
+
+Get a single collection with items (must be owner or public).
+
+**Response:**
+```json
+{
+  "userCollection": {
+    "id": "string",
+    "name": "string",
+    "description": "string|null",
+    "isPublic": false,
+    "items": [
+      {
+        "id": "string",
+        "order": 0,
+        "addedAt": "datetime",
+        "collection": {...},
+        "media": {...}
+      }
+    ],
+    "user": {
+      "id": "string",
+      "name": "string"
+    }
+  }
+}
+```
+
+### POST /user-collections
+
+Create a new user collection.
+
+**Request Body:**
+```json
+{
+  "name": "string",
+  "description": "string",
+  "isPublic": false
+}
+```
+
+**Response:**
+```json
+{
+  "userCollection": {...}
+}
+```
+
+### PATCH /user-collections/:id
+
+Update a collection (owner only).
+
+**Request Body:**
+```json
+{
+  "name": "string",
+  "description": "string",
+  "isPublic": false
+}
+```
+
+### DELETE /user-collections/:id
+
+Delete a collection (owner only).
+
+### POST /user-collections/:id/items
+
+Add an item to a collection (owner only).
+
+**Request Body:**
+```json
+{
+  "collectionId": "string",
+  "mediaId": "string"
+}
+```
+
+Note: Provide either `collectionId` (for shows, films, albums) or `mediaId` (for episodes, tracks), not both.
+
+**Response:**
+```json
+{
+  "item": {
+    "id": "string",
+    "order": 0,
+    "addedAt": "datetime"
+  }
+}
+```
+
+### DELETE /user-collections/:id/items/:itemId
+
+Remove an item from a collection (owner only).
+
+### PATCH /user-collections/:id/items/reorder
+
+Reorder items in a collection (owner only).
+
+**Request Body:**
+```json
+{
+  "itemIds": ["string", "string", ...]
+}
+```
+
+---
+
+## Favorites Endpoints
+
+System collection for user favorites. All endpoints require authentication.
+
+### GET /user-collections/favorites
+
+Get the user's Favorites collection with all items.
+
+**Response:**
+```json
+{
+  "userCollection": {
+    "id": "string",
+    "name": "Favorites",
+    "isSystem": true,
+    "systemType": "Favorites",
+    "items": [...]
+  }
+}
+```
+
+### GET /user-collections/favorites/check
+
+Check if items are in the user's Favorites.
+
+**Query Parameters:**
+- `collectionIds` - Comma-separated collection IDs to check
+- `mediaIds` - Comma-separated media IDs to check
+
+**Response:**
+```json
+{
+  "collectionIds": ["id1", "id2"],
+  "mediaIds": ["id3"]
+}
+```
+
+### POST /user-collections/favorites/toggle
+
+Add or remove an item from favorites.
+
+**Request Body:**
+```json
+{
+  "collectionId": "string",
+  "mediaId": "string"
+}
+```
+
+Note: Provide either `collectionId` or `mediaId`, not both.
+
+**Response:**
+```json
+{
+  "favorited": true
+}
+```
+
+---
+
+## Watch Later Endpoints
+
+System collection for watch queue. All endpoints require authentication.
+
+### GET /user-collections/watch-later
+
+Get the user's Watch Later collection with all items.
+
+**Response:**
+```json
+{
+  "userCollection": {
+    "id": "string",
+    "name": "Watch Later",
+    "isSystem": true,
+    "systemType": "WatchLater",
+    "items": [...]
+  }
+}
+```
+
+### GET /user-collections/watch-later/check
+
+Check if items are in the user's Watch Later.
+
+**Query Parameters:**
+- `collectionIds` - Comma-separated collection IDs to check
+- `mediaIds` - Comma-separated media IDs to check
+
+**Response:**
+```json
+{
+  "collectionIds": ["id1", "id2"],
+  "mediaIds": ["id3"]
+}
+```
+
+### POST /user-collections/watch-later/toggle
+
+Add or remove an item from watch later.
+
+**Request Body:**
+```json
+{
+  "collectionId": "string",
+  "mediaId": "string"
+}
+```
+
+Note: Provide either `collectionId` or `mediaId`, not both.
+
+**Response:**
+```json
+{
+  "inWatchLater": true
+}
+```
+
+---
+
 ## Jobs Endpoints
 
 Background job management endpoints.
