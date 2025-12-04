@@ -18,7 +18,8 @@
   "header": {
     "search": "Search",
     "account": "Account",
-    "menu": "Menu"
+    "menu": "Menu",
+    "favorites": "Favorites"
   },
   "nav": {
     "settings": "Settings",
@@ -149,6 +150,12 @@
   "errors": {
     "networkError": "Network error",
     "unknownError": "An error occurred"
+  },
+  "favorites": {
+    "title": "Favorites",
+    "empty": "No favorites yet. Click the heart icon on any film, show, or episode to add it here.",
+    "addToFavorites": "Add to Favorites",
+    "removeFromFavorites": "Remove from Favorites"
   },
   "userCollections": {
     "title": "My Collections",

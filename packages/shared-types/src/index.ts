@@ -656,6 +656,8 @@ export interface UserCollection {
   name: string
   description: string | null
   isPublic: boolean
+  isSystem: boolean
+  systemType: string | null
   userId: string
   user?: { id: string; name: string }
   items?: UserCollectionItem[]
@@ -739,4 +741,14 @@ export interface UpdateUserCollectionInput {
 export interface AddUserCollectionItemInput {
   collectionId?: string
   mediaId?: string
+}
+
+// Favorites types
+export interface CheckFavoritesResponse {
+  collectionIds: string[]
+  mediaIds: string[]
+}
+
+export interface ToggleFavoriteResponse {
+  favorited: boolean
 }

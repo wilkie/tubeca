@@ -79,11 +79,11 @@ const itemInclude = {
 
 export class UserCollectionService {
   /**
-   * Get all collections owned by a user
+   * Get all collections owned by a user (excluding system collections)
    */
   async getUserCollections(userId: string) {
     return prisma.userCollection.findMany({
-      where: { userId },
+      where: { userId, isSystem: false },
       include: {
         _count: {
           select: { items: true },
@@ -94,12 +94,13 @@ export class UserCollectionService {
   }
 
   /**
-   * Get all public collections (for discovery)
+   * Get all public collections (for discovery, excluding system collections)
    */
   async getPublicCollections(excludeUserId?: string) {
     return prisma.userCollection.findMany({
       where: {
         isPublic: true,
+        isSystem: false,
         ...(excludeUserId ? { userId: { not: excludeUserId } } : {}),
       },
       include: {
@@ -352,5 +353,173 @@ export class UserCollectionService {
         },
       },
     });
+  }
+
+  // ============================================
+  // Favorites Methods
+  // ============================================
+
+  /**
+   * Get or create a system collection by type
+   */
+  async getSystemCollection(userId: string, systemType: string) {
+    // Try to find existing system collection
+    let collection = await prisma.userCollection.findFirst({
+      where: { userId, isSystem: true, systemType },
+      include: {
+        items: {
+          include: itemInclude,
+          orderBy: { position: 'asc' },
+        },
+        _count: {
+          select: { items: true },
+        },
+      },
+    });
+
+    // Create if it doesn't exist
+    if (!collection) {
+      collection = await prisma.userCollection.create({
+        data: {
+          name: systemType,
+          userId,
+          isSystem: true,
+          systemType,
+          isPublic: false,
+        },
+        include: {
+          items: {
+            include: itemInclude,
+            orderBy: { position: 'asc' },
+          },
+          _count: {
+            select: { items: true },
+          },
+        },
+      });
+    }
+
+    return collection;
+  }
+
+  /**
+   * Get or create the user's Favorites collection
+   */
+  async getFavoritesCollection(userId: string) {
+    return this.getSystemCollection(userId, 'Favorites');
+  }
+
+  /**
+   * Check if items are in the user's Favorites collection
+   * Returns an object with collectionIds and mediaIds that are favorited
+   */
+  async checkFavorites(userId: string, collectionIds?: string[], mediaIds?: string[]) {
+    // Get the favorites collection ID
+    const favorites = await prisma.userCollection.findFirst({
+      where: { userId, isSystem: true, systemType: 'Favorites' },
+      select: { id: true },
+    });
+
+    if (!favorites) {
+      return { collectionIds: [], mediaIds: [] };
+    }
+
+    const result: { collectionIds: string[]; mediaIds: string[] } = {
+      collectionIds: [],
+      mediaIds: [],
+    };
+
+    // Check collections
+    if (collectionIds && collectionIds.length > 0) {
+      const favoritedCollections = await prisma.userCollectionItem.findMany({
+        where: {
+          userCollectionId: favorites.id,
+          collectionId: { in: collectionIds },
+        },
+        select: { collectionId: true },
+      });
+      result.collectionIds = favoritedCollections
+        .map((item) => item.collectionId)
+        .filter((id): id is string => id !== null);
+    }
+
+    // Check media
+    if (mediaIds && mediaIds.length > 0) {
+      const favoritedMedia = await prisma.userCollectionItem.findMany({
+        where: {
+          userCollectionId: favorites.id,
+          mediaId: { in: mediaIds },
+        },
+        select: { mediaId: true },
+      });
+      result.mediaIds = favoritedMedia
+        .map((item) => item.mediaId)
+        .filter((id): id is string => id !== null);
+    }
+
+    return result;
+  }
+
+  /**
+   * Toggle favorite status for an item
+   * Returns { favorited: boolean } indicating the new state
+   */
+  async toggleFavorite(userId: string, input: AddUserCollectionItemInput) {
+    const { collectionId: contentCollectionId, mediaId } = input;
+
+    // Validate that exactly one reference is provided
+    if ((!contentCollectionId && !mediaId) || (contentCollectionId && mediaId)) {
+      throw new Error('Exactly one of collectionId or mediaId must be provided');
+    }
+
+    // Get or create favorites collection
+    const favorites = await this.getFavoritesCollection(userId);
+
+    // Check if item already exists in favorites
+    const existingItem = await prisma.userCollectionItem.findFirst({
+      where: {
+        userCollectionId: favorites.id,
+        ...(contentCollectionId ? { collectionId: contentCollectionId } : {}),
+        ...(mediaId ? { mediaId } : {}),
+      },
+    });
+
+    if (existingItem) {
+      // Remove from favorites
+      await prisma.$transaction([
+        prisma.userCollectionItem.delete({
+          where: { id: existingItem.id },
+        }),
+        prisma.userCollection.update({
+          where: { id: favorites.id },
+          data: { updatedAt: new Date() },
+        }),
+      ]);
+      return { favorited: false };
+    } else {
+      // Add to favorites
+      const maxPosition = await prisma.userCollectionItem.aggregate({
+        where: { userCollectionId: favorites.id },
+        _max: { position: true },
+      });
+
+      const nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+      await prisma.$transaction([
+        prisma.userCollectionItem.create({
+          data: {
+            userCollectionId: favorites.id,
+            collectionId: contentCollectionId,
+            mediaId,
+            position: nextPosition,
+          },
+        }),
+        prisma.userCollection.update({
+          where: { id: favorites.id },
+          data: { updatedAt: new Date() },
+        }),
+      ]);
+      return { favorited: true };
+    }
   }
 }

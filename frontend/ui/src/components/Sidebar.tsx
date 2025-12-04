@@ -19,6 +19,7 @@ import {
   Movie,
   MusicNote,
   FolderSpecial,
+  Favorite,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
@@ -96,8 +97,21 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           ))
         )}
 
-        {/* My Collections */}
+        {/* Favorites */}
         <ListItem disablePadding sx={{ mt: 1 }}>
+          <ListItemButton
+            selected={location.pathname === '/favorites'}
+            onClick={() => handleNavigate('/favorites')}
+          >
+            <ListItemIcon>
+              <Favorite />
+            </ListItemIcon>
+            <ListItemText primary={t('favorites.title')} />
+          </ListItemButton>
+        </ListItem>
+
+        {/* My Collections */}
+        <ListItem disablePadding>
           <ListItemButton
             selected={location.pathname.startsWith('/my-collections')}
             onClick={() => handleNavigate('/my-collections')}

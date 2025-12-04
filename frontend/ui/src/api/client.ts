@@ -70,6 +70,8 @@ import type {
   CreateUserCollectionInput,
   UpdateUserCollectionInput,
   AddUserCollectionItemInput,
+  CheckFavoritesResponse,
+  ToggleFavoriteResponse,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -145,6 +147,8 @@ export type {
   CreateUserCollectionInput,
   UpdateUserCollectionInput,
   AddUserCollectionItemInput,
+  CheckFavoritesResponse,
+  ToggleFavoriteResponse,
 };
 
 const API_BASE = '/api';
@@ -537,6 +541,30 @@ class ApiClient {
     return this.request<UserCollectionResponse>(`/user-collections/${collectionId}/items/reorder`, {
       method: 'PATCH',
       body: JSON.stringify({ itemIds }),
+    });
+  }
+
+  // Favorites methods
+  async getFavorites(): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>('/user-collections/favorites');
+  }
+
+  async checkFavorites(collectionIds?: string[], mediaIds?: string[]): Promise<ApiResponse<CheckFavoritesResponse>> {
+    const params = new URLSearchParams();
+    if (collectionIds && collectionIds.length > 0) {
+      params.set('collectionIds', collectionIds.join(','));
+    }
+    if (mediaIds && mediaIds.length > 0) {
+      params.set('mediaIds', mediaIds.join(','));
+    }
+    const query = params.toString();
+    return this.request<CheckFavoritesResponse>(`/user-collections/favorites/check${query ? `?${query}` : ''}`);
+  }
+
+  async toggleFavorite(input: AddUserCollectionItemInput): Promise<ApiResponse<ToggleFavoriteResponse>> {
+    return this.request<ToggleFavoriteResponse>('/user-collections/favorites/toggle', {
+      method: 'POST',
+      body: JSON.stringify(input),
     });
   }
 }

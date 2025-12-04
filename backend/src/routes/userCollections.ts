@@ -68,6 +68,145 @@ router.get('/public', async (req: Request, res) => {
   }
 });
 
+// ============================================
+// Favorites Routes
+// ============================================
+
+/**
+ * @openapi
+ * /api/user-collections/favorites:
+ *   get:
+ *     tags:
+ *       - Favorites
+ *     summary: Get favorites
+ *     description: Get the user's Favorites collection with all items
+ *     responses:
+ *       200:
+ *         description: Favorites collection
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 userCollection:
+ *                   $ref: '#/components/schemas/UserCollection'
+ */
+router.get('/favorites', async (req: Request, res) => {
+  try {
+    const userCollection = await userCollectionService.getFavoritesCollection(req.user!.userId);
+    res.json({ userCollection });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch favorites' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/user-collections/favorites/check:
+ *   get:
+ *     tags:
+ *       - Favorites
+ *     summary: Check favorites
+ *     description: Check if items are in the user's Favorites
+ *     parameters:
+ *       - in: query
+ *         name: collectionIds
+ *         schema:
+ *           type: string
+ *         description: Comma-separated collection IDs to check
+ *       - in: query
+ *         name: mediaIds
+ *         schema:
+ *           type: string
+ *         description: Comma-separated media IDs to check
+ *     responses:
+ *       200:
+ *         description: Favorite status for requested items
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 collectionIds:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 mediaIds:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ */
+router.get('/favorites/check', async (req: Request, res) => {
+  try {
+    const collectionIds = req.query.collectionIds
+      ? (req.query.collectionIds as string).split(',').filter(Boolean)
+      : undefined;
+    const mediaIds = req.query.mediaIds
+      ? (req.query.mediaIds as string).split(',').filter(Boolean)
+      : undefined;
+
+    const result = await userCollectionService.checkFavorites(
+      req.user!.userId,
+      collectionIds,
+      mediaIds
+    );
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: 'Failed to check favorites' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/user-collections/favorites/toggle:
+ *   post:
+ *     tags:
+ *       - Favorites
+ *     summary: Toggle favorite
+ *     description: Add or remove an item from favorites
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               collectionId:
+ *                 type: string
+ *                 format: uuid
+ *               mediaId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Toggle result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 favorited:
+ *                   type: boolean
+ *       400:
+ *         description: Invalid request
+ */
+router.post('/favorites/toggle', async (req: Request, res) => {
+  try {
+    const { collectionId, mediaId } = req.body;
+    const result = await userCollectionService.toggleFavorite(
+      req.user!.userId,
+      { collectionId, mediaId }
+    );
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to toggle favorite';
+    if (message.includes('Exactly one')) {
+      return res.status(400).json({ error: message });
+    }
+    res.status(500).json({ error: message });
+  }
+});
+
 /**
  * @openapi
  * /api/user-collections/{id}:
