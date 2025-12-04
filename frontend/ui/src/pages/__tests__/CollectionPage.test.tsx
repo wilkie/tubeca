@@ -31,6 +31,12 @@ jest.mock('../../api/client', () => ({
     refreshCollectionMetadata: (...args: unknown[]) => mockRefreshCollectionMetadata(...args),
     refreshCollectionImages: (...args: unknown[]) => mockRefreshCollectionImages(...args),
     deleteCollection: (...args: unknown[]) => mockDeleteCollection(...args),
+    checkFavorites: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
+    checkWatchLater: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
+    toggleFavorite: jest.fn().mockResolvedValue({ data: { favorited: true } }),
+    toggleWatchLater: jest.fn().mockResolvedValue({ data: { inWatchLater: true } }),
+    getUserCollections: jest.fn().mockResolvedValue({ data: { userCollections: [] } }),
+    addUserCollectionItem: jest.fn().mockResolvedValue({ data: { item: {} } }),
   },
 }));
 
