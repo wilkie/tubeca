@@ -20,7 +20,7 @@ import {
   Stack,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { Folder, VideoFile, AudioFile, ArrowUpward, ArrowDownward } from '@mui/icons-material';
+import { Folder, VideoFile, AudioFile, ArrowUpward, ArrowDownward, Movie, Tv, Album } from '@mui/icons-material';
 import { apiClient, type Library, type Collection } from '../api/client';
 
 type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
@@ -252,53 +252,53 @@ export function LibraryPage() {
                     sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                   >
                     {hasImage ? (
-                      <>
-                        <CardMedia
-                          component="img"
-                          image={apiClient.getImageUrl(primaryImage.id)}
-                          alt={collection.name}
-                          sx={{
-                            aspectRatio: '2/3',
-                            objectFit: 'cover',
-                          }}
-                        />
-                        <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                          <Typography variant="body2" noWrap title={collection.name}>
-                            {collection.name}
-                          </Typography>
-                          {/* Don't show counts for Film library - they're movies, not folders */}
-                          {library.libraryType !== 'Film' && collection._count && (
-                            <Typography variant="caption" color="text.secondary">
-                              {collection._count.children > 0 &&
-                                (collection.collectionType === 'Show'
-                                  ? t('library.seasons', { count: collection._count.children })
-                                  : t('library.folders', { count: collection._count.children }))}
-                              {collection._count.children > 0 && collection._count.media > 0 && ' | '}
-                              {collection._count.media > 0 &&
-                                t('library.items', { count: collection._count.media })}
-                            </Typography>
-                          )}
-                        </CardContent>
-                      </>
+                      <CardMedia
+                        component="img"
+                        image={apiClient.getImageUrl(primaryImage.id)}
+                        alt={collection.name}
+                        sx={{
+                          aspectRatio: '2/3',
+                          objectFit: 'cover',
+                        }}
+                      />
                     ) : (
-                      <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <Folder sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
-                        <Typography variant="body2" noWrap title={collection.name}>
-                          {collection.name}
-                        </Typography>
-                        {collection._count && (
-                          <Typography variant="caption" color="text.secondary">
-                            {collection._count.children > 0 &&
-                              (collection.collectionType === 'Show'
-                                ? t('library.seasons', { count: collection._count.children })
-                                : t('library.folders', { count: collection._count.children }))}
-                            {collection._count.children > 0 && collection._count.media > 0 && ' | '}
-                            {collection._count.media > 0 &&
-                              t('library.items', { count: collection._count.media })}
-                          </Typography>
+                      <Box
+                        sx={{
+                          aspectRatio: '2/3',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          bgcolor: 'action.hover',
+                        }}
+                      >
+                        {library.libraryType === 'Film' ? (
+                          <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
+                        ) : library.libraryType === 'Television' ? (
+                          <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
+                        ) : library.libraryType === 'Music' ? (
+                          <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
+                        ) : (
+                          <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
                         )}
-                      </CardContent>
+                      </Box>
                     )}
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <Typography variant="body2" noWrap title={collection.name}>
+                        {collection.name}
+                      </Typography>
+                      {/* Don't show counts for Film library - they're movies, not folders */}
+                      {library.libraryType !== 'Film' && collection._count && (
+                        <Typography variant="caption" color="text.secondary">
+                          {collection._count.children > 0 &&
+                            (collection.collectionType === 'Show'
+                              ? t('library.seasons', { count: collection._count.children })
+                              : t('library.folders', { count: collection._count.children }))}
+                          {collection._count.children > 0 && collection._count.media > 0 && ' | '}
+                          {collection._count.media > 0 &&
+                            t('library.items', { count: collection._count.media })}
+                        </Typography>
+                      )}
+                    </CardContent>
                   </CardActionArea>
                 </Card>
               </Grid>
