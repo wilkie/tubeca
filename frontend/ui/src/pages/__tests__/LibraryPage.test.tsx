@@ -5,6 +5,8 @@ import { apiClient } from '../../api/client';
 import type { Library, Collection } from '../../api/client';
 
 // Mock the API client
+// Note: LibraryPage calls checkFavorites/checkWatchLater directly in its data fetching,
+// not through FavoriteButton/WatchLaterButton, so these need to resolve
 jest.mock('../../api/client', () => ({
   apiClient: {
     getLibrary: jest.fn(),

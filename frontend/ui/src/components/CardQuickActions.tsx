@@ -134,36 +134,40 @@ export function CardQuickActions({
       }}
     >
       <Tooltip title={favoriteTooltip} placement="left">
-        <IconButton
-          size="small"
-          onClick={handleToggleFavorite}
-          disabled={isTogglingFavorite}
-          sx={{
-            bgcolor: 'rgba(0,0,0,0.6)',
-            color: isFavorited ? 'error.main' : 'white',
-            '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
-            width: 32,
-            height: 32,
-          }}
-        >
-          {isFavorited ? <Favorite fontSize="small" /> : <FavoriteBorder fontSize="small" />}
-        </IconButton>
+        <span>
+          <IconButton
+            size="small"
+            onClick={handleToggleFavorite}
+            disabled={isTogglingFavorite}
+            sx={{
+              bgcolor: 'rgba(0,0,0,0.6)',
+              color: isFavorited ? 'error.main' : 'white',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
+              width: 32,
+              height: 32,
+            }}
+          >
+            {isFavorited ? <Favorite fontSize="small" /> : <FavoriteBorder fontSize="small" />}
+          </IconButton>
+        </span>
       </Tooltip>
       <Tooltip title={watchLaterTooltip} placement="left">
-        <IconButton
-          size="small"
-          onClick={handleToggleWatchLater}
-          disabled={isTogglingWatchLater}
-          sx={{
-            bgcolor: 'rgba(0,0,0,0.6)',
-            color: isInWatchLater ? 'primary.main' : 'white',
-            '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
-            width: 32,
-            height: 32,
-          }}
-        >
-          {isInWatchLater ? <WatchLater fontSize="small" /> : <WatchLaterOutlined fontSize="small" />}
-        </IconButton>
+        <span>
+          <IconButton
+            size="small"
+            onClick={handleToggleWatchLater}
+            disabled={isTogglingWatchLater}
+            sx={{
+              bgcolor: 'rgba(0,0,0,0.6)',
+              color: isInWatchLater ? 'primary.main' : 'white',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
+              width: 32,
+              height: 32,
+            }}
+          >
+            {isInWatchLater ? <WatchLater fontSize="small" /> : <WatchLaterOutlined fontSize="small" />}
+          </IconButton>
+        </span>
       </Tooltip>
       <Tooltip title={t('userCollections.addToCollection', 'Add to Collection')} placement="left">
         <IconButton

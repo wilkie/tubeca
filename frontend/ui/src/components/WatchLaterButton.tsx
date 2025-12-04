@@ -71,21 +71,25 @@ export function WatchLaterButton({
     ? t('watchLater.removeFromWatchLater', 'Remove from Watch Later')
     : t('watchLater.addToWatchLater', 'Add to Watch Later');
 
+  const isDisabled = isLoading || isToggling;
+
   return (
     <Tooltip title={tooltip}>
-      <IconButton
-        onClick={handleToggle}
-        disabled={isLoading || isToggling}
-        size={size}
-        aria-label={tooltip}
-        sx={{
-          color: isInWatchLater ? 'primary.main' : color,
-          opacity: isLoading ? 0.5 : 1,
-          ...sx,
-        }}
-      >
-        {isInWatchLater ? <WatchLater /> : <WatchLaterOutlined />}
-      </IconButton>
+      <span style={{ display: 'inline-flex' }}>
+        <IconButton
+          onClick={handleToggle}
+          disabled={isDisabled}
+          size={size}
+          aria-label={tooltip}
+          sx={{
+            color: isInWatchLater ? 'primary.main' : color,
+            opacity: isLoading ? 0.5 : 1,
+            ...sx,
+          }}
+        >
+          {isInWatchLater ? <WatchLater /> : <WatchLaterOutlined />}
+        </IconButton>
+      </span>
     </Tooltip>
   );
 }

@@ -24,6 +24,8 @@ const mockRefreshCollectionMetadata = jest.fn();
 const mockRefreshCollectionImages = jest.fn();
 const mockDeleteCollection = jest.fn();
 
+// Note: checkFavorites/checkWatchLater return never-resolving promises to avoid
+// act() warnings from async state updates in FavoriteButton/WatchLaterButton
 jest.mock('../../api/client', () => ({
   apiClient: {
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -31,8 +33,8 @@ jest.mock('../../api/client', () => ({
     refreshCollectionMetadata: (...args: unknown[]) => mockRefreshCollectionMetadata(...args),
     refreshCollectionImages: (...args: unknown[]) => mockRefreshCollectionImages(...args),
     deleteCollection: (...args: unknown[]) => mockDeleteCollection(...args),
-    checkFavorites: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
-    checkWatchLater: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
+    checkFavorites: jest.fn().mockReturnValue(new Promise(() => {})),
+    checkWatchLater: jest.fn().mockReturnValue(new Promise(() => {})),
     toggleFavorite: jest.fn().mockResolvedValue({ data: { favorited: true } }),
     toggleWatchLater: jest.fn().mockResolvedValue({ data: { inWatchLater: true } }),
     getUserCollections: jest.fn().mockResolvedValue({ data: { userCollections: [] } }),

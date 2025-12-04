@@ -5,6 +5,8 @@ import { apiClient } from '../../api/client';
 import type { Media } from '../../api/client';
 
 // Mock the API client
+// Note: checkFavorites/checkWatchLater return never-resolving promises to avoid
+// act() warnings from async state updates in FavoriteButton/WatchLaterButton
 jest.mock('../../api/client', () => ({
   apiClient: {
     getMedia: jest.fn(),
@@ -12,8 +14,8 @@ jest.mock('../../api/client', () => ({
     refreshMediaMetadata: jest.fn(),
     refreshMediaImages: jest.fn(),
     getImageUrl: jest.fn((id: string) => `http://localhost/api/images/${id}`),
-    checkFavorites: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
-    checkWatchLater: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
+    checkFavorites: jest.fn().mockReturnValue(new Promise(() => {})),
+    checkWatchLater: jest.fn().mockReturnValue(new Promise(() => {})),
     toggleFavorite: jest.fn().mockResolvedValue({ data: { favorited: true } }),
     toggleWatchLater: jest.fn().mockResolvedValue({ data: { inWatchLater: true } }),
     getUserCollections: jest.fn().mockResolvedValue({ data: { userCollections: [] } }),
