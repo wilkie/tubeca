@@ -645,6 +645,8 @@ model UserCollection {
   name        String
   description String?
   isPublic    Boolean              @default(false)
+  isSystem    Boolean              @default(false)
+  systemType  String?              // e.g., 'Favorites', 'WatchLater', etc.
 
   // Owner
   user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -658,6 +660,7 @@ model UserCollection {
 
   @@index([userId])
   @@index([isPublic])
+  @@index([isSystem, systemType])
 }
 
 // Items within a user collection (references library content)
