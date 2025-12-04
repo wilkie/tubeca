@@ -29,6 +29,9 @@ const options: swaggerJSDoc.Options = {
       { name: 'Images', description: 'Image management endpoints' },
       { name: 'Streaming', description: 'Media streaming endpoints' },
       { name: 'Jobs', description: 'Background job endpoints' },
+      { name: 'User Collections', description: 'User-created collections (playlists, watchlists)' },
+      { name: 'Favorites', description: 'Favorites management endpoints' },
+      { name: 'Watch Later', description: 'Watch Later queue endpoints' },
     ],
     components: {
       securitySchemes: {
@@ -175,6 +178,50 @@ const options: swaggerJSDoc.Options = {
             progress: { type: 'number' },
             result: { type: 'object', nullable: true },
             failedReason: { type: 'string', nullable: true },
+          },
+        },
+        UserCollection: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string' },
+            description: { type: 'string', nullable: true },
+            isPublic: { type: 'boolean' },
+            isSystem: { type: 'boolean', description: 'System collections like Favorites and Watch Later' },
+            systemType: { type: 'string', enum: ['Favorites', 'WatchLater'], nullable: true },
+            userId: { type: 'string', format: 'uuid' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            items: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/UserCollectionItem' },
+            },
+            _count: {
+              type: 'object',
+              properties: {
+                items: { type: 'integer' },
+              },
+            },
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                name: { type: 'string' },
+              },
+            },
+          },
+        },
+        UserCollectionItem: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            order: { type: 'integer' },
+            addedAt: { type: 'string', format: 'date-time' },
+            userCollectionId: { type: 'string', format: 'uuid' },
+            collectionId: { type: 'string', format: 'uuid', nullable: true },
+            mediaId: { type: 'string', format: 'uuid', nullable: true },
+            collection: { $ref: '#/components/schemas/Collection' },
+            media: { $ref: '#/components/schemas/Media' },
           },
         },
       },
