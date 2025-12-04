@@ -207,6 +207,145 @@ router.post('/favorites/toggle', async (req: Request, res) => {
   }
 });
 
+// ============================================
+// Watch Later Routes
+// ============================================
+
+/**
+ * @openapi
+ * /api/user-collections/watch-later:
+ *   get:
+ *     tags:
+ *       - Watch Later
+ *     summary: Get watch later
+ *     description: Get the user's Watch Later collection with all items
+ *     responses:
+ *       200:
+ *         description: Watch Later collection
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 userCollection:
+ *                   $ref: '#/components/schemas/UserCollection'
+ */
+router.get('/watch-later', async (req: Request, res) => {
+  try {
+    const userCollection = await userCollectionService.getWatchLaterCollection(req.user!.userId);
+    res.json({ userCollection });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch watch later' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/user-collections/watch-later/check:
+ *   get:
+ *     tags:
+ *       - Watch Later
+ *     summary: Check watch later
+ *     description: Check if items are in the user's Watch Later
+ *     parameters:
+ *       - in: query
+ *         name: collectionIds
+ *         schema:
+ *           type: string
+ *         description: Comma-separated collection IDs to check
+ *       - in: query
+ *         name: mediaIds
+ *         schema:
+ *           type: string
+ *         description: Comma-separated media IDs to check
+ *     responses:
+ *       200:
+ *         description: Watch later status for requested items
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 collectionIds:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 mediaIds:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ */
+router.get('/watch-later/check', async (req: Request, res) => {
+  try {
+    const collectionIds = req.query.collectionIds
+      ? (req.query.collectionIds as string).split(',').filter(Boolean)
+      : undefined;
+    const mediaIds = req.query.mediaIds
+      ? (req.query.mediaIds as string).split(',').filter(Boolean)
+      : undefined;
+
+    const result = await userCollectionService.checkWatchLater(
+      req.user!.userId,
+      collectionIds,
+      mediaIds
+    );
+    res.json(result);
+  } catch {
+    res.status(500).json({ error: 'Failed to check watch later' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/user-collections/watch-later/toggle:
+ *   post:
+ *     tags:
+ *       - Watch Later
+ *     summary: Toggle watch later
+ *     description: Add or remove an item from watch later
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               collectionId:
+ *                 type: string
+ *                 format: uuid
+ *               mediaId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Toggle result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 inWatchLater:
+ *                   type: boolean
+ *       400:
+ *         description: Invalid request
+ */
+router.post('/watch-later/toggle', async (req: Request, res) => {
+  try {
+    const { collectionId, mediaId } = req.body;
+    const result = await userCollectionService.toggleWatchLater(
+      req.user!.userId,
+      { collectionId, mediaId }
+    );
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to toggle watch later';
+    if (message.includes('Exactly one')) {
+      return res.status(400).json({ error: message });
+    }
+    res.status(500).json({ error: message });
+  }
+});
+
 /**
  * @openapi
  * /api/user-collections/{id}:

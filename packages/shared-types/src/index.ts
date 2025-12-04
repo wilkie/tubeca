@@ -752,3 +752,13 @@ export interface CheckFavoritesResponse {
 export interface ToggleFavoriteResponse {
   favorited: boolean
 }
+
+// Watch Later types
+export interface CheckWatchLaterResponse {
+  collectionIds: string[]
+  mediaIds: string[]
+}
+
+export interface ToggleWatchLaterResponse {
+  inWatchLater: boolean
+}

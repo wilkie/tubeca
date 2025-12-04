@@ -20,6 +20,7 @@ import {
   MusicNote,
   FolderSpecial,
   Favorite,
+  WatchLater,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
@@ -107,6 +108,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <Favorite />
             </ListItemIcon>
             <ListItemText primary={t('favorites.title')} />
+          </ListItemButton>
+        </ListItem>
+
+        {/* Watch Later */}
+        <ListItem disablePadding>
+          <ListItemButton
+            selected={location.pathname === '/watch-later'}
+            onClick={() => handleNavigate('/watch-later')}
+          >
+            <ListItemIcon>
+              <WatchLater />
+            </ListItemIcon>
+            <ListItemText primary={t('watchLater.title')} />
           </ListItemButton>
         </ListItem>
 

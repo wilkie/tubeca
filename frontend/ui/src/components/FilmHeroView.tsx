@@ -26,6 +26,7 @@ import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
 import { CastCrewGrid } from './CastCrewGrid';
 import { FavoriteButton } from './FavoriteButton';
+import { WatchLaterButton } from './WatchLaterButton';
 
 interface FilmCreditWithPerson extends FilmCredit {
   person?: {
@@ -386,6 +387,10 @@ export function FilmHeroView({
                 {t('media.play', 'Play')}
               </Button>
               <FavoriteButton
+                collectionId={collection.id}
+                sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
+              />
+              <WatchLaterButton
                 collectionId={collection.id}
                 sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
               />
