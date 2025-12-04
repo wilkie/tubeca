@@ -23,14 +23,16 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogContentText,
   DialogActions,
 } from '@mui/material';
-import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon } from '@mui/icons-material';
-import { apiClient, type Media, type Image, type CollectionType } from '../api/client';
+import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, FolderSpecial } from '@mui/icons-material';
+import { apiClient, type Media, type Image, type CollectionType, type UserCollection } from '../api/client';
+import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { FavoriteButton } from '../components/FavoriteButton';
 import { WatchLaterButton } from '../components/WatchLaterButton';
 import { useAuth } from '../context/AuthContext';
@@ -96,7 +98,51 @@ export function MediaPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingImages, setIsRefreshingImages] = useState(false);
 
+  // Add to collection state
+  const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
+  const addMenuOpen = Boolean(addMenuAnchor);
+  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
+  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+  const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
+
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
+
+  // Fetch most recent user collection when add menu opens
+  useEffect(() => {
+    if (addMenuOpen) {
+      apiClient.getUserCollections().then((result) => {
+        if (result.data && result.data.userCollections.length > 0) {
+          setRecentCollection(result.data.userCollections[0]);
+        }
+      });
+    }
+  }, [addMenuOpen]);
+
+  const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAddMenuAnchor(event.currentTarget);
+  };
+
+  const handleAddMenuClose = () => {
+    setAddMenuAnchor(null);
+  };
+
+  const handleAddToCollection = () => {
+    handleAddMenuClose();
+    setAddToCollectionOpen(true);
+  };
+
+  const handleQuickAddToRecent = async () => {
+    if (!recentCollection || !mediaId) return;
+    setIsAddingToRecent(true);
+    try {
+      await apiClient.addUserCollectionItem(recentCollection.id, { mediaId });
+    } catch (error) {
+      console.error('Failed to add to collection:', error);
+    } finally {
+      setIsAddingToRecent(false);
+      handleAddMenuClose();
+    }
+  };
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setMenuAnchorEl(event.currentTarget);
@@ -350,6 +396,39 @@ export function MediaPage() {
             </Button>
             <FavoriteButton mediaId={media.id} />
             <WatchLaterButton mediaId={media.id} />
+            <IconButton
+              onClick={handleAddMenuClick}
+              aria-label={t('common.add', 'Add')}
+              aria-controls={addMenuOpen ? 'add-menu' : undefined}
+              aria-haspopup="true"
+              aria-expanded={addMenuOpen ? 'true' : undefined}
+            >
+              <Add />
+            </IconButton>
+            <Menu
+              id="add-menu"
+              anchorEl={addMenuAnchor}
+              open={addMenuOpen}
+              onClose={handleAddMenuClose}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
+              <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
+              {recentCollection && (
+                <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
+                  <ListItemIcon>
+                    <FolderSpecial fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{recentCollection.name}</ListItemText>
+                </MenuItem>
+              )}
+              <MenuItem onClick={handleAddToCollection}>
+                <ListItemIcon>
+                  <Add fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>{t('userCollections.choose', 'Choose...')}</ListItemText>
+              </MenuItem>
+            </Menu>
           </Box>
         </Box>
 
@@ -633,6 +712,14 @@ export function MediaPage() {
         onClose={handleImagesClose}
         images={media.images || []}
         title={t('media.imagesTitle', 'Media Images')}
+      />
+
+      {/* Add to Collection Dialog */}
+      <AddToCollectionDialog
+        open={addToCollectionOpen}
+        onClose={() => setAddToCollectionOpen(false)}
+        mediaId={media.id}
+        itemName={media.name}
       />
     </Container>
   );

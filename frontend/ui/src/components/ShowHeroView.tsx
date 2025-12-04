@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -14,6 +14,9 @@ import {
   IconButton,
   Menu,
   MenuItem,
+  ListItemIcon,
+  ListItemText,
+  ListSubheader,
 } from '@mui/material';
 import {
   Star,
@@ -22,12 +25,15 @@ import {
   Folder,
   Person,
   KeyboardArrowDown,
+  Add,
+  FolderSpecial,
 } from '@mui/icons-material';
-import { apiClient, type Collection, type ShowCredit, type Image } from '../api/client';
+import { apiClient, type Collection, type ShowCredit, type Image, type UserCollection } from '../api/client';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
 import { FavoriteButton } from './FavoriteButton';
 import { WatchLaterButton } from './WatchLaterButton';
+import { CardQuickActions } from './CardQuickActions';
 
 interface ShowCreditWithPerson extends ShowCredit {
   person?: {
@@ -59,6 +65,8 @@ interface ShowHeroViewProps {
   onSeasonClick: (seasonId: string) => void;
   onPersonClick: (personId: string) => void;
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
+  onAddToCollection?: () => void;
+  onAddSeasonToCollection?: (season: ChildCollection) => void;
 }
 
 export function ShowHeroView({
@@ -71,12 +79,84 @@ export function ShowHeroView({
   onSeasonClick,
   onPersonClick,
   onMenuOpen,
+  onAddToCollection,
+  onAddSeasonToCollection,
 }: ShowHeroViewProps) {
   const { t } = useTranslation();
 
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
   const [seasonMenuAnchorEl, setSeasonMenuAnchorEl] = useState<HTMLElement | null>(null);
   const seasonMenuOpen = Boolean(seasonMenuAnchorEl);
+  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
+  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
+
+  // Add to collection menu state
+  const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
+  const addMenuOpen = Boolean(addMenuAnchor);
+  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
+  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+
+  // Fetch most recent user collection when add menu opens
+  useEffect(() => {
+    if (addMenuOpen) {
+      apiClient.getUserCollections().then((result) => {
+        if (result.data && result.data.userCollections.length > 0) {
+          setRecentCollection(result.data.userCollections[0]);
+        }
+      });
+    }
+  }, [addMenuOpen]);
+
+  const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAddMenuAnchor(event.currentTarget);
+  };
+
+  const handleAddMenuClose = () => {
+    setAddMenuAnchor(null);
+  };
+
+  const handleAddToCollection = () => {
+    handleAddMenuClose();
+    onAddToCollection?.();
+  };
+
+  const handleQuickAddToRecent = async () => {
+    if (!recentCollection) return;
+    setIsAddingToRecent(true);
+    try {
+      await apiClient.addUserCollectionItem(recentCollection.id, { collectionId: collection.id });
+    } catch (error) {
+      console.error('Failed to add to collection:', error);
+    } finally {
+      setIsAddingToRecent(false);
+      handleAddMenuClose();
+    }
+  };
+
+  // Fetch favorites and watch later status for all seasons
+  useEffect(() => {
+    if (seasons.length === 0) return;
+
+    let cancelled = false;
+    const seasonIds = seasons.map((s) => s.id);
+
+    Promise.all([
+      apiClient.checkFavorites(seasonIds),
+      apiClient.checkWatchLater(seasonIds),
+    ]).then(([favResult, watchLaterResult]) => {
+      if (cancelled) return;
+      if (favResult.data) {
+        setFavoritedIds(new Set(favResult.data.collectionIds));
+      }
+      if (watchLaterResult.data) {
+        setWatchLaterIds(new Set(watchLaterResult.data.collectionIds));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [seasons]);
 
   const backdropImage = collection.images?.find((img) => img.imageType === 'Backdrop');
   const posterImage = collection.images?.find((img) => img.imageType === 'Poster');
@@ -310,6 +390,40 @@ export function ShowHeroView({
                 sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
               />
               <IconButton
+                onClick={handleAddMenuClick}
+                aria-label={t('common.add', 'Add')}
+                aria-controls={addMenuOpen ? 'add-menu' : undefined}
+                aria-haspopup="true"
+                aria-expanded={addMenuOpen ? 'true' : undefined}
+                sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
+              >
+                <Add />
+              </IconButton>
+              <Menu
+                id="add-menu"
+                anchorEl={addMenuAnchor}
+                open={addMenuOpen}
+                onClose={handleAddMenuClose}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              >
+                <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
+                {recentCollection && (
+                  <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
+                    <ListItemIcon>
+                      <FolderSpecial fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>{recentCollection.name}</ListItemText>
+                  </MenuItem>
+                )}
+                <MenuItem onClick={handleAddToCollection}>
+                  <ListItemIcon>
+                    <Add fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{t('userCollections.choose', 'Choose...')}</ListItemText>
+                </MenuItem>
+              </Menu>
+              <IconButton
                 onClick={onMenuOpen}
                 aria-label={t('common.moreOptions', 'More options')}
                 aria-controls={menuOpen ? 'collection-menu' : undefined}
@@ -336,7 +450,7 @@ export function ShowHeroView({
 
               return (
                 <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={season.id}>
-                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
                     <CardActionArea
                       onClick={() => onSeasonClick(season.id)}
                       sx={{
@@ -377,6 +491,12 @@ export function ShowHeroView({
                         </CardContent>
                       )}
                     </CardActionArea>
+                    <CardQuickActions
+                      collectionId={season.id}
+                      initialFavorited={favoritedIds.has(season.id)}
+                      initialInWatchLater={watchLaterIds.has(season.id)}
+                      onAddToCollection={onAddSeasonToCollection ? () => onAddSeasonToCollection(season) : undefined}
+                    />
                   </Card>
                 </Grid>
               );
