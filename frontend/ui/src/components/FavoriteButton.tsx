@@ -71,21 +71,25 @@ export function FavoriteButton({
     ? t('favorites.removeFromFavorites', 'Remove from Favorites')
     : t('favorites.addToFavorites', 'Add to Favorites');
 
+  const isDisabled = isLoading || isToggling;
+
   return (
     <Tooltip title={tooltip}>
-      <IconButton
-        onClick={handleToggle}
-        disabled={isLoading || isToggling}
-        size={size}
-        aria-label={tooltip}
-        sx={{
-          color: isFavorited ? 'error.main' : color,
-          opacity: isLoading ? 0.5 : 1,
-          ...sx,
-        }}
-      >
-        {isFavorited ? <Favorite /> : <FavoriteBorder />}
-      </IconButton>
+      <span style={{ display: 'inline-flex' }}>
+        <IconButton
+          onClick={handleToggle}
+          disabled={isDisabled}
+          size={size}
+          aria-label={tooltip}
+          sx={{
+            color: isFavorited ? 'error.main' : color,
+            opacity: isLoading ? 0.5 : 1,
+            ...sx,
+          }}
+        >
+          {isFavorited ? <Favorite /> : <FavoriteBorder />}
+        </IconButton>
+      </span>
     </Tooltip>
   );
 }
