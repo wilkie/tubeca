@@ -10,6 +10,12 @@ jest.mock('../../api/client', () => ({
     getLibrary: jest.fn(),
     getCollectionsByLibrary: jest.fn(),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
+    checkFavorites: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
+    checkWatchLater: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
+    toggleFavorite: jest.fn().mockResolvedValue({ data: { favorited: true } }),
+    toggleWatchLater: jest.fn().mockResolvedValue({ data: { inWatchLater: true } }),
+    getUserCollections: jest.fn().mockResolvedValue({ data: { userCollections: [] } }),
+    addUserCollectionItem: jest.fn().mockResolvedValue({ data: { item: {} } }),
   },
 }));
 
@@ -241,11 +247,12 @@ describe('LibraryPage', () => {
       });
     });
 
-    it('shows folder icon for collections without images', async () => {
+    it('shows movie icon for Film collections without images', async () => {
       render(<LibraryPage />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('FolderIcon')).toBeInTheDocument();
+        // Film library shows MovieIcon for collections without images
+        expect(screen.getByTestId('MovieIcon')).toBeInTheDocument();
       });
     });
 
