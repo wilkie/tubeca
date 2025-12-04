@@ -414,13 +414,65 @@ export class UserCollectionService {
    * Returns an object with collectionIds and mediaIds that are favorited
    */
   async checkFavorites(userId: string, collectionIds?: string[], mediaIds?: string[]) {
-    // Get the favorites collection ID
-    const favorites = await prisma.userCollection.findFirst({
-      where: { userId, isSystem: true, systemType: 'Favorites' },
+    return this.checkSystemCollectionItems(userId, 'Favorites', collectionIds, mediaIds);
+  }
+
+  /**
+   * Toggle favorite status for an item
+   * Returns { favorited: boolean } indicating the new state
+   */
+  async toggleFavorite(userId: string, input: AddUserCollectionItemInput) {
+    const result = await this.toggleSystemCollectionItem(userId, 'Favorites', input);
+    return { favorited: result.added };
+  }
+
+  // ============================================
+  // Watch Later Methods
+  // ============================================
+
+  /**
+   * Get or create the user's Watch Later collection
+   */
+  async getWatchLaterCollection(userId: string) {
+    return this.getSystemCollection(userId, 'WatchLater');
+  }
+
+  /**
+   * Check if items are in the user's Watch Later collection
+   * Returns an object with collectionIds and mediaIds that are in watch later
+   */
+  async checkWatchLater(userId: string, collectionIds?: string[], mediaIds?: string[]) {
+    return this.checkSystemCollectionItems(userId, 'WatchLater', collectionIds, mediaIds);
+  }
+
+  /**
+   * Toggle watch later status for an item
+   * Returns { inWatchLater: boolean } indicating the new state
+   */
+  async toggleWatchLater(userId: string, input: AddUserCollectionItemInput) {
+    const result = await this.toggleSystemCollectionItem(userId, 'WatchLater', input);
+    return { inWatchLater: result.added };
+  }
+
+  // ============================================
+  // Generic System Collection Helpers
+  // ============================================
+
+  /**
+   * Check if items are in a system collection
+   */
+  private async checkSystemCollectionItems(
+    userId: string,
+    systemType: string,
+    collectionIds?: string[],
+    mediaIds?: string[]
+  ) {
+    const systemCollection = await prisma.userCollection.findFirst({
+      where: { userId, isSystem: true, systemType },
       select: { id: true },
     });
 
-    if (!favorites) {
+    if (!systemCollection) {
       return { collectionIds: [], mediaIds: [] };
     }
 
@@ -429,30 +481,28 @@ export class UserCollectionService {
       mediaIds: [],
     };
 
-    // Check collections
     if (collectionIds && collectionIds.length > 0) {
-      const favoritedCollections = await prisma.userCollectionItem.findMany({
+      const matchedCollections = await prisma.userCollectionItem.findMany({
         where: {
-          userCollectionId: favorites.id,
+          userCollectionId: systemCollection.id,
           collectionId: { in: collectionIds },
         },
         select: { collectionId: true },
       });
-      result.collectionIds = favoritedCollections
+      result.collectionIds = matchedCollections
         .map((item) => item.collectionId)
         .filter((id): id is string => id !== null);
     }
 
-    // Check media
     if (mediaIds && mediaIds.length > 0) {
-      const favoritedMedia = await prisma.userCollectionItem.findMany({
+      const matchedMedia = await prisma.userCollectionItem.findMany({
         where: {
-          userCollectionId: favorites.id,
+          userCollectionId: systemCollection.id,
           mediaId: { in: mediaIds },
         },
         select: { mediaId: true },
       });
-      result.mediaIds = favoritedMedia
+      result.mediaIds = matchedMedia
         .map((item) => item.mediaId)
         .filter((id): id is string => id !== null);
     }
@@ -461,10 +511,14 @@ export class UserCollectionService {
   }
 
   /**
-   * Toggle favorite status for an item
-   * Returns { favorited: boolean } indicating the new state
+   * Toggle an item in a system collection
+   * Returns { added: boolean } indicating if the item was added or removed
    */
-  async toggleFavorite(userId: string, input: AddUserCollectionItemInput) {
+  private async toggleSystemCollectionItem(
+    userId: string,
+    systemType: string,
+    input: AddUserCollectionItemInput
+  ) {
     const { collectionId: contentCollectionId, mediaId } = input;
 
     // Validate that exactly one reference is provided
@@ -472,34 +526,34 @@ export class UserCollectionService {
       throw new Error('Exactly one of collectionId or mediaId must be provided');
     }
 
-    // Get or create favorites collection
-    const favorites = await this.getFavoritesCollection(userId);
+    // Get or create the system collection
+    const systemCollection = await this.getSystemCollection(userId, systemType);
 
-    // Check if item already exists in favorites
+    // Check if item already exists
     const existingItem = await prisma.userCollectionItem.findFirst({
       where: {
-        userCollectionId: favorites.id,
+        userCollectionId: systemCollection.id,
         ...(contentCollectionId ? { collectionId: contentCollectionId } : {}),
         ...(mediaId ? { mediaId } : {}),
       },
     });
 
     if (existingItem) {
-      // Remove from favorites
+      // Remove from collection
       await prisma.$transaction([
         prisma.userCollectionItem.delete({
           where: { id: existingItem.id },
         }),
         prisma.userCollection.update({
-          where: { id: favorites.id },
+          where: { id: systemCollection.id },
           data: { updatedAt: new Date() },
         }),
       ]);
-      return { favorited: false };
+      return { added: false };
     } else {
-      // Add to favorites
+      // Add to collection
       const maxPosition = await prisma.userCollectionItem.aggregate({
-        where: { userCollectionId: favorites.id },
+        where: { userCollectionId: systemCollection.id },
         _max: { position: true },
       });
 
@@ -508,18 +562,18 @@ export class UserCollectionService {
       await prisma.$transaction([
         prisma.userCollectionItem.create({
           data: {
-            userCollectionId: favorites.id,
+            userCollectionId: systemCollection.id,
             collectionId: contentCollectionId,
             mediaId,
             position: nextPosition,
           },
         }),
         prisma.userCollection.update({
-          where: { id: favorites.id },
+          where: { id: systemCollection.id },
           data: { updatedAt: new Date() },
         }),
       ]);
-      return { favorited: true };
+      return { added: true };
     }
   }
 }

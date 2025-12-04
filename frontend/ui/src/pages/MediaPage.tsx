@@ -32,6 +32,7 @@ import {
 import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon } from '@mui/icons-material';
 import { apiClient, type Media, type Image, type CollectionType } from '../api/client';
 import { FavoriteButton } from '../components/FavoriteButton';
+import { WatchLaterButton } from '../components/WatchLaterButton';
 import { useAuth } from '../context/AuthContext';
 import { ImagesDialog } from '../components/ImagesDialog';
 import { formatDuration } from '../utils/format';
@@ -348,6 +349,7 @@ export function MediaPage() {
               {t('media.play')}
             </Button>
             <FavoriteButton mediaId={media.id} />
+            <WatchLaterButton mediaId={media.id} />
           </Box>
         </Box>
 

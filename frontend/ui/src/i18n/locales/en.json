@@ -19,7 +19,8 @@
     "search": "Search",
     "account": "Account",
     "menu": "Menu",
-    "favorites": "Favorites"
+    "favorites": "Favorites",
+    "watchLater": "Watch Later"
   },
   "nav": {
     "settings": "Settings",
@@ -156,6 +157,12 @@
     "empty": "No favorites yet. Click the heart icon on any film, show, or episode to add it here.",
     "addToFavorites": "Add to Favorites",
     "removeFromFavorites": "Remove from Favorites"
+  },
+  "watchLater": {
+    "title": "Watch Later",
+    "empty": "No items in your watch later queue. Click the clock icon on any film, show, or episode to add it here.",
+    "addToWatchLater": "Add to Watch Later",
+    "removeFromWatchLater": "Remove from Watch Later"
   },
   "userCollections": {
     "title": "My Collections",

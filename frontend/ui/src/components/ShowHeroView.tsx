@@ -27,6 +27,7 @@ import { apiClient, type Collection, type ShowCredit, type Image } from '../api/
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
 import { FavoriteButton } from './FavoriteButton';
+import { WatchLaterButton } from './WatchLaterButton';
 
 interface ShowCreditWithPerson extends ShowCredit {
   person?: {
@@ -301,6 +302,10 @@ export function ShowHeroView({
                 </Button>
               )}
               <FavoriteButton
+                collectionId={collection.id}
+                sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
+              />
+              <WatchLaterButton
                 collectionId={collection.id}
                 sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
               />

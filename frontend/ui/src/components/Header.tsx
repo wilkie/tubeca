@@ -12,7 +12,7 @@ import {
   Divider,
   Button,
 } from '@mui/material';
-import { Menu as MenuIcon, Search, AccountCircle, Favorite } from '@mui/icons-material';
+import { Menu as MenuIcon, Search, AccountCircle, Favorite, WatchLater } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
 import { apiClient, type Library } from '../api/client';
@@ -126,6 +126,16 @@ export function Header({ onMenuClick }: HeaderProps) {
           sx={{ display: { xs: 'none', md: 'inline-flex' } }}
         >
           <Favorite />
+        </IconButton>
+
+        <IconButton
+          size="large"
+          color="inherit"
+          aria-label={t('header.watchLater')}
+          onClick={() => navigate('/watch-later')}
+          sx={{ display: { xs: 'none', md: 'inline-flex' } }}
+        >
+          <WatchLater />
         </IconButton>
 
         <IconButton

@@ -72,6 +72,8 @@ import type {
   AddUserCollectionItemInput,
   CheckFavoritesResponse,
   ToggleFavoriteResponse,
+  CheckWatchLaterResponse,
+  ToggleWatchLaterResponse,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -149,6 +151,8 @@ export type {
   AddUserCollectionItemInput,
   CheckFavoritesResponse,
   ToggleFavoriteResponse,
+  CheckWatchLaterResponse,
+  ToggleWatchLaterResponse,
 };
 
 const API_BASE = '/api';
@@ -563,6 +567,30 @@ class ApiClient {
 
   async toggleFavorite(input: AddUserCollectionItemInput): Promise<ApiResponse<ToggleFavoriteResponse>> {
     return this.request<ToggleFavoriteResponse>('/user-collections/favorites/toggle', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  // Watch Later methods
+  async getWatchLater(): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>('/user-collections/watch-later');
+  }
+
+  async checkWatchLater(collectionIds?: string[], mediaIds?: string[]): Promise<ApiResponse<CheckWatchLaterResponse>> {
+    const params = new URLSearchParams();
+    if (collectionIds && collectionIds.length > 0) {
+      params.set('collectionIds', collectionIds.join(','));
+    }
+    if (mediaIds && mediaIds.length > 0) {
+      params.set('mediaIds', mediaIds.join(','));
+    }
+    const query = params.toString();
+    return this.request<CheckWatchLaterResponse>(`/user-collections/watch-later/check${query ? `?${query}` : ''}`);
+  }
+
+  async toggleWatchLater(input: AddUserCollectionItemInput): Promise<ApiResponse<ToggleWatchLaterResponse>> {
+    return this.request<ToggleWatchLaterResponse>('/user-collections/watch-later/toggle', {
       method: 'POST',
       body: JSON.stringify(input),
     });

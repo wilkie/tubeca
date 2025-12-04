@@ -15,6 +15,7 @@ import { SearchPage } from './pages/SearchPage';
 import { UserCollectionsPage } from './pages/UserCollectionsPage';
 import { UserCollectionPage } from './pages/UserCollectionPage';
 import { FavoritesPage } from './pages/FavoritesPage';
+import { WatchLaterPage } from './pages/WatchLaterPage';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -43,6 +44,7 @@ function App() {
 
           {/* User collections routes */}
           <Route path="/favorites" element={<FavoritesPage />} />
+          <Route path="/watch-later" element={<WatchLaterPage />} />
           <Route path="/my-collections" element={<UserCollectionsPage />} />
           <Route path="/my-collections/:collectionId" element={<UserCollectionPage />} />
 
