@@ -12,19 +12,16 @@ import {
   CardContent,
   CardActionArea,
   CardMedia,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  IconButton,
   Stack,
 } from '@mui/material';
-import type { SelectChangeEvent } from '@mui/material/Select';
-import { Folder, VideoFile, AudioFile, ArrowUpward, ArrowDownward, Movie, Tv, Album } from '@mui/icons-material';
+import { Folder, VideoFile, AudioFile, Movie, Tv, Album } from '@mui/icons-material';
 import { apiClient, type Library, type Collection } from '../api/client';
+import { CardQuickActions } from '../components/CardQuickActions';
+import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
+import { FilterChips } from '../components/FilterChips';
+import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 
 type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
-type SortDirection = 'asc' | 'desc';
 
 interface MediaItem {
   id: string;
@@ -65,6 +62,11 @@ export function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
+  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
+  const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
+  const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
+  const [selectedCollectionForAdd, setSelectedCollectionForAdd] = useState<Collection | null>(null);
 
   useEffect(() => {
     if (!libraryId) return;
@@ -101,6 +103,23 @@ export function LibraryPage() {
           (c) => c.parentId === null
         );
         setCollections(rootCollections);
+
+        // Fetch favorites and watch later status for all collections
+        const collectionIds = rootCollections.map((c) => c.id);
+        if (collectionIds.length > 0) {
+          const [favResult, watchLaterResult] = await Promise.all([
+            apiClient.checkFavorites(collectionIds),
+            apiClient.checkWatchLater(collectionIds),
+          ]);
+          if (cancelled) return;
+
+          if (favResult.data) {
+            setFavoritedIds(new Set(favResult.data.collectionIds));
+          }
+          if (watchLaterResult.data) {
+            setWatchLaterIds(new Set(watchLaterResult.data.collectionIds));
+          }
+        }
       }
 
       setIsLoading(false);
@@ -113,9 +132,41 @@ export function LibraryPage() {
     };
   }, [libraryId]);
 
-  // Sort collections based on current sort settings
+  // Extract unique content ratings for film libraries
+  const availableContentRatings = useMemo(() => {
+    if (library?.libraryType !== 'Film') return [];
+    const ratings = new Set<string>();
+    collections.forEach((c) => {
+      if (c.filmDetails?.contentRating) {
+        ratings.add(c.filmDetails.contentRating);
+      }
+    });
+    // Sort ratings in a logical order
+    const ratingOrder = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
+    return Array.from(ratings).sort((a, b) => {
+      const aIndex = ratingOrder.indexOf(a);
+      const bIndex = ratingOrder.indexOf(b);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [collections, library?.libraryType]);
+
+  // Filter and sort collections based on current settings
   const sortedCollections = useMemo(() => {
-    const sorted = [...collections].sort((a, b) => {
+    // First filter by content rating (for film libraries)
+    let filtered = collections;
+    if (library?.libraryType === 'Film' && excludedRatings.size > 0) {
+      filtered = collections.filter((c) => {
+        const rating = c.filmDetails?.contentRating;
+        // Include items with no rating, or items whose rating is not excluded
+        return !rating || !excludedRatings.has(rating);
+      });
+    }
+
+    // Then sort
+    const sorted = [...filtered].sort((a, b) => {
       const aValue = getSortableValue(a, sortField);
       const bValue = getSortableValue(b, sortField);
 
@@ -138,15 +189,16 @@ export function LibraryPage() {
       return sortDirection === 'desc' ? -comparison : comparison;
     });
     return sorted;
-  }, [collections, sortField, sortDirection]);
+  }, [collections, sortField, sortDirection, library?.libraryType, excludedRatings]);
 
-  const handleSortFieldChange = (event: SelectChangeEvent<SortField>) => {
-    setSortField(event.target.value as SortField);
-  };
-
-  const toggleSortDirection = () => {
-    setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-  };
+  // Sort options for the dropdown
+  const sortOptions: SortOption[] = useMemo(() => [
+    { value: 'name', label: t('library.sort.name') },
+    { value: 'dateAdded', label: t('library.sort.dateAdded') },
+    { value: 'releaseDate', label: t('library.sort.releaseDate') },
+    { value: 'rating', label: t('library.sort.rating') },
+    { value: 'runtime', label: t('library.sort.runtime') },
+  ], [t]);
 
   const handleCollectionClick = (collectionId: string) => {
     navigate(`/collection/${collectionId}`);
@@ -154,6 +206,11 @@ export function LibraryPage() {
 
   const handleMediaClick = (mediaId: string) => {
     navigate(`/media/${mediaId}`);
+  };
+
+  const handleAddToCollection = (collection: Collection) => {
+    setSelectedCollectionForAdd(collection);
+    setAddToCollectionOpen(true);
   };
 
   if (isLoading) {
@@ -206,33 +263,36 @@ export function LibraryPage() {
         </Typography>
 
         {collections.length > 0 && (
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <FormControl size="small" sx={{ minWidth: 150 }}>
-              <InputLabel id="sort-field-label">{t('library.sortBy')}</InputLabel>
-              <Select
-                labelId="sort-field-label"
-                value={sortField}
-                label={t('library.sortBy')}
-                onChange={handleSortFieldChange}
-              >
-                <MenuItem value="name">{t('library.sort.name')}</MenuItem>
-                <MenuItem value="dateAdded">{t('library.sort.dateAdded')}</MenuItem>
-                <MenuItem value="releaseDate">{t('library.sort.releaseDate')}</MenuItem>
-                <MenuItem value="rating">{t('library.sort.rating')}</MenuItem>
-                <MenuItem value="runtime">{t('library.sort.runtime')}</MenuItem>
-              </Select>
-            </FormControl>
-            <IconButton
-              onClick={toggleSortDirection}
-              size="small"
-              aria-label={sortDirection === 'asc' ? t('library.sort.ascending') : t('library.sort.descending')}
-              title={sortDirection === 'asc' ? t('library.sort.ascending') : t('library.sort.descending')}
-            >
-              {sortDirection === 'asc' ? <ArrowUpward /> : <ArrowDownward />}
-            </IconButton>
-          </Stack>
+          <SortControls
+            options={sortOptions}
+            value={sortField}
+            direction={sortDirection}
+            onValueChange={(v) => setSortField(v as SortField)}
+            onDirectionChange={setSortDirection}
+          />
         )}
       </Stack>
+
+      {/* Content Rating Filter (Film libraries only) */}
+      {availableContentRatings.length > 0 && (
+        <FilterChips
+          label={t('library.filter.rating', 'Rating')}
+          options={availableContentRatings}
+          excluded={excludedRatings}
+          onToggle={(rating) => {
+            setExcludedRatings((prev) => {
+              const next = new Set(prev);
+              if (next.has(rating)) {
+                next.delete(rating);
+              } else {
+                next.add(rating);
+              }
+              return next;
+            });
+          }}
+          onClear={() => setExcludedRatings(new Set())}
+        />
+      )}
 
       {collections.length === 0 && rootMedia.length === 0 ? (
         <Alert severity="info">{t('library.empty')}</Alert>
@@ -246,7 +306,7 @@ export function LibraryPage() {
 
             return (
               <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
                   <CardActionArea
                     onClick={() => handleCollectionClick(collection.id)}
                     sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
@@ -300,6 +360,12 @@ export function LibraryPage() {
                       )}
                     </CardContent>
                   </CardActionArea>
+                  <CardQuickActions
+                    collectionId={collection.id}
+                    initialFavorited={favoritedIds.has(collection.id)}
+                    initialInWatchLater={watchLaterIds.has(collection.id)}
+                    onAddToCollection={() => handleAddToCollection(collection)}
+                  />
                 </Card>
               </Grid>
             );
@@ -326,6 +392,17 @@ export function LibraryPage() {
           ))}
         </Grid>
       )}
+
+      {/* Add to Collection Dialog */}
+      <AddToCollectionDialog
+        open={addToCollectionOpen}
+        onClose={() => {
+          setAddToCollectionOpen(false);
+          setSelectedCollectionForAdd(null);
+        }}
+        collectionId={selectedCollectionForAdd?.id}
+        itemName={selectedCollectionForAdd?.name || ''}
+      />
     </Container>
   );
 }

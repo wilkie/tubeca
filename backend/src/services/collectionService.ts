@@ -53,6 +53,7 @@ export class CollectionService {
             releaseDate: true,
             rating: true,
             runtime: true,
+            contentRating: true,
           },
         },
         albumDetails: {

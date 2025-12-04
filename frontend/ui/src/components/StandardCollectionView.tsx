@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -7,11 +8,18 @@ import {
   Divider,
   IconButton,
   Alert,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  ListSubheader,
 } from '@mui/material';
-import { CalendarMonth, MoreVert } from '@mui/icons-material';
-import type { Collection, CollectionType, Image } from '../api/client';
+import { CalendarMonth, MoreVert, Add, FolderSpecial } from '@mui/icons-material';
+import { apiClient, type Collection, type CollectionType, type Image, type UserCollection } from '../api/client';
 import { ChildCollectionGrid } from './ChildCollectionGrid';
 import { MediaGrid } from './MediaGrid';
+import { FavoriteButton } from './FavoriteButton';
+import { WatchLaterButton } from './WatchLaterButton';
 
 interface ChildCollection {
   id: string;
@@ -42,6 +50,7 @@ interface StandardCollectionViewProps {
   onCollectionClick: (collectionId: string) => void;
   onMediaClick: (mediaId: string) => void;
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
+  onAddToCollection?: () => void;
 }
 
 function getCollectionLabel(collectionType?: CollectionType): string | null {
@@ -67,8 +76,52 @@ export function StandardCollectionView({
   onCollectionClick,
   onMediaClick,
   onMenuOpen,
+  onAddToCollection,
 }: StandardCollectionViewProps) {
   const { t } = useTranslation();
+
+  // Add to collection menu state
+  const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
+  const addMenuOpen = Boolean(addMenuAnchor);
+  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
+  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+
+  // Fetch most recent user collection when add menu opens
+  useEffect(() => {
+    if (addMenuOpen) {
+      apiClient.getUserCollections().then((result) => {
+        if (result.data && result.data.userCollections.length > 0) {
+          setRecentCollection(result.data.userCollections[0]);
+        }
+      });
+    }
+  }, [addMenuOpen]);
+
+  const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAddMenuAnchor(event.currentTarget);
+  };
+
+  const handleAddMenuClose = () => {
+    setAddMenuAnchor(null);
+  };
+
+  const handleAddToCollection = () => {
+    handleAddMenuClose();
+    onAddToCollection?.();
+  };
+
+  const handleQuickAddToRecent = async () => {
+    if (!recentCollection) return;
+    setIsAddingToRecent(true);
+    try {
+      await apiClient.addUserCollectionItem(recentCollection.id, { collectionId: collection.id });
+    } catch (error) {
+      console.error('Failed to add to collection:', error);
+    } finally {
+      setIsAddingToRecent(false);
+      handleAddMenuClose();
+    }
+  };
 
   const label = getCollectionLabel(collection.collectionType);
 
@@ -91,15 +144,52 @@ export function StandardCollectionView({
             <Chip label={label} size="small" color="primary" variant="outlined" />
           )}
         </Box>
-        <IconButton
-          onClick={onMenuOpen}
-          aria-label={t('common.moreOptions', 'More options')}
-          aria-controls={menuOpen ? 'collection-menu' : undefined}
-          aria-haspopup="true"
-          aria-expanded={menuOpen ? 'true' : undefined}
-        >
-          <MoreVert />
-        </IconButton>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <FavoriteButton collectionId={collection.id} />
+          <WatchLaterButton collectionId={collection.id} />
+          <IconButton
+            onClick={handleAddMenuClick}
+            aria-label={t('common.add', 'Add')}
+            aria-controls={addMenuOpen ? 'add-menu' : undefined}
+            aria-haspopup="true"
+            aria-expanded={addMenuOpen ? 'true' : undefined}
+          >
+            <Add />
+          </IconButton>
+          <Menu
+            id="add-menu"
+            anchorEl={addMenuAnchor}
+            open={addMenuOpen}
+            onClose={handleAddMenuClose}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
+            {recentCollection && (
+              <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
+                <ListItemIcon>
+                  <FolderSpecial fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>{recentCollection.name}</ListItemText>
+              </MenuItem>
+            )}
+            <MenuItem onClick={handleAddToCollection}>
+              <ListItemIcon>
+                <Add fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>{t('userCollections.choose', 'Choose...')}</ListItemText>
+            </MenuItem>
+          </Menu>
+          <IconButton
+            onClick={onMenuOpen}
+            aria-label={t('common.moreOptions', 'More options')}
+            aria-controls={menuOpen ? 'collection-menu' : undefined}
+            aria-haspopup="true"
+            aria-expanded={menuOpen ? 'true' : undefined}
+          >
+            <MoreVert />
+          </IconButton>
+        </Box>
       </Box>
 
       {/* Season Details */}

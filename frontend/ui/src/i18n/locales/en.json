@@ -92,6 +92,10 @@
       "runtime": "Runtime",
       "ascending": "Ascending",
       "descending": "Descending"
+    },
+    "filter": {
+      "rating": "Rating",
+      "clearAll": "Clear"
     }
   },
   "collection": {
@@ -190,6 +194,9 @@
     "noItems": "No items in this collection. Add shows, films, episodes or tracks from your libraries.",
     "validation": {
       "nameRequired": "Name is required"
+    },
+    "filter": {
+      "type": "Type"
     }
   }
 }

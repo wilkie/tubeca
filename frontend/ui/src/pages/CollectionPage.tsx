@@ -80,6 +80,7 @@ export function CollectionPage() {
 
   // Add to collection dialog state
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
+  const [selectedChildForAdd, setSelectedChildForAdd] = useState<{ id: string; name: string } | null>(null);
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
 
@@ -225,6 +226,12 @@ export function CollectionPage() {
   };
 
   const handleAddToCollection = () => {
+    setSelectedChildForAdd(null);
+    setAddToCollectionOpen(true);
+  };
+
+  const handleAddChildToCollection = (child: { id: string; name: string }) => {
+    setSelectedChildForAdd(child);
     setAddToCollectionOpen(true);
   };
 
@@ -298,6 +305,8 @@ export function CollectionPage() {
           onSeasonClick={handleCollectionClick}
           onPersonClick={handlePersonClick}
           onMenuOpen={handleMenuOpen}
+          onAddToCollection={handleAddToCollection}
+          onAddSeasonToCollection={handleAddChildToCollection}
         />
       );
     }
@@ -321,6 +330,7 @@ export function CollectionPage() {
           onCollectionClick={handleCollectionClick}
           onMediaClick={handleMediaClick}
           onMenuOpen={handleMenuOpen}
+          onAddToCollection={handleAddToCollection}
         />
       </>
     );
@@ -361,9 +371,12 @@ export function CollectionPage() {
 
       <AddToCollectionDialog
         open={addToCollectionOpen}
-        onClose={() => setAddToCollectionOpen(false)}
-        collectionId={collection.id}
-        itemName={collection.name}
+        onClose={() => {
+          setAddToCollectionOpen(false);
+          setSelectedChildForAdd(null);
+        }}
+        collectionId={selectedChildForAdd?.id ?? collection.id}
+        itemName={selectedChildForAdd?.name ?? collection.name}
       />
     </Container>
   );
