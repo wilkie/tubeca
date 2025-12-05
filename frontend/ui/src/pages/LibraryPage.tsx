@@ -291,6 +291,7 @@ export function LibraryPage() {
             });
           }}
           onClear={() => setExcludedRatings(new Set())}
+          onSelectOnly={(rating) => setExcludedRatings(new Set(availableContentRatings.filter((r) => r !== rating)))}
         />
       )}
 

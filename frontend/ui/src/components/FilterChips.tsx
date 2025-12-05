@@ -7,6 +7,7 @@ interface FilterChipsProps {
   excluded: Set<string>;
   onToggle: (value: string) => void;
   onClear: () => void;
+  onSelectOnly?: (value: string) => void;
 }
 
 export function FilterChips({
@@ -15,6 +16,7 @@ export function FilterChips({
   excluded,
   onToggle,
   onClear,
+  onSelectOnly,
 }: FilterChipsProps) {
   const { t } = useTranslation();
 
@@ -33,6 +35,7 @@ export function FilterChips({
           variant={excluded.has(option) ? 'outlined' : 'filled'}
           color={excluded.has(option) ? 'default' : 'primary'}
           onClick={() => onToggle(option)}
+          onDoubleClick={onSelectOnly ? () => onSelectOnly(option) : undefined}
           sx={{
             opacity: excluded.has(option) ? 0.5 : 1,
             textDecoration: excluded.has(option) ? 'line-through' : 'none',
