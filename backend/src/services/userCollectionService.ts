@@ -455,6 +455,132 @@ export class UserCollectionService {
   }
 
   // ============================================
+  // Playback Queue Methods
+  // ============================================
+
+  /**
+   * Get or create the user's Playback Queue collection
+   */
+  async getPlaybackQueue(userId: string) {
+    return this.getSystemCollection(userId, 'PlaybackQueue');
+  }
+
+  /**
+   * Set the playback queue to contain only the specified items (replaces existing)
+   * Used when pressing Play to start fresh playback
+   */
+  async setPlaybackQueue(userId: string, items: AddUserCollectionItemInput[]) {
+    // Get or create the playback queue
+    const queue = await this.getSystemCollection(userId, 'PlaybackQueue');
+
+    // Delete all existing items and add new ones in a transaction
+    await prisma.$transaction([
+      // Delete all existing items
+      prisma.userCollectionItem.deleteMany({
+        where: { userCollectionId: queue.id },
+      }),
+      // Add new items with positions
+      ...items.map((item, index) =>
+        prisma.userCollectionItem.create({
+          data: {
+            userCollectionId: queue.id,
+            collectionId: item.collectionId,
+            mediaId: item.mediaId,
+            position: index,
+          },
+        })
+      ),
+      // Update the queue's updatedAt
+      prisma.userCollection.update({
+        where: { id: queue.id },
+        data: { updatedAt: new Date() },
+      }),
+    ]);
+
+    // Return the updated queue
+    return this.getSystemCollection(userId, 'PlaybackQueue');
+  }
+
+  /**
+   * Add an item to the end of the playback queue
+   * Used for "Play after" functionality
+   */
+  async addToPlaybackQueue(userId: string, input: AddUserCollectionItemInput) {
+    const { collectionId: contentCollectionId, mediaId } = input;
+
+    // Validate that exactly one reference is provided
+    if ((!contentCollectionId && !mediaId) || (contentCollectionId && mediaId)) {
+      throw new Error('Exactly one of collectionId or mediaId must be provided');
+    }
+
+    // Get or create the playback queue
+    const queue = await this.getSystemCollection(userId, 'PlaybackQueue');
+
+    // Check if item already exists in queue
+    const existingItem = await prisma.userCollectionItem.findFirst({
+      where: {
+        userCollectionId: queue.id,
+        ...(contentCollectionId ? { collectionId: contentCollectionId } : {}),
+        ...(mediaId ? { mediaId } : {}),
+      },
+    });
+
+    if (existingItem) {
+      // Item already in queue, return current queue
+      return this.getSystemCollection(userId, 'PlaybackQueue');
+    }
+
+    // Get the next position
+    const maxPosition = await prisma.userCollectionItem.aggregate({
+      where: { userCollectionId: queue.id },
+      _max: { position: true },
+    });
+
+    const nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+    // Add item
+    await prisma.$transaction([
+      prisma.userCollectionItem.create({
+        data: {
+          userCollectionId: queue.id,
+          collectionId: contentCollectionId,
+          mediaId,
+          position: nextPosition,
+        },
+      }),
+      prisma.userCollection.update({
+        where: { id: queue.id },
+        data: { updatedAt: new Date() },
+      }),
+    ]);
+
+    return this.getSystemCollection(userId, 'PlaybackQueue');
+  }
+
+  /**
+   * Clear all items from the playback queue
+   */
+  async clearPlaybackQueue(userId: string) {
+    const queue = await prisma.userCollection.findFirst({
+      where: { userId, isSystem: true, systemType: 'PlaybackQueue' },
+    });
+
+    if (queue) {
+      await prisma.$transaction([
+        prisma.userCollectionItem.deleteMany({
+          where: { userCollectionId: queue.id },
+        }),
+        prisma.userCollection.update({
+          where: { id: queue.id },
+          data: { updatedAt: new Date() },
+        }),
+      ]);
+    }
+
+    return this.getSystemCollection(userId, 'PlaybackQueue');
+  }
+
+  // ============================================
   // Generic System Collection Helpers
   // ============================================
 

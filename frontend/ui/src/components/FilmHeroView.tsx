@@ -19,7 +19,7 @@ import {
   ListItemText,
   ListSubheader,
 } from '@mui/material';
-import { Star, PlayArrow, MoreVert, VideoFile, Add, FolderSpecial } from '@mui/icons-material';
+import { Star, PlayArrow, MoreVert, VideoFile, Add, FolderSpecial, ArrowDropDown, QueuePlayNext, PictureInPictureAlt } from '@mui/icons-material';
 import { apiClient, type Collection, type Image, type FilmCredit, type UserCollection } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
@@ -51,6 +51,8 @@ interface FilmHeroViewProps {
   menuOpen: boolean;
   onBreadcrumbNavigate: (item: BreadcrumbItem) => void;
   onPlay: (mediaId: string) => void;
+  onPlayAfter?: (mediaId: string) => void;
+  onPlayInMiniPlayer?: (mediaId: string) => void;
   onMediaClick: (mediaId: string) => void;
   onPersonClick: (personId: string) => void;
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
@@ -65,6 +67,8 @@ export function FilmHeroView({
   menuOpen,
   onBreadcrumbNavigate,
   onPlay,
+  onPlayAfter,
+  onPlayInMiniPlayer,
   onMediaClick,
   onPersonClick,
   onMenuOpen,
@@ -75,6 +79,8 @@ export function FilmHeroView({
   const addMenuOpen = Boolean(addMenuAnchor);
   const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
   const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+  const [playMenuAnchor, setPlayMenuAnchor] = useState<null | HTMLElement>(null);
+  const playMenuOpen = Boolean(playMenuAnchor);
 
   // Fetch most recent user collection when menu opens
   useEffect(() => {
@@ -378,14 +384,55 @@ export function FilmHeroView({
 
             {/* Action Buttons */}
             <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={<PlayArrow />}
-                onClick={() => onPlay(primaryMedia.id)}
-              >
-                {t('media.play', 'Play')}
-              </Button>
+              <Box sx={{ display: 'flex' }}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<PlayArrow />}
+                  onClick={() => onPlay(primaryMedia.id)}
+                  sx={{ borderTopRightRadius: onPlayAfter ? 0 : undefined, borderBottomRightRadius: onPlayAfter ? 0 : undefined }}
+                >
+                  {t('media.play', 'Play')}
+                </Button>
+                {onPlayAfter && (
+                  <>
+                    <Button
+                      variant="contained"
+                      size="large"
+                      onClick={(e) => setPlayMenuAnchor(e.currentTarget)}
+                      aria-controls={playMenuOpen ? 'play-menu' : undefined}
+                      aria-haspopup="true"
+                      aria-expanded={playMenuOpen ? 'true' : undefined}
+                      sx={{ minWidth: 'auto', px: 0.5, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)' }}
+                    >
+                      <ArrowDropDown />
+                    </Button>
+                    <Menu
+                      id="play-menu"
+                      anchorEl={playMenuAnchor}
+                      open={playMenuOpen}
+                      onClose={() => setPlayMenuAnchor(null)}
+                      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                    >
+                      {onPlayInMiniPlayer && (
+                        <MenuItem onClick={() => { onPlayInMiniPlayer(primaryMedia.id); setPlayMenuAnchor(null); }}>
+                          <ListItemIcon>
+                            <PictureInPictureAlt fontSize="small" />
+                          </ListItemIcon>
+                          <ListItemText>{t('media.playInMiniPlayer', 'Play in mini player')}</ListItemText>
+                        </MenuItem>
+                      )}
+                      <MenuItem onClick={() => { onPlayAfter(primaryMedia.id); setPlayMenuAnchor(null); }}>
+                        <ListItemIcon>
+                          <QueuePlayNext fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>{t('media.playAfter', 'Play after current')}</ListItemText>
+                      </MenuItem>
+                    </Menu>
+                  </>
+                )}
+              </Box>
               <FavoriteButton
                 collectionId={collection.id}
                 sx={{ bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}

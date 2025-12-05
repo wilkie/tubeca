@@ -20,6 +20,8 @@ jest.mock('../../api/client', () => ({
     toggleWatchLater: jest.fn().mockResolvedValue({ data: { inWatchLater: true } }),
     getUserCollections: jest.fn().mockResolvedValue({ data: { userCollections: [] } }),
     addUserCollectionItem: jest.fn().mockResolvedValue({ data: { item: {} } }),
+    setPlaybackQueue: jest.fn().mockResolvedValue({ data: { userCollection: {} } }),
+    addToPlaybackQueue: jest.fn().mockResolvedValue({ data: { userCollection: {} } }),
   },
 }));
 

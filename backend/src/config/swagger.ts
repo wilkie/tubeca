@@ -32,6 +32,7 @@ const options: swaggerJSDoc.Options = {
       { name: 'User Collections', description: 'User-created collections (playlists, watchlists)' },
       { name: 'Favorites', description: 'Favorites management endpoints' },
       { name: 'Watch Later', description: 'Watch Later queue endpoints' },
+      { name: 'Playback Queue', description: 'Playback queue management endpoints' },
     ],
     components: {
       securitySchemes: {

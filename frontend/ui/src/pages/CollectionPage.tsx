@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Box, Container, CircularProgress, Alert } from '@mui/material';
 import { apiClient, type Collection, type CollectionType, type Image, type Credit } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { usePlayer } from '../context/PlayerContext';
 import { ImagesDialog } from '../components/ImagesDialog';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from '../components/CollectionBreadcrumbs';
 import { CollectionOptionsMenu } from '../components/CollectionOptionsMenu';
@@ -58,6 +59,7 @@ export function CollectionPage() {
   const { collectionId } = useParams<{ collectionId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { playMedia } = usePlayer();
   const [collection, setCollection] = useState<Collection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -217,8 +219,21 @@ export function CollectionPage() {
     navigate(`/media/${mediaId}`);
   };
 
-  const handlePlay = (mediaId: string) => {
+  const handlePlay = async (mediaId: string) => {
+    // Set the playback queue to just this item before navigating
+    await apiClient.setPlaybackQueue([{ mediaId }]);
     navigate(`/play/${mediaId}`);
+  };
+
+  const handlePlayAfter = async (mediaId: string) => {
+    // Add to the playback queue without navigating
+    await apiClient.addToPlaybackQueue({ mediaId });
+  };
+
+  const handlePlayInMiniPlayer = async (mediaId: string) => {
+    // Set the playback queue and start playback in mini player (don't navigate)
+    await apiClient.setPlaybackQueue([{ mediaId }]);
+    playMedia(mediaId);
   };
 
   const handlePersonClick = (personId: string) => {
@@ -285,6 +300,8 @@ export function CollectionPage() {
           menuOpen={menuOpen}
           onBreadcrumbNavigate={handleBreadcrumbNavigate}
           onPlay={handlePlay}
+          onPlayAfter={handlePlayAfter}
+          onPlayInMiniPlayer={handlePlayInMiniPlayer}
           onMediaClick={handleMediaClick}
           onPersonClick={handlePersonClick}
           onMenuOpen={handleMenuOpen}
@@ -302,6 +319,8 @@ export function CollectionPage() {
           menuOpen={menuOpen}
           onBreadcrumbNavigate={handleBreadcrumbNavigate}
           onPlay={handlePlay}
+          onPlayAfter={handlePlayAfter}
+          onPlayInMiniPlayer={handlePlayInMiniPlayer}
           onSeasonClick={handleCollectionClick}
           onPersonClick={handlePersonClick}
           onMenuOpen={handleMenuOpen}
