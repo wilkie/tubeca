@@ -23,7 +23,8 @@ import { Star, PlayArrow, MoreVert, VideoFile, Add, FolderSpecial, ArrowDropDown
 import { apiClient, type Collection, type Image, type FilmCredit, type UserCollection } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
-import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
+import { StickyHeroBreadcrumbs } from './StickyHeroBreadcrumbs';
+import type { BreadcrumbItem } from './CollectionBreadcrumbs';
 import { CastCrewGrid } from './CastCrewGrid';
 import { FavoriteButton } from './FavoriteButton';
 import { WatchLaterButton } from './WatchLaterButton';
@@ -129,16 +130,14 @@ export function FilmHeroView({
 
   return (
     <>
+      <StickyHeroBreadcrumbs
+        breadcrumbs={breadcrumbs}
+        currentName={collection.name}
+        onNavigate={onBreadcrumbNavigate}
+      />
       <HeroSection backdropImageId={backdropImage?.id}>
-        {/* Breadcrumbs at top */}
-        <Box sx={{ position: 'relative', zIndex: 2, px: 3, pt: 2 }}>
-          <CollectionBreadcrumbs
-            breadcrumbs={breadcrumbs}
-            currentName={collection.name}
-            onNavigate={onBreadcrumbNavigate}
-            variant="hero"
-          />
-        </Box>
+        {/* Spacer for sticky breadcrumbs */}
+        <Box sx={{ pt: 6 }} />
 
         {/* Description Card */}
         {(filmDetails?.description || credits.length > 0) && (
