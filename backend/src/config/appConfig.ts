@@ -16,8 +16,16 @@ export interface FileWatcherConfig {
   pollInterval?: number // Polling interval in milliseconds (default: 1000)
 }
 
+export interface HlsCacheConfig {
+  path?: string           // Path for HLS segment cache
+  maxSizeGB?: number      // Maximum cache size in GB (default: 10)
+  segmentTTLHours?: number // Hours before unused segments expire (default: 24)
+  segmentDuration?: number // Segment duration in seconds (default: 6)
+}
+
 export interface AppConfig {
   imagePath?: string  // Path for storing downloaded images
+  hlsCache?: HlsCacheConfig
   fileWatcher?: FileWatcherConfig
   scrapers?: {
     tmdb?: ScraperPluginConfig
@@ -114,8 +122,9 @@ export function getScraperConfigs(appConfig: AppConfig): Record<string, { apiKey
   return scraperConfigs;
 }
 
-// Cached image storage path
+// Cached paths
 let imageStoragePath: string | null = null;
+let hlsCachePath: string | null = null;
 
 /**
  * Get the image storage path from configuration
@@ -148,4 +157,50 @@ export function getImageStoragePath(appConfig?: AppConfig): string {
   }
 
   return imageStoragePath;
+}
+
+/**
+ * Get the HLS cache path from configuration
+ * Creates the directory if it doesn't exist
+ */
+export function getHlsCachePath(appConfig?: AppConfig): string {
+  if (hlsCachePath) {
+    return hlsCachePath;
+  }
+
+  // Use configured path or default
+  const configuredPath = appConfig?.hlsCache?.path;
+  if (configuredPath) {
+    // Use absolute path if provided, otherwise resolve relative to repo root
+    if (path.isAbsolute(configuredPath)) {
+      hlsCachePath = configuredPath;
+    } else {
+      const repoRoot = path.resolve(__dirname, '..', '..', '..');
+      hlsCachePath = path.resolve(repoRoot, configuredPath);
+    }
+  } else {
+    // Default: ./data/hls-cache relative to backend directory
+    hlsCachePath = path.resolve(__dirname, '..', '..', 'data', 'hls-cache');
+  }
+
+  // Create directory if it doesn't exist
+  if (!fs.existsSync(hlsCachePath)) {
+    fs.mkdirSync(hlsCachePath, { recursive: true });
+    console.log(`📁 Created HLS cache directory: ${hlsCachePath}`);
+  }
+
+  return hlsCachePath;
+}
+
+/**
+ * Get HLS cache configuration with defaults
+ */
+export function getHlsCacheConfig(appConfig?: AppConfig): Required<HlsCacheConfig> {
+  const config = appConfig?.hlsCache || {};
+  return {
+    path: getHlsCachePath(appConfig),
+    maxSizeGB: config.maxSizeGB ?? 10,
+    segmentTTLHours: config.segmentTTLHours ?? 24,
+    segmentDuration: config.segmentDuration ?? 6,
+  };
 }

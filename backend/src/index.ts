@@ -14,6 +14,7 @@ import { loadScrapers } from './plugins/scraperLoader';
 import { redisConnection } from './config/redis';
 import { swaggerSpec } from './config/swagger.js';
 import { fileWatcherService } from './services/fileWatcherService';
+import { hlsCacheCleanupService } from './services/hlsCacheCleanupService';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import groupRoutes from './routes/groups';
@@ -656,6 +657,9 @@ async function startServer() {
     });
   }
 
+  // Start HLS cache cleanup service
+  hlsCacheCleanupService.start();
+
   // Start HTTP server
   const server = app.listen(PORT, () => {
     console.log(`🚀 Backend server running on http://localhost:${PORT}`);
@@ -695,6 +699,10 @@ async function shutdown() {
   // Stop file watcher
   await fileWatcherService.stop();
   console.log('✅ File watcher stopped');
+
+  // Stop HLS cache cleanup service
+  hlsCacheCleanupService.stop();
+  console.log('✅ HLS cache cleanup service stopped');
 
   // Close Redis connection
   await redisConnection.quit();

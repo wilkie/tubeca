@@ -23,6 +23,7 @@ import {
   Check,
   OpenInFull,
   Close,
+  Hd,
 } from '@mui/icons-material';
 import { apiClient, type TrickplayResolution } from '../api/client';
 
@@ -44,6 +45,12 @@ export interface SubtitleTrackInfo {
   url: string;
 }
 
+export interface QualityOption {
+  name: string;
+  label: string;
+  bandwidth: number;
+}
+
 export interface VideoControlsProps {
   // Playback state
   isPlaying: boolean;
@@ -59,6 +66,10 @@ export interface VideoControlsProps {
   currentAudioTrack?: number;
   subtitleTracks?: SubtitleTrackInfo[];
   currentSubtitleTrack?: number | null;
+
+  // Quality options
+  qualityOptions?: QualityOption[];
+  currentQuality?: string;
 
   // Trickplay
   trickplay?: TrickplayResolution;
@@ -80,6 +91,7 @@ export interface VideoControlsProps {
   onMuteToggle: () => void;
   onAudioTrackChange?: (streamIndex: number) => void;
   onSubtitleTrackChange?: (streamIndex: number | null) => void;
+  onQualityChange?: (quality: string) => void;
   onFullscreenToggle?: () => void;
   onClose?: () => void;
 
@@ -182,6 +194,8 @@ export function VideoControls({
   currentAudioTrack,
   subtitleTracks,
   currentSubtitleTrack,
+  qualityOptions,
+  currentQuality,
   trickplay,
   mediaId,
   title,
@@ -197,6 +211,7 @@ export function VideoControls({
   onMuteToggle,
   onAudioTrackChange,
   onSubtitleTrackChange,
+  onQualityChange,
   onFullscreenToggle,
   onClose,
   containerRef,
@@ -212,6 +227,10 @@ export function VideoControls({
   const [subtitleMenuAnchor, setSubtitleMenuAnchor] = useState<null | HTMLElement>(null);
   const subtitleMenuOpen = Boolean(subtitleMenuAnchor);
 
+  // Quality menu state
+  const [qualityMenuAnchor, setQualityMenuAnchor] = useState<null | HTMLElement>(null);
+  const qualityMenuOpen = Boolean(qualityMenuAnchor);
+
   // Trickplay preview state
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewTime, setPreviewTime] = useState(0);
@@ -219,6 +238,7 @@ export function VideoControls({
 
   const hasMultipleAudioTracks = audioTracks && audioTracks.length > 1;
   const hasSubtitleTracks = subtitleTracks && subtitleTracks.length > 0;
+  const hasQualityOptions = qualityOptions && qualityOptions.length > 1;
 
   // Container getter for menus (avoids accessing ref during render)
   const getContainer = useCallback(() => containerRef?.current ?? null, [containerRef]);
@@ -265,6 +285,20 @@ export function VideoControls({
   const handleSubtitleTrackSelect = (streamIndex: number | null) => {
     handleSubtitleMenuClose();
     onSubtitleTrackChange?.(streamIndex);
+  };
+
+  const handleQualityMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    setQualityMenuAnchor(event.currentTarget);
+  };
+
+  const handleQualityMenuClose = () => {
+    setQualityMenuAnchor(null);
+  };
+
+  const handleQualitySelect = (quality: string) => {
+    handleQualityMenuClose();
+    onQualityChange?.(quality);
   };
 
   const handleExpand = () => {
@@ -476,6 +510,17 @@ export function VideoControls({
             </IconButton>
           )}
 
+          {/* Quality selector - not in compact mode */}
+          {hasQualityOptions && !compact && (
+            <IconButton
+              onClick={handleQualityMenuOpen}
+              sx={{ color: currentQuality !== 'auto' ? 'primary.main' : 'white' }}
+              aria-label="Select quality"
+            >
+              <Hd />
+            </IconButton>
+          )}
+
           {/* Fullscreen button */}
           {showFullscreenButton && onFullscreenToggle && !compact && (
             <IconButton onClick={onFullscreenToggle} sx={{ color: 'white' }}>
@@ -622,6 +667,60 @@ export function VideoControls({
             <ListItemText
               inset={track.streamIndex !== currentSubtitleTrack}
               primary={formatSubtitleTrackLabel(track)}
+            />
+          </MenuItem>
+        ))}
+      </Menu>
+
+      {/* Quality menu */}
+      <Menu
+        anchorEl={qualityMenuAnchor}
+        open={qualityMenuOpen}
+        onClose={handleQualityMenuClose}
+        container={getContainer}
+        anchorOrigin={{
+          vertical: 'top',
+          horizontal: 'center',
+        }}
+        transformOrigin={{
+          vertical: 'bottom',
+          horizontal: 'center',
+        }}
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: 'rgba(0, 0, 0, 0.95)',
+              color: 'white',
+              minWidth: 200,
+            },
+          },
+        }}
+        sx={{
+          zIndex: 10001,
+        }}
+      >
+        {qualityOptions?.map((quality) => (
+          <MenuItem
+            key={quality.name}
+            onClick={() => handleQualitySelect(quality.name)}
+            selected={quality.name === currentQuality}
+            sx={{
+              '&.Mui-selected': {
+                bgcolor: 'rgba(255, 255, 255, 0.1)',
+              },
+              '&:hover': {
+                bgcolor: 'rgba(255, 255, 255, 0.2)',
+              },
+            }}
+          >
+            {quality.name === currentQuality && (
+              <ListItemIcon sx={{ color: 'primary.main', minWidth: 36 }}>
+                <Check fontSize="small" />
+              </ListItemIcon>
+            )}
+            <ListItemText
+              inset={quality.name !== currentQuality}
+              primary={quality.label}
             />
           </MenuItem>
         ))}

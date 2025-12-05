@@ -26,6 +26,8 @@ export function PlayPage() {
     isLoading,
     currentAudioTrack,
     currentSubtitleTrack,
+    currentQuality,
+    availableQualities,
     playMedia,
     togglePlay,
     seek,
@@ -34,8 +36,10 @@ export function PlayPage() {
     toggleMute,
     setAudioTrack,
     setSubtitleTrack,
+    setQuality,
     registerFullscreenContainer,
     registerMouseMoveHandler,
+    registerClickHandler,
   } = usePlayer();
 
   // Register this container for fullscreen mode
@@ -150,6 +154,14 @@ export function PlayPage() {
     togglePlay();
   }, [togglePlay]);
 
+  // Register click handler for video element (for play/pause toggle)
+  useEffect(() => {
+    registerClickHandler(handleVideoClick);
+    return () => {
+      registerClickHandler(null);
+    };
+  }, [registerClickHandler, handleVideoClick]);
+
   // Loading state - show while fetching media
   if (isLoading && !currentMedia) {
     return (
@@ -237,7 +249,6 @@ export function PlayPage() {
       ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      onClick={handleVideoClick}
       sx={{
         position: 'fixed',
         top: 0,
@@ -288,6 +299,8 @@ export function PlayPage() {
           currentAudioTrack={currentAudioTrack}
           subtitleTracks={currentMedia.subtitleTracks}
           currentSubtitleTrack={currentSubtitleTrack}
+          qualityOptions={availableQualities}
+          currentQuality={currentQuality}
           trickplay={currentMedia.trickplay}
           mediaId={currentMedia.id}
           title={currentMedia.name}
@@ -300,6 +313,7 @@ export function PlayPage() {
           onMuteToggle={toggleMute}
           onAudioTrackChange={setAudioTrack}
           onSubtitleTrackChange={setSubtitleTrack}
+          onQualityChange={setQuality}
           onFullscreenToggle={handleFullscreenToggle}
           containerRef={containerRef}
         />
