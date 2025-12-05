@@ -28,7 +28,8 @@
     "users": "Users",
     "librariesSection": "Libraries",
     "administration": "Administration",
-    "noLibraries": "No libraries available"
+    "noLibraries": "No libraries available",
+    "collectionsSection": "Collections"
   },
   "common": {
     "save": "Save",
