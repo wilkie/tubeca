@@ -15,8 +15,8 @@ router.use(authenticate);
  *   get:
  *     tags:
  *       - Collections
- *     summary: Get collections by library
- *     description: Get all collections for a specific library
+ *     summary: Get collections by library (paginated)
+ *     description: Get paginated root collections for a specific library with optional sorting and filtering
  *     parameters:
  *       - in: path
  *         name: libraryId
@@ -24,9 +24,45 @@ router.use(authenticate);
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number (1-indexed)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of items per page
+ *       - in: query
+ *         name: sortField
+ *         schema:
+ *           type: string
+ *           enum: [name, dateAdded, releaseDate, rating, runtime]
+ *           default: name
+ *         description: Field to sort by
+ *       - in: query
+ *         name: sortDirection
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: asc
+ *         description: Sort direction
+ *       - in: query
+ *         name: excludedRatings
+ *         schema:
+ *           type: string
+ *         description: Comma-separated list of content ratings to exclude
+ *       - in: query
+ *         name: keywordIds
+ *         schema:
+ *           type: string
+ *         description: Comma-separated list of keyword IDs to filter by (AND logic)
  *     responses:
  *       200:
- *         description: List of collections
+ *         description: Paginated list of collections
  *         content:
  *           application/json:
  *             schema:
@@ -36,13 +72,40 @@ router.use(authenticate);
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/Collection'
+ *                 total:
+ *                   type: integer
+ *                 page:
+ *                   type: integer
+ *                 limit:
+ *                   type: integer
+ *                 hasMore:
+ *                   type: boolean
  *       500:
  *         description: Server error
  */
 router.get('/library/:libraryId', async (req, res) => {
   try {
-    const collections = await collectionService.getCollectionsByLibrary(req.params.libraryId);
-    res.json({ collections });
+    const { libraryId } = req.params;
+    const {
+      page,
+      limit,
+      sortField,
+      sortDirection,
+      excludedRatings,
+      keywordIds,
+    } = req.query;
+
+    const result = await collectionService.getPaginatedCollections({
+      libraryId,
+      page: page ? parseInt(page as string, 10) : undefined,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      sortField: sortField as 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime' | undefined,
+      sortDirection: sortDirection as 'asc' | 'desc' | undefined,
+      excludedRatings: excludedRatings ? (excludedRatings as string).split(',') : undefined,
+      keywordIds: keywordIds ? (keywordIds as string).split(',') : undefined,
+    });
+
+    res.json(result);
   } catch {
     res.status(500).json({ error: 'Failed to fetch collections' });
   }

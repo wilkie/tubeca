@@ -9,6 +9,16 @@ export interface CreateCollectionInput {
   parentId?: string
 }
 
+export interface PaginatedCollectionsInput {
+  libraryId: string
+  page?: number
+  limit?: number
+  sortField?: 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime'
+  sortDirection?: 'asc' | 'desc'
+  excludedRatings?: string[]
+  keywordIds?: string[]
+}
+
 export interface UpdateCollectionInput {
   name?: string
   parentId?: string | null
@@ -85,6 +95,180 @@ export class CollectionService {
       orderBy: { name: 'asc' },
     });
     return keywords;
+  }
+
+  async getPaginatedCollections(input: PaginatedCollectionsInput) {
+    const {
+      libraryId,
+      page = 1,
+      limit = 50,
+      sortField = 'name',
+      sortDirection = 'asc',
+      excludedRatings = [],
+      keywordIds = [],
+    } = input;
+
+    const skip = (page - 1) * limit;
+
+    // Build base where clause - only root collections
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const baseWhere: any = {
+      libraryId,
+      parentId: null,
+    };
+
+    // Add content rating filter if specified
+    if (excludedRatings.length > 0) {
+      baseWhere.OR = [
+        // Include items with no filmDetails
+        { filmDetails: null },
+        // Include items with null contentRating
+        { filmDetails: { contentRating: null } },
+        // Include items with non-excluded ratings
+        { filmDetails: { contentRating: { notIn: excludedRatings } } },
+      ];
+    }
+
+    // Add keyword filter if specified (must have ALL specified keywords)
+    if (keywordIds.length > 0) {
+      baseWhere.AND = keywordIds.map((keywordId) => ({
+        keywords: {
+          some: { id: keywordId },
+        },
+      }));
+    }
+
+    // Build orderBy based on sortField
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let orderBy: any;
+
+    switch (sortField) {
+      case 'dateAdded':
+        orderBy = { createdAt: sortDirection };
+        break;
+      case 'releaseDate':
+        // Sort by filmDetails.releaseDate, then showDetails.releaseDate, then albumDetails.releaseDate
+        // Prisma doesn't support complex ordering across relations, so we'll sort by createdAt as fallback
+        // and handle proper sorting in the query with raw SQL or post-processing
+        orderBy = { createdAt: sortDirection };
+        break;
+      case 'rating':
+        // Similar limitation - fall back to createdAt
+        orderBy = { createdAt: sortDirection };
+        break;
+      case 'runtime':
+        orderBy = { createdAt: sortDirection };
+        break;
+      case 'name':
+      default:
+        orderBy = { name: sortDirection };
+        break;
+    }
+
+    // Get total count for pagination
+    const total = await prisma.collection.count({ where: baseWhere });
+
+    // Get paginated collections
+    let collections = await prisma.collection.findMany({
+      where: baseWhere,
+      include: {
+        children: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        parent: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        images: {
+          where: { isPrimary: true, imageType: 'Poster' },
+          take: 1,
+        },
+        _count: {
+          select: {
+            media: true,
+            children: true,
+          },
+        },
+        showDetails: {
+          select: {
+            releaseDate: true,
+            rating: true,
+          },
+        },
+        filmDetails: {
+          select: {
+            releaseDate: true,
+            rating: true,
+            runtime: true,
+            contentRating: true,
+          },
+        },
+        albumDetails: {
+          select: {
+            releaseDate: true,
+          },
+        },
+        keywords: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy,
+      skip,
+      take: limit,
+    });
+
+    // For complex sorting (releaseDate, rating, runtime), sort in memory
+    if (sortField === 'releaseDate' || sortField === 'rating' || sortField === 'runtime') {
+      collections = collections.sort((a, b) => {
+        let aValue: Date | number | null = null;
+        let bValue: Date | number | null = null;
+
+        switch (sortField) {
+          case 'releaseDate':
+            aValue = a.filmDetails?.releaseDate ?? a.showDetails?.releaseDate ?? a.albumDetails?.releaseDate ?? null;
+            bValue = b.filmDetails?.releaseDate ?? b.showDetails?.releaseDate ?? b.albumDetails?.releaseDate ?? null;
+            break;
+          case 'rating':
+            aValue = a.filmDetails?.rating ?? a.showDetails?.rating ?? null;
+            bValue = b.filmDetails?.rating ?? b.showDetails?.rating ?? null;
+            break;
+          case 'runtime':
+            aValue = a.filmDetails?.runtime ?? null;
+            bValue = b.filmDetails?.runtime ?? null;
+            break;
+        }
+
+        // Handle nulls - push to end
+        if (aValue === null && bValue === null) return 0;
+        if (aValue === null) return 1;
+        if (bValue === null) return -1;
+
+        let comparison = 0;
+        if (aValue instanceof Date && bValue instanceof Date) {
+          comparison = aValue.getTime() - bValue.getTime();
+        } else {
+          comparison = (aValue as number) - (bValue as number);
+        }
+
+        return sortDirection === 'desc' ? -comparison : comparison;
+      });
+    }
+
+    return {
+      collections,
+      total,
+      page,
+      limit,
+      hasMore: skip + collections.length < total,
+    };
   }
 
   async getCollectionById(id: string) {

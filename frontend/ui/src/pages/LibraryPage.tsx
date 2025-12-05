@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,7 +18,7 @@ import {
   Tooltip,
   Badge,
 } from '@mui/material';
-import { Folder, VideoFile, AudioFile, Movie, Tv, Album, FilterList } from '@mui/icons-material';
+import { Folder, Movie, Tv, Album, FilterList, Clear } from '@mui/icons-material';
 import { apiClient, type Library, type Collection, type Keyword } from '../api/client';
 import { CardQuickActions } from '../components/CardQuickActions';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
@@ -28,60 +28,158 @@ import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 
 type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
 
-interface MediaItem {
-  id: string;
-  name: string;
-  type: 'Video' | 'Audio';
-}
+const PAGE_SIZE = 50;
 
-// Helper to extract sortable values from collection metadata
-function getSortableValue(collection: Collection, field: SortField): string | number | null {
-  switch (field) {
-    case 'name':
-      return collection.name.toLowerCase();
-    case 'dateAdded':
-      return collection.createdAt;
-    case 'releaseDate':
-      return collection.filmDetails?.releaseDate
-        ?? collection.showDetails?.releaseDate
-        ?? collection.albumDetails?.releaseDate
-        ?? null;
-    case 'rating':
-      return collection.filmDetails?.rating
-        ?? collection.showDetails?.rating
-        ?? null;
-    case 'runtime':
-      return collection.filmDetails?.runtime ?? null;
-    default:
-      return null;
-  }
-}
+// Standard content ratings in order
+const CONTENT_RATING_ORDER = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
 
 export function LibraryPage() {
   const { t } = useTranslation();
   const { libraryId } = useParams<{ libraryId: string }>();
   const navigate = useNavigate();
+
+  // Core state
   const [library, setLibrary] = useState<Library | null>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+
+  // Sort/filter state
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
-  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
   const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
   const [availableKeywords, setAvailableKeywords] = useState<Keyword[]>([]);
   const [selectedKeywords, setSelectedKeywords] = useState<Keyword[]>([]);
+  const [availableContentRatings, setAvailableContentRatings] = useState<string[]>([]);
+
+  // UI state
+  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
+  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
   const [selectedCollectionForAdd, setSelectedCollectionForAdd] = useState<Collection | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [badgeHovered, setBadgeHovered] = useState(false);
 
+  // Ref for infinite scroll sentinel
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Track if keywords have been loaded (lazy load on filter panel open)
+  const keywordsLoadedRef = useRef(false);
+  const [keywordsLoading, setKeywordsLoading] = useState(false);
+
+  // Fetch collections with current filters/sort
+  const fetchCollections = useCallback(async (
+    pageNum: number,
+    append: boolean = false
+  ) => {
+    if (!libraryId) return;
+
+    if (pageNum === 1) {
+      setIsLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
+
+    const result = await apiClient.getCollectionsByLibrary(libraryId, {
+      page: pageNum,
+      limit: PAGE_SIZE,
+      sortField,
+      sortDirection,
+      excludedRatings: excludedRatings.size > 0 ? Array.from(excludedRatings) : undefined,
+      keywordIds: selectedKeywords.length > 0 ? selectedKeywords.map(k => k.id) : undefined,
+    });
+
+    if (result.error) {
+      setError(result.error);
+    } else if (result.data) {
+      if (append) {
+        setCollections(prev => [...prev, ...result.data!.collections]);
+      } else {
+        setCollections(result.data.collections);
+      }
+      setTotal(result.data.total);
+      setHasMore(result.data.hasMore);
+      setPage(result.data.page);
+
+      // Fetch favorites/watch later for new collections
+      const newIds = result.data.collections.map(c => c.id);
+      if (newIds.length > 0) {
+        const [favResult, watchLaterResult] = await Promise.all([
+          apiClient.checkFavorites(newIds),
+          apiClient.checkWatchLater(newIds),
+        ]);
+
+        if (favResult.data) {
+          setFavoritedIds(prev => {
+            const next = new Set(prev);
+            favResult.data!.collectionIds.forEach(id => next.add(id));
+            return next;
+          });
+        }
+        if (watchLaterResult.data) {
+          setWatchLaterIds(prev => {
+            const next = new Set(prev);
+            watchLaterResult.data!.collectionIds.forEach(id => next.add(id));
+            return next;
+          });
+        }
+      }
+
+      // Extract content ratings from loaded collections (for Film libraries)
+      if (!append) {
+        const ratings = new Set<string>();
+        result.data.collections.forEach(c => {
+          if (c.filmDetails?.contentRating) {
+            ratings.add(c.filmDetails.contentRating);
+          }
+        });
+        // We'll accumulate ratings as we load more
+        setAvailableContentRatings(prev => {
+          const combined = new Set([...prev, ...ratings]);
+          return Array.from(combined).sort((a, b) => {
+            const aIndex = CONTENT_RATING_ORDER.indexOf(a);
+            const bIndex = CONTENT_RATING_ORDER.indexOf(b);
+            if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+            if (aIndex !== -1) return -1;
+            if (bIndex !== -1) return 1;
+            return a.localeCompare(b);
+          });
+        });
+      }
+    }
+
+    setIsLoading(false);
+    setIsLoadingMore(false);
+  }, [libraryId, sortField, sortDirection, excludedRatings, selectedKeywords]);
+
+  // Initial load - fetch library details
   useEffect(() => {
     if (!libraryId) return;
 
     let cancelled = false;
 
-    async function fetchData() {
+    // Clear all previous library data immediately to prevent stale content flash
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync clear on libraryId change
+    setLibrary(null);
+    setCollections([]);
+    setAvailableKeywords([]);
+    setSelectedKeywords([]);
+    setAvailableContentRatings([]);
+    setExcludedRatings(new Set());
+    setFavoritedIds(new Set());
+    setWatchLaterIds(new Set());
+    setPage(1);
+    setTotal(0);
+    setHasMore(false);
+    keywordsLoadedRef.current = false;
+
+    async function fetchInitialData() {
       setIsLoading(true);
       setError(null);
 
@@ -99,122 +197,52 @@ export function LibraryPage() {
         setLibrary(libraryResult.data.library);
       }
 
-      // Fetch collections and keywords for this library
-      const [collectionsResult, keywordsResult] = await Promise.all([
-        apiClient.getCollectionsByLibrary(libraryId!),
-        apiClient.getKeywordsByLibrary(libraryId!),
-      ]);
-      if (cancelled) return;
-
-      if (keywordsResult.data) {
-        setAvailableKeywords(keywordsResult.data.keywords);
-      }
-
-      if (collectionsResult.error) {
-        setError(collectionsResult.error);
-      } else if (collectionsResult.data) {
-        // Filter to only root collections (no parent)
-        const rootCollections = collectionsResult.data.collections.filter(
-          (c) => c.parentId === null
-        );
-        setCollections(rootCollections);
-
-        // Fetch favorites and watch later status for all collections
-        const collectionIds = rootCollections.map((c) => c.id);
-        if (collectionIds.length > 0) {
-          const [favResult, watchLaterResult] = await Promise.all([
-            apiClient.checkFavorites(collectionIds),
-            apiClient.checkWatchLater(collectionIds),
-          ]);
-          if (cancelled) return;
-
-          if (favResult.data) {
-            setFavoritedIds(new Set(favResult.data.collectionIds));
-          }
-          if (watchLaterResult.data) {
-            setWatchLaterIds(new Set(watchLaterResult.data.collectionIds));
-          }
-        }
-      }
-
-      setIsLoading(false);
+      // Fetch first page of collections (keywords are lazy-loaded when filter panel opens)
+      await fetchCollections(1);
     }
 
-    fetchData();
+    fetchInitialData();
 
     return () => {
       cancelled = true;
     };
-  }, [libraryId]);
+  }, [libraryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Extract unique content ratings for film libraries
-  const availableContentRatings = useMemo(() => {
-    if (library?.libraryType !== 'Film') return [];
-    const ratings = new Set<string>();
-    collections.forEach((c) => {
-      if (c.filmDetails?.contentRating) {
-        ratings.add(c.filmDetails.contentRating);
-      }
-    });
-    // Sort ratings in a logical order
-    const ratingOrder = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
-    return Array.from(ratings).sort((a, b) => {
-      const aIndex = ratingOrder.indexOf(a);
-      const bIndex = ratingOrder.indexOf(b);
-      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-      if (aIndex !== -1) return -1;
-      if (bIndex !== -1) return 1;
-      return a.localeCompare(b);
-    });
-  }, [collections, library?.libraryType]);
+  // Refetch when sort/filter changes
+  useEffect(() => {
+    if (!library) return; // Don't refetch until initial load is done
 
-  // Filter and sort collections based on current settings
-  const sortedCollections = useMemo(() => {
-    // First filter by content rating (for film libraries)
-    let filtered = collections;
-    if (library?.libraryType === 'Film' && excludedRatings.size > 0) {
-      filtered = filtered.filter((c) => {
-        const rating = c.filmDetails?.contentRating;
-        // Include items with no rating, or items whose rating is not excluded
-        return !rating || !excludedRatings.has(rating);
-      });
+    // Reset favorites/watchLater but keep collections visible until new data arrives
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync clear on filter change
+    setFavoritedIds(new Set());
+    setWatchLaterIds(new Set());
+    fetchCollections(1);
+  }, [sortField, sortDirection, excludedRatings, selectedKeywords]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Infinite scroll with IntersectionObserver
+  useEffect(() => {
+    if (!hasMore || isLoadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          fetchCollections(page + 1, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const sentinel = loadMoreRef.current;
+    if (sentinel) {
+      observer.observe(sentinel);
     }
 
-    // Filter by selected keywords (must have ALL selected keywords)
-    if (selectedKeywords.length > 0) {
-      const selectedKeywordIds = new Set(selectedKeywords.map((k) => k.id));
-      filtered = filtered.filter((c) => {
-        const collectionKeywordIds = new Set(c.keywords?.map((k) => k.id) || []);
-        // Check if collection has all selected keywords
-        return [...selectedKeywordIds].every((id) => collectionKeywordIds.has(id));
-      });
-    }
-
-    // Then sort
-    const sorted = [...filtered].sort((a, b) => {
-      const aValue = getSortableValue(a, sortField);
-      const bValue = getSortableValue(b, sortField);
-
-      // Handle null values - push them to the end
-      if (aValue === null && bValue === null) return 0;
-      if (aValue === null) return 1;
-      if (bValue === null) return -1;
-
-      // Compare values
-      let comparison = 0;
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        comparison = aValue.localeCompare(bValue);
-      } else if (typeof aValue === 'number' && typeof bValue === 'number') {
-        comparison = aValue - bValue;
-      } else {
-        // For mixed types (shouldn't happen but handle gracefully)
-        comparison = String(aValue).localeCompare(String(bValue));
+    return () => {
+      if (sentinel) {
+        observer.unobserve(sentinel);
       }
-
-      return sortDirection === 'desc' ? -comparison : comparison;
-    });
-    return sorted;
-  }, [collections, sortField, sortDirection, library?.libraryType, excludedRatings, selectedKeywords]);
+    };
+  }, [hasMore, isLoadingMore, page, fetchCollections]);
 
   // Sort options for the dropdown
   const sortOptions: SortOption[] = useMemo(() => [
@@ -229,16 +257,34 @@ export function LibraryPage() {
     navigate(`/collection/${collectionId}`);
   };
 
-  const handleMediaClick = (mediaId: string) => {
-    navigate(`/media/${mediaId}`);
-  };
-
   const handleAddToCollection = (collection: Collection) => {
     setSelectedCollectionForAdd(collection);
     setAddToCollectionOpen(true);
   };
 
-  if (isLoading) {
+  // Lazy load keywords when filter panel is opened for the first time
+  const handleToggleFilters = async () => {
+    const willOpen = !showFilters;
+    setShowFilters(willOpen);
+
+    // Fetch keywords on first open
+    if (willOpen && !keywordsLoadedRef.current && libraryId) {
+      keywordsLoadedRef.current = true;
+      setKeywordsLoading(true);
+      const keywordsResult = await apiClient.getKeywordsByLibrary(libraryId);
+      if (keywordsResult.data) {
+        setAvailableKeywords(keywordsResult.data.keywords);
+      }
+      setKeywordsLoading(false);
+    }
+  };
+
+  // Only show content rating filter for Film libraries
+  const showContentRatingFilter = library?.libraryType === 'Film' && availableContentRatings.length > 0;
+
+  // Only show full-page spinner during initial library load (when library is null)
+  // For filter changes, keep the page visible and show inline loading
+  if (!library && isLoading) {
     return (
       <Box
         sx={{
@@ -253,7 +299,7 @@ export function LibraryPage() {
     );
   }
 
-  if (error) {
+  if (error && collections.length === 0) {
     return (
       <Container maxWidth={false} sx={{ py: 4 }}>
         <Alert severity="error">{error}</Alert>
@@ -269,9 +315,7 @@ export function LibraryPage() {
     );
   }
 
-  // Get media items from collections that have collectionId === null (root level media)
-  // For now, we'll show collections. Media at root level would need a separate API call.
-  const rootMedia: MediaItem[] = [];
+  const activeFilterCount = excludedRatings.size + selectedKeywords.length;
 
   return (
     <Container maxWidth={false} sx={{ py: 4 }}>
@@ -285,42 +329,67 @@ export function LibraryPage() {
       >
         <Typography variant="h4" component="h1">
           {library.name}
+          {total > 0 && (
+            <Typography component="span" variant="body1" color="text.secondary" sx={{ ml: 2 }}>
+              ({total})
+            </Typography>
+          )}
         </Typography>
 
-        {collections.length > 0 && (
-          <Stack direction="row" spacing={1} alignItems="center">
-            {(availableContentRatings.length > 0 || availableKeywords.length > 0) && (
-              <Tooltip title={t('library.filter.toggle', 'Toggle filters')}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {(showContentRatingFilter || availableKeywords.length > 0) && (() => {
+            const canClear = activeFilterCount > 0;
+            return (
+              <Tooltip title={canClear && badgeHovered ? t('library.filter.clearAll', 'Clear') : t('library.filter.toggle', 'Toggle filters')}>
                 <Badge
-                  badgeContent={excludedRatings.size + selectedKeywords.length}
-                  color="primary"
+                  badgeContent={canClear && badgeHovered ? <Clear sx={{ fontSize: 12 }} /> : activeFilterCount}
+                  color={canClear && badgeHovered ? 'error' : 'primary'}
                   max={99}
+                  slotProps={{
+                    badge: {
+                      onMouseEnter: () => canClear && setBadgeHovered(true),
+                      onMouseLeave: () => setBadgeHovered(false),
+                      onClick: (e: React.MouseEvent) => {
+                        if (canClear) {
+                          e.stopPropagation();
+                          setExcludedRatings(new Set());
+                          setSelectedKeywords([]);
+                          setBadgeHovered(false);
+                        }
+                      },
+                      style: {
+                        width: 20,
+                        height: 20,
+                        ...(canClear ? { cursor: 'pointer' } : {}),
+                      },
+                    },
+                  }}
                 >
                   <IconButton
                     size="small"
-                    onClick={() => setShowFilters((prev) => !prev)}
+                    onClick={handleToggleFilters}
                     color={showFilters ? 'primary' : 'default'}
                   >
                     <FilterList />
                   </IconButton>
                 </Badge>
               </Tooltip>
-            )}
-            <SortControls
-              options={sortOptions}
-              value={sortField}
-              direction={sortDirection}
-              onValueChange={(v) => setSortField(v as SortField)}
-              onDirectionChange={setSortDirection}
-            />
-          </Stack>
-        )}
+            );
+          })()}
+          <SortControls
+            options={sortOptions}
+            value={sortField}
+            direction={sortDirection}
+            onValueChange={(v) => setSortField(v as SortField)}
+            onDirectionChange={setSortDirection}
+          />
+        </Stack>
       </Stack>
 
       {/* Filter Section (collapsible) */}
       <Collapse in={showFilters}>
         {/* Content Rating Filter (Film libraries only) */}
-        {availableContentRatings.length > 0 && (
+        {showContentRatingFilter && (
           <FilterChips
             label={t('library.filter.rating', 'Rating')}
             options={availableContentRatings}
@@ -342,110 +411,126 @@ export function LibraryPage() {
         )}
 
         {/* Keyword/Tag Filter */}
-        <KeywordFilter
-          keywords={availableKeywords}
-          selectedKeywords={selectedKeywords}
-          onSelectionChange={setSelectedKeywords}
-        />
+        {keywordsLoading ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+            <CircularProgress size={16} />
+            <Typography variant="body2" color="text.secondary">
+              {t('library.filter.loadingKeywords', 'Loading keywords...')}
+            </Typography>
+          </Box>
+        ) : (
+          <KeywordFilter
+            keywords={availableKeywords}
+            selectedKeywords={selectedKeywords}
+            onSelectionChange={setSelectedKeywords}
+          />
+        )}
       </Collapse>
 
-      {collections.length === 0 && rootMedia.length === 0 ? (
+      {collections.length === 0 && !isLoading ? (
         <Alert severity="info">{t('library.empty')}</Alert>
       ) : (
-        <Grid container spacing={2}>
-          {/* Collections (folders) */}
-          {sortedCollections.map((collection) => {
-            const primaryImage = collection.images?.[0];
-            // Show images for Shows and for Film library collections (movies)
-            const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
+        <>
+          <Box sx={{ position: 'relative' }}>
+            {/* Loading overlay for filter/sort changes */}
+            {isLoading && collections.length > 0 && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  bgcolor: 'rgba(0, 0, 0, 0.3)',
+                  zIndex: 1,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'flex-start',
+                  pt: 8,
+                  borderRadius: 1,
+                }}
+              >
+                <CircularProgress />
+              </Box>
+            )}
+            <Grid container spacing={2}>
+            {collections.map((collection) => {
+              const primaryImage = collection.images?.[0];
+              const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
 
-            return (
-              <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                  <CardActionArea
-                    onClick={() => handleCollectionClick(collection.id)}
-                    sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
-                  >
-                    {hasImage ? (
-                      <CardMedia
-                        component="img"
-                        image={apiClient.getImageUrl(primaryImage.id)}
-                        alt={collection.name}
-                        sx={{
-                          aspectRatio: '2/3',
-                          objectFit: 'cover',
-                        }}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          aspectRatio: '2/3',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          bgcolor: 'action.hover',
-                        }}
-                      >
-                        {library.libraryType === 'Film' ? (
-                          <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
-                        ) : library.libraryType === 'Television' ? (
-                          <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
-                        ) : library.libraryType === 'Music' ? (
-                          <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
-                        ) : (
-                          <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
-                        )}
-                      </Box>
-                    )}
-                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                      <Typography variant="body2" noWrap title={collection.name}>
-                        {collection.name}
-                      </Typography>
-                      {/* Don't show counts for Film library - they're movies, not folders */}
-                      {library.libraryType !== 'Film' && collection._count && (
-                        <Typography variant="caption" color="text.secondary">
-                          {collection._count.children > 0 &&
-                            (collection.collectionType === 'Show'
-                              ? t('library.seasons', { count: collection._count.children })
-                              : t('library.folders', { count: collection._count.children }))}
-                          {collection._count.children > 0 && collection._count.media > 0 && ' | '}
-                          {collection._count.media > 0 &&
-                            t('library.items', { count: collection._count.media })}
-                        </Typography>
+              return (
+                <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
+                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                    <CardActionArea
+                      onClick={() => handleCollectionClick(collection.id)}
+                      sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                    >
+                      {hasImage ? (
+                        <CardMedia
+                          component="img"
+                          image={apiClient.getImageUrl(primaryImage.id)}
+                          alt={collection.name}
+                          sx={{
+                            aspectRatio: '2/3',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            aspectRatio: '2/3',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            bgcolor: 'action.hover',
+                          }}
+                        >
+                          {library.libraryType === 'Film' ? (
+                            <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
+                          ) : library.libraryType === 'Television' ? (
+                            <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
+                          ) : library.libraryType === 'Music' ? (
+                            <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
+                          ) : (
+                            <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
+                          )}
+                        </Box>
                       )}
-                    </CardContent>
-                  </CardActionArea>
-                  <CardQuickActions
-                    collectionId={collection.id}
-                    initialFavorited={favoritedIds.has(collection.id)}
-                    initialInWatchLater={watchLaterIds.has(collection.id)}
-                    onAddToCollection={() => handleAddToCollection(collection)}
-                  />
-                </Card>
-              </Grid>
-            );
-          })}
+                      <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                        <Typography variant="body2" noWrap title={collection.name}>
+                          {collection.name}
+                        </Typography>
+                        {library.libraryType !== 'Film' && collection._count && (
+                          <Typography variant="caption" color="text.secondary">
+                            {collection._count.children > 0 &&
+                              (collection.collectionType === 'Show'
+                                ? t('library.seasons', { count: collection._count.children })
+                                : t('library.folders', { count: collection._count.children }))}
+                            {collection._count.children > 0 && collection._count.media > 0 && ' | '}
+                            {collection._count.media > 0 &&
+                              t('library.items', { count: collection._count.media })}
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </CardActionArea>
+                    <CardQuickActions
+                      collectionId={collection.id}
+                      initialFavorited={favoritedIds.has(collection.id)}
+                      initialInWatchLater={watchLaterIds.has(collection.id)}
+                      onAddToCollection={() => handleAddToCollection(collection)}
+                    />
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </Box>
 
-          {/* Media items */}
-          {rootMedia.map((media) => (
-            <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={media.id}>
-              <Card>
-                <CardActionArea onClick={() => handleMediaClick(media.id)}>
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    {media.type === 'Video' ? (
-                      <VideoFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
-                    ) : (
-                      <AudioFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
-                    )}
-                    <Typography variant="body2" noWrap title={media.name}>
-                      {media.name}
-                    </Typography>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+          {/* Infinite scroll sentinel */}
+          <Box ref={loadMoreRef} sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+            {isLoadingMore && <CircularProgress size={32} />}
+          </Box>
+        </>
       )}
 
       {/* Add to Collection Dialog */}

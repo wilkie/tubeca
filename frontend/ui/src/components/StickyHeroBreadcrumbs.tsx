@@ -34,7 +34,7 @@ export function StickyHeroBreadcrumbs({
         top: 48, // Header height
         zIndex: 10,
         mx: -3, // Extend to full width (counteract container padding)
-        mt: -4, // Align with HeroSection's negative margin
+        mt: '-38px', // Align with HeroSection to eliminate gap with topbar
         mb: -6, // Overlap into HeroSection below
         px: 3, // Add padding back for content
         pt: 2,

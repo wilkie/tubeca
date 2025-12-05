@@ -122,6 +122,13 @@ router.get('/', async (req: Request, res) => {
             releaseDate: true,
             rating: true,
             runtime: true,
+            contentRating: true,
+          },
+        },
+        keywords: {
+          select: {
+            id: true,
+            name: true,
           },
         },
         _count: {

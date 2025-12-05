@@ -28,6 +28,7 @@ import type {
   CollectionType,
   CollectionResponse,
   CollectionsResponse,
+  PaginatedCollectionsResponse,
   CreateCollectionInput,
   UpdateCollectionInput,
   Media,
@@ -110,6 +111,7 @@ export type {
   CollectionType,
   CollectionResponse,
   CollectionsResponse,
+  PaginatedCollectionsResponse,
   CreateCollectionInput,
   UpdateCollectionInput,
   Media,
@@ -373,8 +375,28 @@ class ApiClient {
   }
 
   // Collection methods
-  async getCollectionsByLibrary(libraryId: string): Promise<ApiResponse<CollectionsResponse>> {
-    return this.request<CollectionsResponse>(`/collections/library/${libraryId}`);
+  async getCollectionsByLibrary(
+    libraryId: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      sortField?: 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
+      sortDirection?: 'asc' | 'desc';
+      excludedRatings?: string[];
+      keywordIds?: string[];
+    }
+  ): Promise<ApiResponse<PaginatedCollectionsResponse>> {
+    const params = new URLSearchParams();
+    if (options?.page) params.set('page', options.page.toString());
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.sortField) params.set('sortField', options.sortField);
+    if (options?.sortDirection) params.set('sortDirection', options.sortDirection);
+    if (options?.excludedRatings?.length) params.set('excludedRatings', options.excludedRatings.join(','));
+    if (options?.keywordIds?.length) params.set('keywordIds', options.keywordIds.join(','));
+
+    const queryString = params.toString();
+    const url = `/collections/library/${libraryId}${queryString ? `?${queryString}` : ''}`;
+    return this.request<PaginatedCollectionsResponse>(url);
   }
 
   async getKeywordsByLibrary(libraryId: string): Promise<ApiResponse<KeywordsResponse>> {
