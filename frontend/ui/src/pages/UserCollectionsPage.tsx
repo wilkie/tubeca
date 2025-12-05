@@ -21,9 +21,10 @@ import {
   DialogContent,
   DialogActions,
 } from '@mui/material';
-import { Add, Delete, Public, Lock } from '@mui/icons-material';
+import { Add, Delete, Public, Lock, Favorite, FavoriteBorder } from '@mui/icons-material';
 import { apiClient, type UserCollection } from '../api/client';
 import { CreateCollectionDialog } from '../components/CreateCollectionDialog';
+import { Tooltip } from '@mui/material';
 
 export function UserCollectionsPage() {
   const { t } = useTranslation();
@@ -36,6 +37,7 @@ export function UserCollectionsPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<UserCollection | null>(null);
+  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -62,11 +64,25 @@ export function UserCollectionsPage() {
       const publicResult = await apiClient.getPublicCollections();
       if (cancelled) return;
 
+      let allCollectionIds: string[] = [];
       if (publicResult.error) {
         // Non-fatal - just don't show public collections
         console.error('Failed to fetch public collections:', publicResult.error);
       } else if (publicResult.data) {
         setPublicCollections(publicResult.data.userCollections);
+        allCollectionIds = [...allCollectionIds, ...publicResult.data.userCollections.map((c) => c.id)];
+      }
+
+      // Check which collections are favorited
+      if (myResult.data) {
+        allCollectionIds = [...myResult.data.userCollections.map((c) => c.id), ...allCollectionIds];
+      }
+      if (allCollectionIds.length > 0) {
+        const favResult = await apiClient.checkFavorites(undefined, undefined, allCollectionIds);
+        if (cancelled) return;
+        if (favResult.data) {
+          setFavoritedIds(new Set(favResult.data.userCollectionIds));
+        }
       }
 
       setIsLoading(false);
@@ -101,6 +117,22 @@ export function UserCollectionsPage() {
     setDeleteDialogOpen(true);
   };
 
+  const handleToggleFavorite = async (e: React.MouseEvent, collection: UserCollection) => {
+    e.stopPropagation();
+    const result = await apiClient.toggleFavorite({ userCollectionId: collection.id });
+    if (result.data) {
+      setFavoritedIds((prev) => {
+        const next = new Set(prev);
+        if (result.data!.favorited) {
+          next.add(collection.id);
+        } else {
+          next.delete(collection.id);
+        }
+        return next;
+      });
+    }
+  };
+
   const handleDeleteConfirm = async () => {
     if (!collectionToDelete) return;
 
@@ -126,6 +158,7 @@ export function UserCollectionsPage() {
 
   const renderCollectionCard = (collection: UserCollection, showOwner = false, showDelete = false) => {
     const itemCount = collection._count?.items ?? 0;
+    const isFavorited = favoritedIds.has(collection.id);
 
     return (
       <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={collection.id}>
@@ -139,15 +172,28 @@ export function UserCollectionsPage() {
                 <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
                   {collection.name}
                 </Typography>
-                {showDelete && (
-                  <IconButton
-                    size="small"
-                    onClick={(e) => handleDeleteClick(e, collection)}
-                    sx={{ ml: 1 }}
-                  >
-                    <Delete fontSize="small" />
-                  </IconButton>
-                )}
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <Tooltip title={isFavorited ? t('favorites.removeFromFavorites') : t('favorites.addToFavorites')}>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => handleToggleFavorite(e, collection)}
+                    >
+                      {isFavorited ? (
+                        <Favorite fontSize="small" color="error" />
+                      ) : (
+                        <FavoriteBorder fontSize="small" />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  {showDelete && (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => handleDeleteClick(e, collection)}
+                    >
+                      <Delete fontSize="small" />
+                    </IconButton>
+                  )}
+                </Box>
               </Box>
               {collection.description && (
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>

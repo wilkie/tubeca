@@ -64,6 +64,7 @@ import type {
   UserCollectionItem,
   UserCollectionItemCollection,
   UserCollectionItemMedia,
+  UserCollectionItemUserCollection,
   UserCollectionsResponse,
   UserCollectionResponse,
   UserCollectionItemResponse,
@@ -144,6 +145,7 @@ export type {
   UserCollectionItem,
   UserCollectionItemCollection,
   UserCollectionItemMedia,
+  UserCollectionItemUserCollection,
   UserCollectionsResponse,
   UserCollectionResponse,
   UserCollectionItemResponse,
@@ -560,13 +562,16 @@ class ApiClient {
     return this.request<UserCollectionResponse>('/user-collections/favorites');
   }
 
-  async checkFavorites(collectionIds?: string[], mediaIds?: string[]): Promise<ApiResponse<CheckFavoritesResponse>> {
+  async checkFavorites(collectionIds?: string[], mediaIds?: string[], userCollectionIds?: string[]): Promise<ApiResponse<CheckFavoritesResponse>> {
     const params = new URLSearchParams();
     if (collectionIds && collectionIds.length > 0) {
       params.set('collectionIds', collectionIds.join(','));
     }
     if (mediaIds && mediaIds.length > 0) {
       params.set('mediaIds', mediaIds.join(','));
+    }
+    if (userCollectionIds && userCollectionIds.length > 0) {
+      params.set('userCollectionIds', userCollectionIds.join(','));
     }
     const query = params.toString();
     return this.request<CheckFavoritesResponse>(`/user-collections/favorites/check${query ? `?${query}` : ''}`);

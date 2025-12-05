@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -14,9 +14,41 @@ import {
   CardMedia,
   IconButton,
   Tooltip,
+  Stack,
 } from '@mui/material';
 import { WatchLater, Movie, Tv, Album, Folder, VideoFile, AudioFile } from '@mui/icons-material';
 import { apiClient, type UserCollection, type UserCollectionItem } from '../api/client';
+import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
+import { FilterChips } from '../components/FilterChips';
+
+type SortField = 'name' | 'dateAdded' | 'type';
+
+// Get the item type for filtering/sorting
+function getItemType(item: UserCollectionItem): string {
+  if (item.collection) {
+    return item.collection.collectionType || 'Collection';
+  }
+  if (item.media) {
+    return item.media.type === 'Video' ? 'Episode' : 'Track';
+  }
+  return 'Unknown';
+}
+
+// Get sortable value from item
+function getSortableValue(item: UserCollectionItem, field: SortField): string | number {
+  switch (field) {
+    case 'name': {
+      const content = item.collection || item.media;
+      return content?.name.toLowerCase() || '';
+    }
+    case 'dateAdded':
+      return item.addedAt || '';
+    case 'type':
+      return getItemType(item);
+    default:
+      return '';
+  }
+}
 
 export function WatchLaterPage() {
   const { t } = useTranslation();
@@ -24,6 +56,82 @@ export function WatchLaterPage() {
   const [watchLater, setWatchLater] = useState<UserCollection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<SortField>('dateAdded');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [excludedTypes, setExcludedTypes] = useState<Set<string>>(new Set());
+
+  // Sort options for the dropdown
+  const sortOptions: SortOption[] = useMemo(() => [
+    { value: 'name', label: t('library.sort.name') },
+    { value: 'dateAdded', label: t('library.sort.dateAdded') },
+    { value: 'type', label: t('userCollections.filter.type', 'Type') },
+  ], [t]);
+
+  const items = useMemo(() => watchLater?.items ?? [], [watchLater?.items]);
+
+  // Extract unique item types for filtering
+  const availableTypes = useMemo(() => {
+    if (items.length === 0) return [];
+    const types = new Set<string>();
+    items.forEach((item) => {
+      types.add(getItemType(item));
+    });
+    // Sort types: collections first, then media
+    const typeOrder = ['Show', 'Film', 'Album', 'Season', 'Artist', 'Collection', 'Episode', 'Track'];
+    return Array.from(types).sort((a, b) => {
+      const aIndex = typeOrder.indexOf(a);
+      const bIndex = typeOrder.indexOf(b);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [items]);
+
+  // Filter and sort items
+  const sortedItems = useMemo(() => {
+    if (items.length === 0) return [];
+
+    // First filter by type
+    let filtered = items;
+    if (excludedTypes.size > 0) {
+      filtered = items.filter((item) => {
+        const itemType = getItemType(item);
+        return !excludedTypes.has(itemType);
+      });
+    }
+
+    // Then sort
+    const sorted = [...filtered].sort((a, b) => {
+      const aValue = getSortableValue(a, sortField);
+      const bValue = getSortableValue(b, sortField);
+
+      let comparison = 0;
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        comparison = aValue.localeCompare(bValue);
+      } else if (typeof aValue === 'number' && typeof bValue === 'number') {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue));
+      }
+
+      return sortDirection === 'desc' ? -comparison : comparison;
+    });
+
+    return sorted;
+  }, [items, sortField, sortDirection, excludedTypes]);
+
+  const toggleTypeFilter = (type: string) => {
+    setExcludedTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -147,29 +255,54 @@ export function WatchLaterPage() {
     );
   }
 
-  const items = watchLater?.items || [];
-
   return (
     <Container maxWidth={false} sx={{ py: 4 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-        <WatchLater sx={{ fontSize: 32, color: 'primary.main' }} />
-        <Typography variant="h4" component="h1">
-          {t('watchLater.title', 'Watch Later')}
-        </Typography>
-        {watchLater?._count && (
-          <Typography variant="body1" color="text.secondary">
-            ({watchLater._count.items})
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        flexWrap="wrap"
+        gap={2}
+        sx={{ mb: 3 }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <WatchLater sx={{ fontSize: 32, color: 'primary.main' }} />
+          <Typography variant="h4" component="h1">
+            {t('watchLater.title', 'Watch Later')}
           </Typography>
+          <Typography variant="body1" color="text.secondary">
+            ({sortedItems.length})
+          </Typography>
+        </Box>
+        {sortedItems.length > 0 && (
+          <SortControls
+            options={sortOptions}
+            value={sortField}
+            direction={sortDirection}
+            onValueChange={(v) => setSortField(v as SortField)}
+            onDirectionChange={setSortDirection}
+          />
         )}
-      </Box>
+      </Stack>
 
-      {items.length === 0 ? (
+      {/* Type Filter */}
+      {availableTypes.length > 1 && (
+        <FilterChips
+          label={t('userCollections.filter.type', 'Type')}
+          options={availableTypes}
+          excluded={excludedTypes}
+          onToggle={toggleTypeFilter}
+          onClear={() => setExcludedTypes(new Set())}
+        />
+      )}
+
+      {sortedItems.length === 0 ? (
         <Alert severity="info">
           {t('watchLater.empty', 'No items in your watch later queue. Click the clock icon on any film, show, or episode to add it here.')}
         </Alert>
       ) : (
         <Grid container spacing={2}>
-          {items.map((item) => {
+          {sortedItems.map((item) => {
             const imageUrl = getItemImage(item);
             const name = getItemName(item);
             const subtitle = getItemSubtitle(item);

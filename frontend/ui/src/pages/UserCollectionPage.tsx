@@ -25,6 +25,7 @@ import {
   Breadcrumbs,
   Link,
   Stack,
+  Tooltip,
 } from '@mui/material';
 import {
   Edit,
@@ -37,6 +38,8 @@ import {
   Save,
   Cancel,
   ArrowBack,
+  Favorite,
+  FavoriteBorder,
 } from '@mui/icons-material';
 import {
   apiClient,
@@ -94,6 +97,7 @@ export function UserCollectionPage() {
   const [sortField, setSortField] = useState<SortField>('dateAdded');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [excludedTypes, setExcludedTypes] = useState<Set<string>>(new Set());
+  const [isFavorited, setIsFavorited] = useState(false);
 
   const isOwner = collection?.userId === user?.id;
 
@@ -113,6 +117,13 @@ export function UserCollectionPage() {
         setError(result.error);
       } else if (result.data) {
         setCollection(result.data.userCollection);
+
+        // Check if this collection is favorited
+        const favResult = await apiClient.checkFavorites(undefined, undefined, [collectionId!]);
+        if (cancelled) return;
+        if (favResult.data) {
+          setIsFavorited(favResult.data.userCollectionIds.includes(collectionId!));
+        }
       }
 
       setIsLoading(false);
@@ -264,6 +275,14 @@ export function UserCollectionPage() {
     }
   };
 
+  const handleToggleFavorite = async () => {
+    if (!collectionId) return;
+    const result = await apiClient.toggleFavorite({ userCollectionId: collectionId });
+    if (result.data) {
+      setIsFavorited(result.data.favorited);
+    }
+  };
+
   if (isLoading) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -356,15 +375,22 @@ export function UserCollectionPage() {
               <Typography variant="h4" component="h1">
                 {collection.name}
               </Typography>
-              {isOwner && (
-                <Button
-                  variant="outlined"
-                  startIcon={<Edit />}
-                  onClick={handleStartEdit}
-                >
-                  {t('userCollections.edit')}
-                </Button>
-              )}
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Tooltip title={isFavorited ? t('favorites.removeFromFavorites') : t('favorites.addToFavorites')}>
+                  <IconButton onClick={handleToggleFavorite} color={isFavorited ? 'error' : 'default'}>
+                    {isFavorited ? <Favorite /> : <FavoriteBorder />}
+                  </IconButton>
+                </Tooltip>
+                {isOwner && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<Edit />}
+                    onClick={handleStartEdit}
+                  >
+                    {t('userCollections.edit')}
+                  </Button>
+                )}
+              </Box>
             </Box>
             {collection.description && (
               <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>

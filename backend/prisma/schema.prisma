@@ -653,7 +653,10 @@ model UserCollection {
   userId      String
 
   // Items in this collection (ordered)
-  items       UserCollectionItem[]
+  items       UserCollectionItem[] @relation("UserCollectionItems")
+
+  // Items that reference this collection (e.g., when this collection is favorited)
+  referencedBy UserCollectionItem[] @relation("ItemUserCollection")
 
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
@@ -663,23 +666,26 @@ model UserCollection {
   @@index([isSystem, systemType])
 }
 
-// Items within a user collection (references library content)
+// Items within a user collection (references library content or other user collections)
 model UserCollectionItem {
   id               String         @id @default(uuid())
   position         Int            // For ordering items
   addedAt          DateTime       @default(now())
 
   // Parent user collection
-  userCollection   UserCollection @relation(fields: [userCollectionId], references: [id], onDelete: Cascade)
+  userCollection   UserCollection @relation("UserCollectionItems", fields: [userCollectionId], references: [id], onDelete: Cascade)
   userCollectionId String
 
-  // Reference to library content (one of these will be set)
-  collection       Collection?    @relation(fields: [collectionId], references: [id], onDelete: Cascade)
-  collectionId     String?
-  media            Media?         @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-  mediaId          String?
+  // Reference to content (one of these will be set)
+  collection            Collection?     @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId          String?
+  media                 Media?          @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId               String?
+  itemUserCollection    UserCollection? @relation("ItemUserCollection", fields: [itemUserCollectionId], references: [id], onDelete: Cascade)
+  itemUserCollectionId  String?
 
   @@unique([userCollectionId, collectionId])
   @@unique([userCollectionId, mediaId])
+  @@unique([userCollectionId, itemUserCollectionId])
   @@index([userCollectionId])
 }

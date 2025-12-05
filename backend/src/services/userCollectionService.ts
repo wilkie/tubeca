@@ -16,6 +16,7 @@ export interface UpdateUserCollectionInput {
 export interface AddUserCollectionItemInput {
   collectionId?: string
   mediaId?: string
+  userCollectionId?: string
 }
 
 // Include specification for items with their referenced content
@@ -71,6 +72,23 @@ const itemInclude = {
         select: {
           track: true,
           disc: true,
+        },
+      },
+    },
+  },
+  itemUserCollection: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      isPublic: true,
+      _count: {
+        select: { items: true },
+      },
+      user: {
+        select: {
+          id: true,
+          name: true,
         },
       },
     },
@@ -220,11 +238,12 @@ export class UserCollectionService {
    * Add an item to a collection (only owner can add)
    */
   async addItem(collectionId: string, userId: string, input: AddUserCollectionItemInput) {
-    const { collectionId: contentCollectionId, mediaId } = input;
+    const { collectionId: contentCollectionId, mediaId, userCollectionId: itemUserCollectionId } = input;
 
     // Validate that exactly one reference is provided
-    if ((!contentCollectionId && !mediaId) || (contentCollectionId && mediaId)) {
-      throw new Error('Exactly one of collectionId or mediaId must be provided');
+    const refCount = [contentCollectionId, mediaId, itemUserCollectionId].filter(Boolean).length;
+    if (refCount !== 1) {
+      throw new Error('Exactly one of collectionId, mediaId, or userCollectionId must be provided');
     }
 
     // Verify ownership of the user collection
@@ -236,12 +255,18 @@ export class UserCollectionService {
       throw new Error('Collection not found or access denied');
     }
 
+    // Prevent adding a collection to itself
+    if (itemUserCollectionId === collectionId) {
+      throw new Error('Cannot add a collection to itself');
+    }
+
     // Check if item already exists in collection
     const existingItem = await prisma.userCollectionItem.findFirst({
       where: {
         userCollectionId: collectionId,
         ...(contentCollectionId ? { collectionId: contentCollectionId } : {}),
         ...(mediaId ? { mediaId } : {}),
+        ...(itemUserCollectionId ? { itemUserCollectionId } : {}),
       },
     });
 
@@ -264,6 +289,7 @@ export class UserCollectionService {
           userCollectionId: collectionId,
           collectionId: contentCollectionId,
           mediaId,
+          itemUserCollectionId,
           position: nextPosition,
         },
         include: itemInclude,
@@ -411,10 +437,10 @@ export class UserCollectionService {
 
   /**
    * Check if items are in the user's Favorites collection
-   * Returns an object with collectionIds and mediaIds that are favorited
+   * Returns an object with collectionIds, mediaIds, and userCollectionIds that are favorited
    */
-  async checkFavorites(userId: string, collectionIds?: string[], mediaIds?: string[]) {
-    return this.checkSystemCollectionItems(userId, 'Favorites', collectionIds, mediaIds);
+  async checkFavorites(userId: string, collectionIds?: string[], mediaIds?: string[], userCollectionIds?: string[]) {
+    return this.checkSystemCollectionItems(userId, 'Favorites', collectionIds, mediaIds, userCollectionIds);
   }
 
   /**
@@ -591,7 +617,8 @@ export class UserCollectionService {
     userId: string,
     systemType: string,
     collectionIds?: string[],
-    mediaIds?: string[]
+    mediaIds?: string[],
+    userCollectionIds?: string[]
   ) {
     const systemCollection = await prisma.userCollection.findFirst({
       where: { userId, isSystem: true, systemType },
@@ -599,12 +626,13 @@ export class UserCollectionService {
     });
 
     if (!systemCollection) {
-      return { collectionIds: [], mediaIds: [] };
+      return { collectionIds: [], mediaIds: [], userCollectionIds: [] };
     }
 
-    const result: { collectionIds: string[]; mediaIds: string[] } = {
+    const result: { collectionIds: string[]; mediaIds: string[]; userCollectionIds: string[] } = {
       collectionIds: [],
       mediaIds: [],
+      userCollectionIds: [],
     };
 
     if (collectionIds && collectionIds.length > 0) {
@@ -633,6 +661,19 @@ export class UserCollectionService {
         .filter((id): id is string => id !== null);
     }
 
+    if (userCollectionIds && userCollectionIds.length > 0) {
+      const matchedUserCollections = await prisma.userCollectionItem.findMany({
+        where: {
+          userCollectionId: systemCollection.id,
+          itemUserCollectionId: { in: userCollectionIds },
+        },
+        select: { itemUserCollectionId: true },
+      });
+      result.userCollectionIds = matchedUserCollections
+        .map((item) => item.itemUserCollectionId)
+        .filter((id): id is string => id !== null);
+    }
+
     return result;
   }
 
@@ -645,15 +686,21 @@ export class UserCollectionService {
     systemType: string,
     input: AddUserCollectionItemInput
   ) {
-    const { collectionId: contentCollectionId, mediaId } = input;
+    const { collectionId: contentCollectionId, mediaId, userCollectionId: itemUserCollectionId } = input;
 
     // Validate that exactly one reference is provided
-    if ((!contentCollectionId && !mediaId) || (contentCollectionId && mediaId)) {
-      throw new Error('Exactly one of collectionId or mediaId must be provided');
+    const refCount = [contentCollectionId, mediaId, itemUserCollectionId].filter(Boolean).length;
+    if (refCount !== 1) {
+      throw new Error('Exactly one of collectionId, mediaId, or userCollectionId must be provided');
     }
 
     // Get or create the system collection
     const systemCollection = await this.getSystemCollection(userId, systemType);
+
+    // Prevent adding a collection to itself
+    if (itemUserCollectionId === systemCollection.id) {
+      throw new Error('Cannot add a collection to itself');
+    }
 
     // Check if item already exists
     const existingItem = await prisma.userCollectionItem.findFirst({
@@ -661,6 +708,7 @@ export class UserCollectionService {
         userCollectionId: systemCollection.id,
         ...(contentCollectionId ? { collectionId: contentCollectionId } : {}),
         ...(mediaId ? { mediaId } : {}),
+        ...(itemUserCollectionId ? { itemUserCollectionId } : {}),
       },
     });
 
@@ -691,6 +739,7 @@ export class UserCollectionService {
             userCollectionId: systemCollection.id,
             collectionId: contentCollectionId,
             mediaId,
+            itemUserCollectionId,
             position: nextPosition,
           },
         }),
