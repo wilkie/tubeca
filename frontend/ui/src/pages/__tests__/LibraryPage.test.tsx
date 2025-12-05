@@ -4,6 +4,15 @@ import { LibraryPage } from '../LibraryPage';
 import { apiClient } from '../../api/client';
 import type { Library, Collection } from '../../api/client';
 
+// Helper to create paginated response
+const paginatedResponse = (collections: Collection[]) => ({
+  collections,
+  total: collections.length,
+  page: 1,
+  limit: 50,
+  hasMore: false,
+});
+
 // Mock the API client
 // Note: LibraryPage calls checkFavorites/checkWatchLater directly in its data fetching,
 // not through FavoriteButton/WatchLaterButton, so these need to resolve
@@ -132,21 +141,8 @@ const mockShowCollections: Collection[] = [
   },
 ];
 
-// Collection with child collection (nested, should be filtered out)
-const mockCollectionsWithNested: Collection[] = [
-  ...mockCollections,
-  {
-    id: 'col-3',
-    name: 'Season 1',
-    collectionType: 'Season',
-    libraryId: 'lib-123',
-    parentId: 'col-1', // Has parent, should be filtered
-    images: [],
-    _count: { media: 5, children: 0 },
-    createdAt: '',
-    updatedAt: '',
-  },
-];
+// Note: The server now filters out nested collections (parentId !== null)
+// so we don't need to test for them in the response - the server handles this
 
 describe('LibraryPage', () => {
   beforeEach(() => {
@@ -165,7 +161,7 @@ describe('LibraryPage', () => {
 
     it('hides loading spinner after data loads', async () => {
       mockApiClient.getLibrary.mockResolvedValue({ data: { library: mockLibrary } });
-      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: { collections: mockCollections } });
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse(mockCollections) });
 
       render(<LibraryPage />);
 
@@ -199,7 +195,7 @@ describe('LibraryPage', () => {
 
     it('shows not found when library is null', async () => {
       mockApiClient.getLibrary.mockResolvedValue({ data: { library: null as unknown as Library } });
-      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: { collections: [] } });
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse([]) });
 
       render(<LibraryPage />);
 
@@ -212,19 +208,19 @@ describe('LibraryPage', () => {
   describe('rendering', () => {
     beforeEach(() => {
       mockApiClient.getLibrary.mockResolvedValue({ data: { library: mockLibrary } });
-      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: { collections: mockCollections } });
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse(mockCollections) });
     });
 
     it('shows library name as heading', async () => {
       render(<LibraryPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'Movies' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /Movies/i })).toBeInTheDocument();
       });
     });
 
     it('shows empty message when no collections', async () => {
-      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: { collections: [] } });
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse([]) });
 
       render(<LibraryPage />);
 
@@ -259,18 +255,14 @@ describe('LibraryPage', () => {
       });
     });
 
-    it('filters out nested collections (with parentId)', async () => {
-      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: { collections: mockCollectionsWithNested } });
+    it('shows total count in header', async () => {
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse(mockCollections) });
 
       render(<LibraryPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('The Matrix')).toBeInTheDocument();
-        expect(screen.getByText('Inception')).toBeInTheDocument();
+        expect(screen.getByText('(2)')).toBeInTheDocument();
       });
-
-      // Season 1 should not be visible (it has a parentId)
-      expect(screen.queryByText('Season 1')).not.toBeInTheDocument();
     });
   });
 
@@ -278,7 +270,7 @@ describe('LibraryPage', () => {
     beforeEach(() => {
       mockLibraryId = 'lib-tv';
       mockApiClient.getLibrary.mockResolvedValue({ data: { library: mockTvLibrary } });
-      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: { collections: mockShowCollections } });
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse(mockShowCollections) });
     });
 
     it('shows show images', async () => {
@@ -301,7 +293,7 @@ describe('LibraryPage', () => {
   describe('navigation', () => {
     beforeEach(() => {
       mockApiClient.getLibrary.mockResolvedValue({ data: { library: mockLibrary } });
-      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: { collections: mockCollections } });
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse(mockCollections) });
     });
 
     it('navigates to collection when clicked', async () => {

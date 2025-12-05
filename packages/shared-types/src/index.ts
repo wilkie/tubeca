@@ -343,6 +343,14 @@ export interface CollectionsResponse {
   collections: Collection[]
 }
 
+export interface PaginatedCollectionsResponse {
+  collections: Collection[]
+  total: number
+  page: number
+  limit: number
+  hasMore: boolean
+}
+
 export interface CreateCollectionInput {
   name: string
   libraryId: string
