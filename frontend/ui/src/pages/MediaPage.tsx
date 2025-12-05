@@ -16,8 +16,6 @@ import {
   CardContent,
   CardMedia,
   CardActionArea,
-  Breadcrumbs,
-  Link,
   IconButton,
   Menu,
   MenuItem,
@@ -32,6 +30,8 @@ import {
 } from '@mui/material';
 import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, FolderSpecial, ArrowDropDown, QueuePlayNext } from '@mui/icons-material';
 import { apiClient, type Media, type Image, type CollectionType, type UserCollection } from '../api/client';
+import { StickyHeroBreadcrumbs } from '../components/StickyHeroBreadcrumbs';
+import type { BreadcrumbItem } from '../components/CollectionBreadcrumbs';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { FavoriteButton } from '../components/FavoriteButton';
 import { WatchLaterButton } from '../components/WatchLaterButton';
@@ -65,12 +65,6 @@ interface MediaCollection {
     id: string;
     name: string;
   } | null;
-}
-
-interface BreadcrumbItem {
-  id: string;
-  name: string;
-  type: 'library' | 'collection';
 }
 
 export function MediaPage() {
@@ -356,40 +350,73 @@ export function MediaPage() {
 
   return (
     <Container maxWidth={false} sx={{ py: 4 }}>
-      {/* Breadcrumbs */}
+      {/* Sticky Breadcrumbs */}
       {breadcrumbs.length > 0 && (
-        <Breadcrumbs sx={{ mb: 2 }}>
-          {breadcrumbs.map((crumb) => (
-            <Link
-              key={crumb.id}
-              component="button"
-              variant="body2"
-              onClick={() => handleBreadcrumbClick(crumb)}
-              underline="hover"
-              color="inherit"
-              sx={{ cursor: 'pointer' }}
-            >
-              {crumb.name}
-            </Link>
-          ))}
-          <Typography color="text.primary">{media.name}</Typography>
-        </Breadcrumbs>
+        <StickyHeroBreadcrumbs
+          breadcrumbs={breadcrumbs}
+          currentName={media.name}
+          onNavigate={handleBreadcrumbClick}
+          variant="standard"
+        />
       )}
 
       {/* Media details */}
       <Paper sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-          <Box>
-            <Typography variant="h4" component="h1">
-              {displayTitle}
-            </Typography>
-            {episodeTitle && (
-              <Typography variant="h6" color="text.secondary">
-                {episodeTitle}
-              </Typography>
-            )}
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
+          {/* Thumbnail Image */}
+          {(() => {
+            const stillImage = media.images?.find((img) => img.imageType === 'Still' && img.isPrimary)
+              || media.images?.find((img) => img.imageType === 'Still')
+              || media.images?.find((img) => img.isPrimary);
+            return stillImage ? (
+              <Box
+                component="img"
+                src={apiClient.getImageUrl(stillImage.id)}
+                alt={media.name}
+                sx={{
+                  width: 200,
+                  height: 113,
+                  objectFit: 'cover',
+                  borderRadius: 1,
+                  flexShrink: 0,
+                }}
+              />
+            ) : (
+              <Box
+                sx={{
+                  width: 200,
+                  height: 113,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  bgcolor: 'action.hover',
+                  borderRadius: 1,
+                  flexShrink: 0,
+                }}
+              >
+                {media.type === 'Video' ? (
+                  videoDetails?.showName ? <Tv sx={{ fontSize: 48, color: 'text.secondary' }} /> : <Movie sx={{ fontSize: 48, color: 'text.secondary' }} />
+                ) : (
+                  <MusicNote sx={{ fontSize: 48, color: 'text.secondary' }} />
+                )}
+              </Box>
+            );
+          })()}
+
+          {/* Title and Actions */}
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+              <Box>
+                <Typography variant="h4" component="h1">
+                  {displayTitle}
+                </Typography>
+                {episodeTitle && (
+                  <Typography variant="h6" color="text.secondary">
+                    {episodeTitle}
+                  </Typography>
+                )}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1 }}>
             <IconButton
               onClick={handleMenuOpen}
               aria-label={t('common.moreOptions', 'More options')}
@@ -471,6 +498,8 @@ export function MediaPage() {
                 <ListItemText>{t('userCollections.choose', 'Choose...')}</ListItemText>
               </MenuItem>
             </Menu>
+              </Box>
+            </Box>
           </Box>
         </Box>
 

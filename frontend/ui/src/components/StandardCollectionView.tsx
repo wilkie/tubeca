@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -13,8 +13,9 @@ import {
   ListItemIcon,
   ListItemText,
   ListSubheader,
+  Button,
 } from '@mui/material';
-import { CalendarMonth, MoreVert, Add, FolderSpecial } from '@mui/icons-material';
+import { CalendarMonth, MoreVert, Add, FolderSpecial, Folder, ExpandMore, ExpandLess } from '@mui/icons-material';
 import { apiClient, type Collection, type CollectionType, type Image, type UserCollection } from '../api/client';
 import { ChildCollectionGrid } from './ChildCollectionGrid';
 import { MediaGrid } from './MediaGrid';
@@ -85,6 +86,9 @@ export function StandardCollectionView({
   const addMenuOpen = Boolean(addMenuAnchor);
   const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
   const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [isDescriptionOverflowing, setIsDescriptionOverflowing] = useState(false);
+  const descriptionRef = useRef<HTMLDivElement>(null);
 
   // Fetch most recent user collection when add menu opens
   useEffect(() => {
@@ -96,6 +100,25 @@ export function StandardCollectionView({
       });
     }
   }, [addMenuOpen]);
+
+  // Check if description content overflows its container
+  useEffect(() => {
+    const element = descriptionRef.current;
+    if (!element) return;
+
+    const checkOverflow = () => {
+      if (!descriptionExpanded) {
+        setIsDescriptionOverflowing(element.scrollHeight > element.clientHeight);
+      }
+    };
+
+    checkOverflow();
+
+    const resizeObserver = new ResizeObserver(checkOverflow);
+    resizeObserver.observe(element);
+
+    return () => resizeObserver.disconnect();
+  }, [collection.seasonDetails?.description, descriptionExpanded]);
 
   const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     setAddMenuAnchor(event.currentTarget);
@@ -124,100 +147,223 @@ export function StandardCollectionView({
   };
 
   const label = getCollectionLabel(collection.collectionType);
+  const posterImage = collection.images?.find((img) => img.imageType === 'Poster' && img.isPrimary);
+  const isSeason = collection.collectionType === 'Season';
+  const hasSeasonDescription = collection.seasonDetails?.description || collection.seasonDetails?.releaseDate;
+
+  // Render poster image component
+  const renderPoster = (height: number = 225) => (
+    posterImage ? (
+      <Box
+        component="img"
+        src={apiClient.getImageUrl(posterImage.id)}
+        alt={collection.name}
+        sx={{
+          width: 150,
+          height,
+          objectFit: 'cover',
+          borderRadius: 1,
+          flexShrink: 0,
+        }}
+      />
+    ) : (
+      <Box
+        sx={{
+          width: 150,
+          height,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          bgcolor: 'action.hover',
+          borderRadius: 1,
+          flexShrink: 0,
+        }}
+      >
+        <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
+      </Box>
+    )
+  );
+
+  // Render action buttons
+  const renderActions = () => (
+    <Box sx={{ display: 'flex', gap: 1 }}>
+      <FavoriteButton collectionId={collection.id} />
+      <WatchLaterButton collectionId={collection.id} />
+      <IconButton
+        onClick={handleAddMenuClick}
+        aria-label={t('common.add', 'Add')}
+        aria-controls={addMenuOpen ? 'add-menu' : undefined}
+        aria-haspopup="true"
+        aria-expanded={addMenuOpen ? 'true' : undefined}
+      >
+        <Add />
+      </IconButton>
+      <Menu
+        id="add-menu"
+        anchorEl={addMenuAnchor}
+        open={addMenuOpen}
+        onClose={handleAddMenuClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
+        {recentCollection && (
+          <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
+            <ListItemIcon>
+              <FolderSpecial fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>{recentCollection.name}</ListItemText>
+          </MenuItem>
+        )}
+        <MenuItem onClick={handleAddToCollection}>
+          <ListItemIcon>
+            <Add fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t('userCollections.choose', 'Choose...')}</ListItemText>
+        </MenuItem>
+      </Menu>
+      <IconButton
+        onClick={onMenuOpen}
+        aria-label={t('common.moreOptions', 'More options')}
+        aria-controls={menuOpen ? 'collection-menu' : undefined}
+        aria-haspopup="true"
+        aria-expanded={menuOpen ? 'true' : undefined}
+      >
+        <MoreVert />
+      </IconButton>
+    </Box>
+  );
 
   return (
     <>
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          mb: 3,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4" component="h1">
-            {collection.name}
-          </Typography>
-          {label && (
-            <Chip label={label} size="small" color="primary" variant="outlined" />
-          )}
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <FavoriteButton collectionId={collection.id} />
-          <WatchLaterButton collectionId={collection.id} />
-          <IconButton
-            onClick={handleAddMenuClick}
-            aria-label={t('common.add', 'Add')}
-            aria-controls={addMenuOpen ? 'add-menu' : undefined}
-            aria-haspopup="true"
-            aria-expanded={addMenuOpen ? 'true' : undefined}
+      {/* Season Layout: Title row, then Poster + Description row */}
+      {isSeason ? (
+        <>
+          {/* Title and Actions Row */}
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              mb: 3,
+            }}
           >
-            <Add />
-          </IconButton>
-          <Menu
-            id="add-menu"
-            anchorEl={addMenuAnchor}
-            open={addMenuOpen}
-            onClose={handleAddMenuClose}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-          >
-            <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
-            {recentCollection && (
-              <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
-                <ListItemIcon>
-                  <FolderSpecial fontSize="small" />
-                </ListItemIcon>
-                <ListItemText>{recentCollection.name}</ListItemText>
-              </MenuItem>
-            )}
-            <MenuItem onClick={handleAddToCollection}>
-              <ListItemIcon>
-                <Add fontSize="small" />
-              </ListItemIcon>
-              <ListItemText>{t('userCollections.choose', 'Choose...')}</ListItemText>
-            </MenuItem>
-          </Menu>
-          <IconButton
-            onClick={onMenuOpen}
-            aria-label={t('common.moreOptions', 'More options')}
-            aria-controls={menuOpen ? 'collection-menu' : undefined}
-            aria-haspopup="true"
-            aria-expanded={menuOpen ? 'true' : undefined}
-          >
-            <MoreVert />
-          </IconButton>
-        </Box>
-      </Box>
-
-      {/* Season Details */}
-      {collection.seasonDetails &&
-        (collection.seasonDetails.releaseDate || collection.seasonDetails.description) && (
-          <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
-            {collection.seasonDetails.releaseDate && (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                  mb: collection.seasonDetails.description ? 2 : 0,
-                }}
-              >
-                <CalendarMonth sx={{ fontSize: 20, color: 'text.secondary' }} />
-                <Typography variant="body2" color="text.secondary">
-                  {new Date(collection.seasonDetails.releaseDate).toLocaleDateString()}
-                </Typography>
-              </Box>
-            )}
-            {collection.seasonDetails.description && (
-              <Typography variant="body2" color="text.secondary">
-                {collection.seasonDetails.description}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <Typography variant="h4" component="h1">
+                {collection.name}
               </Typography>
+              {label && (
+                <Chip label={label} size="small" color="primary" variant="outlined" />
+              )}
+            </Box>
+            {renderActions()}
+          </Box>
+
+          {/* Poster + Description Row */}
+          <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
+            {renderPoster(225)}
+            {hasSeasonDescription && (
+              <Paper
+                sx={{
+                  p: 2,
+                  flex: 1,
+                  minWidth: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxHeight: descriptionExpanded ? 'none' : 225,
+                  overflow: 'hidden',
+                }}
+                variant="outlined"
+              >
+                {collection.seasonDetails?.releaseDate && (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      mb: collection.seasonDetails.description ? 1.5 : 0,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CalendarMonth sx={{ fontSize: 20, color: 'text.secondary' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      {new Date(collection.seasonDetails.releaseDate).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                )}
+                {collection.seasonDetails?.description && (
+                  <Box
+                    ref={descriptionRef}
+                    sx={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      position: 'relative',
+                      maxHeight: descriptionExpanded ? 'none' : 155,
+                    }}
+                  >
+                    <Typography variant="body2" color="text.secondary">
+                      {collection.seasonDetails.description}
+                    </Typography>
+                    {!descriptionExpanded && isDescriptionOverflowing && (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          height: 40,
+                          background: 'linear-gradient(transparent, var(--mui-palette-background-paper))',
+                        }}
+                      />
+                    )}
+                  </Box>
+                )}
+                {collection.seasonDetails?.description && isDescriptionOverflowing && (
+                  <Button
+                    size="small"
+                    onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+                    endIcon={descriptionExpanded ? <ExpandLess /> : <ExpandMore />}
+                    sx={{ alignSelf: 'flex-start', mt: 1, flexShrink: 0 }}
+                  >
+                    {descriptionExpanded ? t('common.showLess', 'Show less') : t('common.showMore', 'Show more...')}
+                  </Button>
+                )}
+              </Paper>
             )}
-          </Paper>
-        )}
+          </Box>
+        </>
+      ) : (
+        /* Standard Layout: Poster + Title/Actions in one row */
+        <Box
+          sx={{
+            display: 'flex',
+            gap: 3,
+            mb: 3,
+          }}
+        >
+          {renderPoster()}
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                mb: 2,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <Typography variant="h4" component="h1">
+                  {collection.name}
+                </Typography>
+                {label && (
+                  <Chip label={label} size="small" color="primary" variant="outlined" />
+                )}
+              </Box>
+              {renderActions()}
+            </Box>
+          </Box>
+        </Box>
+      )}
 
       {/* Artist Details */}
       {collection.artistDetails && (

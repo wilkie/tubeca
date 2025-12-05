@@ -6,14 +6,18 @@ interface StickyHeroBreadcrumbsProps {
   breadcrumbs: BreadcrumbItem[];
   currentName: string;
   onNavigate: (item: BreadcrumbItem) => void;
+  /** 'hero' for use over hero backdrops, 'standard' for regular pages */
+  variant?: 'hero' | 'standard';
 }
 
 export function StickyHeroBreadcrumbs({
   breadcrumbs,
   currentName,
   onNavigate,
+  variant = 'hero',
 }: StickyHeroBreadcrumbsProps) {
   const [scrolled, setScrolled] = useState(false);
+  const isHero = variant === 'hero';
 
   useEffect(() => {
     const handleScroll = () => {
@@ -34,22 +38,25 @@ export function StickyHeroBreadcrumbs({
         top: 48, // Header height
         zIndex: 10,
         mx: -3, // Extend to full width (counteract container padding)
-        mt: '-38px', // Align with HeroSection to eliminate gap with topbar
-        mb: -6, // Overlap into HeroSection below
+        // Hero variant has negative margins to overlap with backdrop
+        mt: isHero ? '-38px' : '-32px',
+        mb: isHero ? -6 : 2,
         px: 3, // Add padding back for content
         pt: 2,
         pb: 1.5,
         transition: 'background-color 0.2s ease-in-out, border-color 0.2s ease-in-out',
-        bgcolor: scrolled ? 'background.paper' : 'transparent',
+        // Hero variant starts transparent, standard always has background
+        bgcolor: isHero ? (scrolled ? 'background.paper' : 'transparent') : 'background.paper',
         borderBottom: 1,
-        borderColor: scrolled ? 'divider' : 'transparent',
+        borderColor: isHero ? (scrolled ? 'divider' : 'transparent') : 'divider',
       }}
     >
       <CollectionBreadcrumbs
         breadcrumbs={breadcrumbs}
         currentName={currentName}
         onNavigate={onNavigate}
-        variant={scrolled ? 'default' : 'hero'}
+        // Hero variant uses white text until scrolled
+        variant={isHero && !scrolled ? 'hero' : 'default'}
       />
     </Box>
   );

@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePlayer } from '../context/PlayerContext';
 import { ImagesDialog } from '../components/ImagesDialog';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from '../components/CollectionBreadcrumbs';
+import { StickyHeroBreadcrumbs } from '../components/StickyHeroBreadcrumbs';
 import { CollectionOptionsMenu } from '../components/CollectionOptionsMenu';
 import { DeleteCollectionDialog } from '../components/DeleteCollectionDialog';
 import { FilmHeroView } from '../components/FilmHeroView';
@@ -331,15 +332,26 @@ export function CollectionPage() {
     }
 
     // Standard view for Season, Album, Artist, etc.
+    const isSeason = collection.collectionType === 'Season';
+
     return (
       <>
-        {/* Breadcrumbs for standard view */}
-        <CollectionBreadcrumbs
-          breadcrumbs={breadcrumbs}
-          currentName={collection.name}
-          onNavigate={handleBreadcrumbNavigate}
-          sx={{ mb: 2 }}
-        />
+        {/* Sticky breadcrumbs for Season, regular for others */}
+        {isSeason ? (
+          <StickyHeroBreadcrumbs
+            breadcrumbs={breadcrumbs}
+            currentName={collection.name}
+            onNavigate={handleBreadcrumbNavigate}
+            variant="standard"
+          />
+        ) : (
+          <CollectionBreadcrumbs
+            breadcrumbs={breadcrumbs}
+            currentName={collection.name}
+            onNavigate={handleBreadcrumbNavigate}
+            sx={{ mb: 2 }}
+          />
+        )}
 
         <StandardCollectionView
           collection={collection}
