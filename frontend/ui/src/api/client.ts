@@ -74,6 +74,7 @@ import type {
   ToggleFavoriteResponse,
   CheckWatchLaterResponse,
   ToggleWatchLaterResponse,
+  SetPlaybackQueueInput,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -153,6 +154,7 @@ export type {
   ToggleFavoriteResponse,
   CheckWatchLaterResponse,
   ToggleWatchLaterResponse,
+  SetPlaybackQueueInput,
 };
 
 const API_BASE = '/api';
@@ -593,6 +595,31 @@ class ApiClient {
     return this.request<ToggleWatchLaterResponse>('/user-collections/watch-later/toggle', {
       method: 'POST',
       body: JSON.stringify(input),
+    });
+  }
+
+  // Playback Queue
+  async getPlaybackQueue(): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>('/user-collections/queue');
+  }
+
+  async setPlaybackQueue(items: AddUserCollectionItemInput[]): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>('/user-collections/queue', {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    });
+  }
+
+  async addToPlaybackQueue(input: AddUserCollectionItemInput): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>('/user-collections/queue/add', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async clearPlaybackQueue(): Promise<ApiResponse<UserCollectionResponse>> {
+    return this.request<UserCollectionResponse>('/user-collections/queue', {
+      method: 'DELETE',
     });
   }
 }

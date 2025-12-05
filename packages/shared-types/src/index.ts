@@ -762,3 +762,8 @@ export interface CheckWatchLaterResponse {
 export interface ToggleWatchLaterResponse {
   inWatchLater: boolean
 }
+
+// Playback Queue types
+export interface SetPlaybackQueueInput {
+  items: AddUserCollectionItemInput[]
+}

@@ -27,6 +27,9 @@ import {
   KeyboardArrowDown,
   Add,
   FolderSpecial,
+  ArrowDropDown,
+  QueuePlayNext,
+  PictureInPictureAlt,
 } from '@mui/icons-material';
 import { apiClient, type Collection, type ShowCredit, type Image, type UserCollection } from '../api/client';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
@@ -62,6 +65,8 @@ interface ShowHeroViewProps {
   menuOpen: boolean;
   onBreadcrumbNavigate: (item: BreadcrumbItem) => void;
   onPlay: (mediaId: string) => void;
+  onPlayAfter?: (mediaId: string) => void;
+  onPlayInMiniPlayer?: (mediaId: string) => void;
   onSeasonClick: (seasonId: string) => void;
   onPersonClick: (personId: string) => void;
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
@@ -76,6 +81,8 @@ export function ShowHeroView({
   menuOpen,
   onBreadcrumbNavigate,
   onPlay,
+  onPlayAfter,
+  onPlayInMiniPlayer,
   onSeasonClick,
   onPersonClick,
   onMenuOpen,
@@ -95,6 +102,10 @@ export function ShowHeroView({
   const addMenuOpen = Boolean(addMenuAnchor);
   const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
   const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+
+  // Play menu state
+  const [playMenuAnchor, setPlayMenuAnchor] = useState<null | HTMLElement>(null);
+  const playMenuOpen = Boolean(playMenuAnchor);
 
   // Fetch most recent user collection when add menu opens
   useEffect(() => {
@@ -372,14 +383,55 @@ export function ShowHeroView({
                 </>
               )}
               {firstEpisodeId && (
-                <Button
-                  variant="contained"
-                  size="large"
-                  startIcon={<PlayArrow />}
-                  onClick={() => onPlay(firstEpisodeId)}
-                >
-                  {t('media.play', 'Play')}
-                </Button>
+                <Box sx={{ display: 'flex' }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<PlayArrow />}
+                    onClick={() => onPlay(firstEpisodeId)}
+                    sx={{ borderTopRightRadius: onPlayAfter ? 0 : undefined, borderBottomRightRadius: onPlayAfter ? 0 : undefined }}
+                  >
+                    {t('media.play', 'Play')}
+                  </Button>
+                  {onPlayAfter && (
+                    <>
+                      <Button
+                        variant="contained"
+                        size="large"
+                        onClick={(e) => setPlayMenuAnchor(e.currentTarget)}
+                        aria-controls={playMenuOpen ? 'play-menu' : undefined}
+                        aria-haspopup="true"
+                        aria-expanded={playMenuOpen ? 'true' : undefined}
+                        sx={{ minWidth: 'auto', px: 0.5, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)' }}
+                      >
+                        <ArrowDropDown />
+                      </Button>
+                      <Menu
+                        id="play-menu"
+                        anchorEl={playMenuAnchor}
+                        open={playMenuOpen}
+                        onClose={() => setPlayMenuAnchor(null)}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                      >
+                        {onPlayInMiniPlayer && (
+                          <MenuItem onClick={() => { onPlayInMiniPlayer(firstEpisodeId); setPlayMenuAnchor(null); }}>
+                            <ListItemIcon>
+                              <PictureInPictureAlt fontSize="small" />
+                            </ListItemIcon>
+                            <ListItemText>{t('media.playInMiniPlayer', 'Play in mini player')}</ListItemText>
+                          </MenuItem>
+                        )}
+                        <MenuItem onClick={() => { onPlayAfter(firstEpisodeId); setPlayMenuAnchor(null); }}>
+                          <ListItemIcon>
+                            <QueuePlayNext fontSize="small" />
+                          </ListItemIcon>
+                          <ListItemText>{t('media.playAfter', 'Play after current')}</ListItemText>
+                        </MenuItem>
+                      </Menu>
+                    </>
+                  )}
+                </Box>
               )}
               <FavoriteButton
                 collectionId={collection.id}

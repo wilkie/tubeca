@@ -205,7 +205,31 @@ export class PersonService {
       },
     });
 
-    // Get video credits (Credit -> VideoDetails -> Media)
+    // Get film credits (FilmCredit -> FilmDetails -> Collection with collectionType='Film')
+    const filmCredits = await prisma.filmCredit.findMany({
+      where: { personId: id },
+      include: {
+        filmDetails: {
+          include: {
+            collection: {
+              include: {
+                images: {
+                  where: { imageType: 'Poster', isPrimary: true },
+                  take: 1,
+                  select: { id: true, imageType: true, isPrimary: true },
+                },
+                media: {
+                  take: 1,
+                  select: { id: true, name: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get video credits (Credit -> VideoDetails -> Media) for episodes
     const videoCredits = await prisma.credit.findMany({
       where: { personId: id },
       include: {
@@ -242,74 +266,67 @@ export class PersonService {
       },
     });
 
-    // Separate films from episodes
-    const films: PersonWithFilmography['filmography']['films'] = [];
+    // Build films array from filmCredits
+    const films: PersonWithFilmography['filmography']['films'] = filmCredits.map((fc) => ({
+      collection: {
+        id: fc.filmDetails.collection.id,
+        name: fc.filmDetails.collection.name,
+        collectionType: fc.filmDetails.collection.collectionType,
+        images: fc.filmDetails.collection.images,
+      },
+      media: fc.filmDetails.collection.media[0]
+        ? {
+            id: fc.filmDetails.collection.media[0].id,
+            name: fc.filmDetails.collection.media[0].name,
+          }
+        : {
+            id: '',
+            name: fc.filmDetails.collection.name,
+          },
+      credit: {
+        id: fc.id,
+        role: fc.role,
+        creditType: fc.creditType,
+      },
+    }));
+
+    // Build episodes array from videoCredits (Credit -> VideoDetails -> Media)
     const episodes: PersonWithFilmography['filmography']['episodes'] = [];
 
     for (const credit of videoCredits) {
       const media = credit.videoDetails.media;
       const collection = media.collection;
 
-      // Determine if this is a film or episode based on collection type
-      // Films: collection type is 'Film', or parent collection type is 'Film'
-      // Episodes: collection type is 'Season', or has showName/season/episode info
-      const isFilm = collection?.collectionType === 'Film' ||
-        collection?.parent?.collectionType === 'Film';
-      const isEpisode = collection?.collectionType === 'Season' ||
-        (credit.videoDetails.showName && credit.videoDetails.season != null);
+      // Prefer thumbnail, then backdrop, then poster from media, then poster from collection
+      const thumbnailImage = media.images?.find((img) => img.imageType === 'Thumbnail');
+      const backdropImage = media.images?.find((img) => img.imageType === 'Backdrop');
+      const posterImage = media.images?.find((img) => img.imageType === 'Poster');
+      const episodeImage = thumbnailImage || backdropImage || posterImage || collection?.images?.[0];
 
-      if (isFilm && !isEpisode) {
-        films.push({
-          collection: {
-            id: collection!.id,
-            name: collection!.name,
-            collectionType: collection!.collectionType,
-            images: collection!.images,
+      episodes.push({
+        media: {
+          id: media.id,
+          name: media.name,
+          videoDetails: {
+            showName: credit.videoDetails.showName,
+            season: credit.videoDetails.season,
+            episode: credit.videoDetails.episode,
           },
-          media: {
-            id: media.id,
-            name: media.name,
-          },
-          credit: {
-            id: credit.id,
-            role: credit.role,
-            creditType: credit.creditType,
-          },
-        });
-      } else if (isEpisode) {
-        // It's an episode
-        // Prefer thumbnail, then backdrop, then poster from media, then poster from collection
-        const thumbnailImage = media.images?.find((img) => img.imageType === 'Thumbnail');
-        const backdropImage = media.images?.find((img) => img.imageType === 'Backdrop');
-        const posterImage = media.images?.find((img) => img.imageType === 'Poster');
-        const episodeImage = thumbnailImage || backdropImage || posterImage || collection?.images?.[0];
-
-        episodes.push({
-          media: {
-            id: media.id,
-            name: media.name,
-            videoDetails: {
-              showName: credit.videoDetails.showName,
-              season: credit.videoDetails.season,
-              episode: credit.videoDetails.episode,
-            },
-            collection: collection
-              ? {
-                  id: collection.id,
-                  name: collection.name,
-                  parent: collection.parent,
-                }
-              : null,
-            images: episodeImage ? [episodeImage] : [],
-          },
-          credit: {
-            id: credit.id,
-            role: credit.role,
-            creditType: credit.creditType,
-          },
-        });
-      }
-      // If neither film nor episode (e.g., orphaned media), skip it
+          collection: collection
+            ? {
+                id: collection.id,
+                name: collection.name,
+                parent: collection.parent,
+              }
+            : null,
+          images: episodeImage ? [episodeImage] : [],
+        },
+        credit: {
+          id: credit.id,
+          role: credit.role,
+          creditType: credit.creditType,
+        },
+      });
     }
 
     return {

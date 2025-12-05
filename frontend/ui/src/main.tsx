@@ -7,6 +7,7 @@ import App from './App';
 import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
 import { AuthProvider } from './context/AuthContext';
+import { PlayerProvider } from './context/PlayerContext';
 import { ProtectedRoute } from './components';
 import { theme } from './theme';
 import './i18n';
@@ -25,7 +26,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               path="/*"
               element={
                 <ProtectedRoute>
-                  <App />
+                  <PlayerProvider>
+                    <App />
+                  </PlayerProvider>
                 </ProtectedRoute>
               }
             />

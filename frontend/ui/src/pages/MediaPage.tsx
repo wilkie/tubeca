@@ -30,7 +30,7 @@ import {
   DialogContentText,
   DialogActions,
 } from '@mui/material';
-import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, FolderSpecial } from '@mui/icons-material';
+import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, FolderSpecial, ArrowDropDown, QueuePlayNext } from '@mui/icons-material';
 import { apiClient, type Media, type Image, type CollectionType, type UserCollection } from '../api/client';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { FavoriteButton } from '../components/FavoriteButton';
@@ -104,6 +104,10 @@ export function MediaPage() {
   const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
   const [isAddingToRecent, setIsAddingToRecent] = useState(false);
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
+
+  // Play menu state
+  const [playMenuAnchor, setPlayMenuAnchor] = useState<null | HTMLElement>(null);
+  const playMenuOpen = Boolean(playMenuAnchor);
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
 
@@ -296,8 +300,17 @@ export function MediaPage() {
     }
   };
 
-  const handlePlay = () => {
+  const handlePlay = async () => {
+    if (!mediaId) return;
+    // Set the playback queue to just this item before navigating
+    await apiClient.setPlaybackQueue([{ mediaId }]);
     navigate(`/play/${mediaId}`);
+  };
+
+  const handlePlayAfter = async () => {
+    if (!mediaId) return;
+    // Add to the playback queue without navigating
+    await apiClient.addToPlaybackQueue({ mediaId });
   };
 
   if (isLoading) {
@@ -386,14 +399,43 @@ export function MediaPage() {
             >
               <MoreVert />
             </IconButton>
-            <Button
-              variant="contained"
-              size="large"
-              startIcon={<PlayArrow />}
-              onClick={handlePlay}
-            >
-              {t('media.play')}
-            </Button>
+            <Box sx={{ display: 'flex' }}>
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={<PlayArrow />}
+                onClick={handlePlay}
+                sx={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
+              >
+                {t('media.play')}
+              </Button>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={(e) => setPlayMenuAnchor(e.currentTarget)}
+                aria-controls={playMenuOpen ? 'play-menu' : undefined}
+                aria-haspopup="true"
+                aria-expanded={playMenuOpen ? 'true' : undefined}
+                sx={{ minWidth: 'auto', px: 0.5, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeft: '1px solid rgba(255,255,255,0.3)' }}
+              >
+                <ArrowDropDown />
+              </Button>
+              <Menu
+                id="play-menu"
+                anchorEl={playMenuAnchor}
+                open={playMenuOpen}
+                onClose={() => setPlayMenuAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              >
+                <MenuItem onClick={() => { handlePlayAfter(); setPlayMenuAnchor(null); }}>
+                  <ListItemIcon>
+                    <QueuePlayNext fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{t('media.playAfter', 'Play after current')}</ListItemText>
+                </MenuItem>
+              </Menu>
+            </Box>
             <FavoriteButton mediaId={media.id} />
             <WatchLaterButton mediaId={media.id} />
             <IconButton

@@ -62,7 +62,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   };
 
   return (
-    <AppBar position="static" className={styles.header}>
+    <AppBar position="sticky" className={styles.header}>
       <Toolbar sx={{ minHeight: '48px !important' }}>
         <IconButton
           size="large"

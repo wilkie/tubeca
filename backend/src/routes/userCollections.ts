@@ -346,6 +346,177 @@ router.post('/watch-later/toggle', async (req: Request, res) => {
   }
 });
 
+// ============================================
+// Playback Queue Routes
+// ============================================
+
+/**
+ * @openapi
+ * /api/user-collections/queue:
+ *   get:
+ *     tags:
+ *       - Playback Queue
+ *     summary: Get playback queue
+ *     description: Get the user's Playback Queue collection with all items
+ *     responses:
+ *       200:
+ *         description: Playback Queue collection
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 userCollection:
+ *                   $ref: '#/components/schemas/UserCollection'
+ */
+router.get('/queue', async (req: Request, res) => {
+  try {
+    const userCollection = await userCollectionService.getPlaybackQueue(req.user!.userId);
+    res.json({ userCollection });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch playback queue' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/user-collections/queue:
+ *   put:
+ *     tags:
+ *       - Playback Queue
+ *     summary: Set playback queue
+ *     description: Replace the playback queue with new items (used when pressing Play)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - items
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     collectionId:
+ *                       type: string
+ *                       format: uuid
+ *                     mediaId:
+ *                       type: string
+ *                       format: uuid
+ *     responses:
+ *       200:
+ *         description: Queue updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 userCollection:
+ *                   $ref: '#/components/schemas/UserCollection'
+ *       400:
+ *         description: Invalid request
+ */
+router.put('/queue', async (req: Request, res) => {
+  try {
+    const { items } = req.body;
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: 'items must be an array' });
+    }
+
+    const userCollection = await userCollectionService.setPlaybackQueue(
+      req.user!.userId,
+      items
+    );
+    res.json({ userCollection });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to set playback queue';
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * @openapi
+ * /api/user-collections/queue/add:
+ *   post:
+ *     tags:
+ *       - Playback Queue
+ *     summary: Add to playback queue
+ *     description: Add an item to the end of the playback queue (for "Play after" functionality)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               collectionId:
+ *                 type: string
+ *                 format: uuid
+ *               mediaId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Item added to queue
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 userCollection:
+ *                   $ref: '#/components/schemas/UserCollection'
+ *       400:
+ *         description: Invalid request
+ */
+router.post('/queue/add', async (req: Request, res) => {
+  try {
+    const { collectionId, mediaId } = req.body;
+    const userCollection = await userCollectionService.addToPlaybackQueue(
+      req.user!.userId,
+      { collectionId, mediaId }
+    );
+    res.json({ userCollection });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to add to playback queue';
+    if (message.includes('Exactly one')) {
+      return res.status(400).json({ error: message });
+    }
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * @openapi
+ * /api/user-collections/queue:
+ *   delete:
+ *     tags:
+ *       - Playback Queue
+ *     summary: Clear playback queue
+ *     description: Remove all items from the playback queue
+ *     responses:
+ *       200:
+ *         description: Queue cleared
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 userCollection:
+ *                   $ref: '#/components/schemas/UserCollection'
+ */
+router.delete('/queue', async (req: Request, res) => {
+  try {
+    const userCollection = await userCollectionService.clearPlaybackQueue(req.user!.userId);
+    res.json({ userCollection });
+  } catch {
+    res.status(500).json({ error: 'Failed to clear playback queue' });
+  }
+});
+
 /**
  * @openapi
  * /api/user-collections/{id}:
