@@ -37,7 +37,9 @@
     "delete": "Delete",
     "edit": "Edit",
     "create": "Create",
-    "back": "Back"
+    "back": "Back",
+    "showMore": "Show more...",
+    "showLess": "Show less"
   },
   "settings": {
     "title": "Settings",
