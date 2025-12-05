@@ -13,12 +13,17 @@ import {
   CardActionArea,
   CardMedia,
   Stack,
+  IconButton,
+  Collapse,
+  Tooltip,
+  Badge,
 } from '@mui/material';
-import { Folder, VideoFile, AudioFile, Movie, Tv, Album } from '@mui/icons-material';
-import { apiClient, type Library, type Collection } from '../api/client';
+import { Folder, VideoFile, AudioFile, Movie, Tv, Album, FilterList } from '@mui/icons-material';
+import { apiClient, type Library, type Collection, type Keyword } from '../api/client';
 import { CardQuickActions } from '../components/CardQuickActions';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
 import { FilterChips } from '../components/FilterChips';
+import { KeywordFilter } from '../components/KeywordFilter';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 
 type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
@@ -65,8 +70,11 @@ export function LibraryPage() {
   const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
   const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
   const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
+  const [availableKeywords, setAvailableKeywords] = useState<Keyword[]>([]);
+  const [selectedKeywords, setSelectedKeywords] = useState<Keyword[]>([]);
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
   const [selectedCollectionForAdd, setSelectedCollectionForAdd] = useState<Collection | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     if (!libraryId) return;
@@ -91,9 +99,16 @@ export function LibraryPage() {
         setLibrary(libraryResult.data.library);
       }
 
-      // Fetch collections for this library
-      const collectionsResult = await apiClient.getCollectionsByLibrary(libraryId!);
+      // Fetch collections and keywords for this library
+      const [collectionsResult, keywordsResult] = await Promise.all([
+        apiClient.getCollectionsByLibrary(libraryId!),
+        apiClient.getKeywordsByLibrary(libraryId!),
+      ]);
       if (cancelled) return;
+
+      if (keywordsResult.data) {
+        setAvailableKeywords(keywordsResult.data.keywords);
+      }
 
       if (collectionsResult.error) {
         setError(collectionsResult.error);
@@ -158,10 +173,20 @@ export function LibraryPage() {
     // First filter by content rating (for film libraries)
     let filtered = collections;
     if (library?.libraryType === 'Film' && excludedRatings.size > 0) {
-      filtered = collections.filter((c) => {
+      filtered = filtered.filter((c) => {
         const rating = c.filmDetails?.contentRating;
         // Include items with no rating, or items whose rating is not excluded
         return !rating || !excludedRatings.has(rating);
+      });
+    }
+
+    // Filter by selected keywords (must have ALL selected keywords)
+    if (selectedKeywords.length > 0) {
+      const selectedKeywordIds = new Set(selectedKeywords.map((k) => k.id));
+      filtered = filtered.filter((c) => {
+        const collectionKeywordIds = new Set(c.keywords?.map((k) => k.id) || []);
+        // Check if collection has all selected keywords
+        return [...selectedKeywordIds].every((id) => collectionKeywordIds.has(id));
       });
     }
 
@@ -189,7 +214,7 @@ export function LibraryPage() {
       return sortDirection === 'desc' ? -comparison : comparison;
     });
     return sorted;
-  }, [collections, sortField, sortDirection, library?.libraryType, excludedRatings]);
+  }, [collections, sortField, sortDirection, library?.libraryType, excludedRatings, selectedKeywords]);
 
   // Sort options for the dropdown
   const sortOptions: SortOption[] = useMemo(() => [
@@ -263,37 +288,66 @@ export function LibraryPage() {
         </Typography>
 
         {collections.length > 0 && (
-          <SortControls
-            options={sortOptions}
-            value={sortField}
-            direction={sortDirection}
-            onValueChange={(v) => setSortField(v as SortField)}
-            onDirectionChange={setSortDirection}
-          />
+          <Stack direction="row" spacing={1} alignItems="center">
+            {(availableContentRatings.length > 0 || availableKeywords.length > 0) && (
+              <Tooltip title={t('library.filter.toggle', 'Toggle filters')}>
+                <Badge
+                  badgeContent={excludedRatings.size + selectedKeywords.length}
+                  color="primary"
+                  max={99}
+                >
+                  <IconButton
+                    size="small"
+                    onClick={() => setShowFilters((prev) => !prev)}
+                    color={showFilters ? 'primary' : 'default'}
+                  >
+                    <FilterList />
+                  </IconButton>
+                </Badge>
+              </Tooltip>
+            )}
+            <SortControls
+              options={sortOptions}
+              value={sortField}
+              direction={sortDirection}
+              onValueChange={(v) => setSortField(v as SortField)}
+              onDirectionChange={setSortDirection}
+            />
+          </Stack>
         )}
       </Stack>
 
-      {/* Content Rating Filter (Film libraries only) */}
-      {availableContentRatings.length > 0 && (
-        <FilterChips
-          label={t('library.filter.rating', 'Rating')}
-          options={availableContentRatings}
-          excluded={excludedRatings}
-          onToggle={(rating) => {
-            setExcludedRatings((prev) => {
-              const next = new Set(prev);
-              if (next.has(rating)) {
-                next.delete(rating);
-              } else {
-                next.add(rating);
-              }
-              return next;
-            });
-          }}
-          onClear={() => setExcludedRatings(new Set())}
-          onSelectOnly={(rating) => setExcludedRatings(new Set(availableContentRatings.filter((r) => r !== rating)))}
+      {/* Filter Section (collapsible) */}
+      <Collapse in={showFilters}>
+        {/* Content Rating Filter (Film libraries only) */}
+        {availableContentRatings.length > 0 && (
+          <FilterChips
+            label={t('library.filter.rating', 'Rating')}
+            options={availableContentRatings}
+            excluded={excludedRatings}
+            onToggle={(rating) => {
+              setExcludedRatings((prev) => {
+                const next = new Set(prev);
+                if (next.has(rating)) {
+                  next.delete(rating);
+                } else {
+                  next.add(rating);
+                }
+                return next;
+              });
+            }}
+            onClear={() => setExcludedRatings(new Set())}
+            onSelectOnly={(rating) => setExcludedRatings(new Set(availableContentRatings.filter((r) => r !== rating)))}
+          />
+        )}
+
+        {/* Keyword/Tag Filter */}
+        <KeywordFilter
+          keywords={availableKeywords}
+          selectedKeywords={selectedKeywords}
+          onSelectionChange={setSelectedKeywords}
         />
-      )}
+      </Collapse>
 
       {collections.length === 0 && rootMedia.length === 0 ? (
         <Alert severity="info">{t('library.empty')}</Alert>

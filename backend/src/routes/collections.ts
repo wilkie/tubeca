@@ -50,6 +50,50 @@ router.get('/library/:libraryId', async (req, res) => {
 
 /**
  * @openapi
+ * /api/collections/library/{libraryId}/keywords:
+ *   get:
+ *     tags:
+ *       - Collections
+ *     summary: Get keywords for a library
+ *     description: Get all unique keywords used by collections in a library
+ *     parameters:
+ *       - in: path
+ *         name: libraryId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: List of keywords
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 keywords:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *       500:
+ *         description: Server error
+ */
+router.get('/library/:libraryId/keywords', async (req, res) => {
+  try {
+    const keywords = await collectionService.getKeywordsByLibrary(req.params.libraryId);
+    res.json({ keywords });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch keywords' });
+  }
+});
+
+/**
+ * @openapi
  * /api/collections/{id}:
  *   get:
  *     tags:

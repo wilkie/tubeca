@@ -47,6 +47,7 @@ import type {
   AlbumDetails,
   AlbumCredit,
   Keyword,
+  KeywordsResponse,
   Image,
   ImageType,
   Person,
@@ -128,6 +129,7 @@ export type {
   AlbumDetails,
   AlbumCredit,
   Keyword,
+  KeywordsResponse,
   Image,
   ImageType,
   Person,
@@ -373,6 +375,10 @@ class ApiClient {
   // Collection methods
   async getCollectionsByLibrary(libraryId: string): Promise<ApiResponse<CollectionsResponse>> {
     return this.request<CollectionsResponse>(`/collections/library/${libraryId}`);
+  }
+
+  async getKeywordsByLibrary(libraryId: string): Promise<ApiResponse<KeywordsResponse>> {
+    return this.request<KeywordsResponse>(`/collections/library/${libraryId}/keywords`);
   }
 
   async getCollection(id: string): Promise<ApiResponse<CollectionResponse>> {

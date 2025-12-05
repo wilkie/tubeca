@@ -309,6 +309,10 @@ export interface Keyword {
   name: string
 }
 
+export interface KeywordsResponse {
+  keywords: Keyword[]
+}
+
 export interface Collection {
   id: string
   name: string

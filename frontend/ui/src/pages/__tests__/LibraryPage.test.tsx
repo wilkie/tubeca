@@ -11,6 +11,7 @@ jest.mock('../../api/client', () => ({
   apiClient: {
     getLibrary: jest.fn(),
     getCollectionsByLibrary: jest.fn(),
+    getKeywordsByLibrary: jest.fn().mockResolvedValue({ data: { keywords: [] } }),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
     checkFavorites: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
     checkWatchLater: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
