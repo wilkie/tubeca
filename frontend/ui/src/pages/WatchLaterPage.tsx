@@ -293,6 +293,7 @@ export function WatchLaterPage() {
           excluded={excludedTypes}
           onToggle={toggleTypeFilter}
           onClear={() => setExcludedTypes(new Set())}
+          onSelectOnly={(type) => setExcludedTypes(new Set(availableTypes.filter((t) => t !== type)))}
         />
       )}
 
