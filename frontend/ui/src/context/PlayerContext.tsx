@@ -1,10 +1,17 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react';
+import Hls from 'hls.js';
 import { apiClient, type Media, type TrickplayResolution } from '../api/client';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../components/VideoControls';
 import { MiniPlayer } from '../components/MiniPlayer';
 
 // Types
 export type MiniPlayerPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+export interface QualityOption {
+  name: string;
+  label: string;
+  bandwidth: number;
+}
 
 export interface CurrentMedia {
   id: string;
@@ -27,6 +34,8 @@ interface PlayerContextState {
   isLoading: boolean;
   currentAudioTrack: number | undefined;
   currentSubtitleTrack: number | null;
+  currentQuality: string;
+  availableQualities: QualityOption[];
   mode: 'fullscreen' | 'mini' | 'hidden';
   miniPlayerPosition: MiniPlayerPosition;
 }
@@ -42,10 +51,12 @@ interface PlayerContextActions {
   toggleMute: () => void;
   setAudioTrack: (streamIndex: number) => void;
   setSubtitleTrack: (streamIndex: number | null) => void;
+  setQuality: (quality: string) => void;
   setMode: (mode: 'fullscreen' | 'mini' | 'hidden') => void;
   registerFullscreenContainer: (element: HTMLElement | null) => void;
   registerMouseMoveHandler: (handler: (() => void) | null) => void;
   registerMouseDownHandler: (handler: ((e: React.MouseEvent) => void) | null) => void;
+  registerClickHandler: (handler: (() => void) | null) => void;
   close: () => void;
   setMiniPlayerPosition: (position: MiniPlayerPosition) => void;
 }
@@ -87,12 +98,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number | undefined>(undefined);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState<number | null>(null);
+  const [currentQuality, setCurrentQuality] = useState<string>('auto');
+  const [availableQualities, setAvailableQualities] = useState<QualityOption[]>([]);
   const [mode, setModeState] = useState<'fullscreen' | 'mini' | 'hidden'>('hidden');
   const [miniPlayerPosition, setMiniPlayerPositionState] = useState<MiniPlayerPosition>(loadPosition);
   const [fullscreenContainer, setFullscreenContainer] = useState<HTMLElement | null>(null);
 
   // Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const seekOffset = useRef(0);
   const videoHandlersRef = useRef<{
     timeupdate: () => void;
@@ -104,7 +118,146 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     ended: () => void;
   } | null>(null);
 
-  // Get stream URL
+  // Destroy existing HLS instance
+  const destroyHls = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+  }, []);
+
+  // Initialize HLS playback
+  const initHls = useCallback((mediaId: string, audioTrack?: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    destroyHls();
+
+    const hlsUrl = apiClient.getHlsMasterPlaylistUrl(mediaId, audioTrack);
+
+    if (Hls.isSupported()) {
+      // Get auth token for HLS requests
+      const token = localStorage.getItem('token');
+
+      const hls = new Hls({
+        startPosition: 0,
+        debug: false,
+        // Start at lowest quality to avoid buffering while ABR estimates bandwidth
+        startLevel: 0,
+        // Set a conservative initial bandwidth estimate (1 Mbps)
+        // This helps ABR make better decisions before it has real measurements
+        abrEwmaDefaultEstimate: 1000000,
+        // Increase buffer targets for smoother playback
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        // Add Authorization header to all HLS requests
+        xhrSetup: (xhr) => {
+          if (token) {
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          }
+        },
+      });
+
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+        // Extract available qualities from manifest
+        const qualities: QualityOption[] = data.levels.map((level) => ({
+          name: level.name || `${level.height}p`,
+          label: level.name || `${level.height}p (${Math.round(level.bitrate / 1000)} kbps)`,
+          bandwidth: level.bitrate,
+        }));
+
+        // Add auto option at the beginning
+        qualities.unshift({
+          name: 'auto',
+          label: 'Auto',
+          bandwidth: 0,
+        });
+
+        setAvailableQualities(qualities);
+        setCurrentQuality('auto');
+
+        video.play().catch(() => {
+          // Autoplay might be blocked
+        });
+      });
+
+      // Log when ABR switches quality levels
+      hls.on(Hls.Events.LEVEL_SWITCHING, (_event, data) => {
+        const level = hls.levels[data.level];
+        console.log(`[HLS] Switching to level ${data.level}: ${level?.height}p (${Math.round((level?.bitrate || 0) / 1000)} kbps)`);
+      });
+
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+        const level = hls.levels[data.level];
+        console.log(`[HLS] Switched to level ${data.level}: ${level?.height}p`);
+      });
+
+      // Log buffer and bandwidth stats periodically
+      hls.on(Hls.Events.FRAG_BUFFERED, (_event, data) => {
+        const stats = data.stats;
+        const bwEstimate = hls.bandwidthEstimate;
+        const level = hls.levels[data.frag.level];
+        console.log(
+          `[HLS] Fragment ${data.frag.sn} buffered (${level?.height}p) - ` +
+          `BW estimate: ${Math.round(bwEstimate / 1000)} kbps, ` +
+          `Load: ${Math.round(stats.loading.end - stats.loading.start)}ms, ` +
+          `Parse: ${Math.round(stats.parsing.end - stats.parsing.start)}ms`
+        );
+      });
+
+      // Log when fragment loading starts
+      hls.on(Hls.Events.FRAG_LOADING, (_event, data) => {
+        const level = hls.levels[data.frag.level];
+        console.log(`[HLS] Loading fragment ${data.frag.sn} (${level?.height}p)`);
+      });
+
+      // Log when buffer is flushing (e.g., on seek)
+      hls.on(Hls.Events.BUFFER_FLUSHING, () => {
+        console.log('[HLS] Buffer flushing');
+      });
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        // Log buffer stalls and other non-fatal errors that affect playback
+        if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+          console.warn('[HLS] Buffer stalled - playback may pause');
+        } else if (data.details === Hls.ErrorDetails.BUFFER_NUDGE_ON_STALL) {
+          console.warn('[HLS] Buffer nudge on stall - attempting recovery');
+        }
+
+        if (data.fatal) {
+          console.error('HLS fatal error:', data.type, data.details);
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              // Try to recover network error
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              // Try to recover media error
+              hls.recoverMediaError();
+              break;
+            default:
+              destroyHls();
+              break;
+          }
+        }
+      });
+
+      hlsRef.current = hls;
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native HLS support (Safari)
+      video.src = hlsUrl;
+      video.addEventListener('loadedmetadata', () => {
+        video.play().catch(() => {
+          // Autoplay might be blocked
+        });
+      });
+    }
+  }, [destroyHls]);
+
+  // Get stream URL (legacy fallback for non-video media)
   const getStreamUrl = useCallback((startTime?: number, audioTrack?: number) => {
     if (!currentMedia) return '';
     return apiClient.getVideoStreamUrl(currentMedia.id, startTime, audioTrack);
@@ -242,14 +395,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentAudioTrack(defaultAudioTrack?.streamIndex);
       setCurrentSubtitleTrack(null);
 
-      // Set video source and play
-      const video = videoRef.current;
-      if (video) {
-        video.src = apiClient.getVideoStreamUrl(mediaId, 0, defaultAudioTrack?.streamIndex);
-        video.load();
-        video.play().catch(() => {
-          // Autoplay might be blocked
-        });
+      // Set video source using HLS.js for video content
+      if (media.type === 'Video') {
+        initHls(mediaId, defaultAudioTrack?.streamIndex);
+      } else {
+        // For audio, use direct streaming
+        const video = videoRef.current;
+        if (video) {
+          video.src = apiClient.getVideoStreamUrl(mediaId, 0, defaultAudioTrack?.streamIndex);
+          video.load();
+          video.play().catch(() => {
+            // Autoplay might be blocked
+          });
+        }
       }
 
       setModeState(fullscreenContainer ? 'fullscreen' : 'mini');
@@ -257,7 +415,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       console.error('Failed to load media:', error);
       setIsLoading(false);
     }
-  }, [fullscreenContainer]);
+  }, [fullscreenContainer, initHls]);
 
   const play = useCallback(() => {
     videoRef.current?.play();
@@ -283,21 +441,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const video = videoRef.current;
     if (!video || !currentMedia) return;
 
-    const wasPlaying = isPlaying;
-    setIsLoading(true);
-    seekOffset.current = time;
-    video.src = getStreamUrl(time, currentAudioTrack);
-    video.load();
-    setCurrentTime(time);
+    // With HLS.js, we can use native video seeking - it handles segment fetching
+    if (hlsRef.current || video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.currentTime = time;
+      seekOffset.current = 0; // No offset needed with HLS
+      setCurrentTime(time);
+    } else {
+      // Fallback for non-HLS streams (audio, etc.)
+      const wasPlaying = isPlaying;
+      setIsLoading(true);
+      seekOffset.current = time;
+      video.src = getStreamUrl(time, currentAudioTrack);
+      video.load();
+      setCurrentTime(time);
 
-    const handleCanPlayOnce = () => {
-      video.removeEventListener('canplay', handleCanPlayOnce);
-      setIsLoading(false);
-      if (wasPlaying) {
-        video.play();
-      }
-    };
-    video.addEventListener('canplay', handleCanPlayOnce);
+      const handleCanPlayOnce = () => {
+        video.removeEventListener('canplay', handleCanPlayOnce);
+        setIsLoading(false);
+        if (wasPlaying) {
+          video.play();
+        }
+      };
+      video.addEventListener('canplay', handleCanPlayOnce);
+    }
   }, [currentMedia, isPlaying, currentAudioTrack, getStreamUrl]);
 
   const setVolume = useCallback((newVolume: number) => {
@@ -327,28 +493,111 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const video = videoRef.current;
     if (!video || !currentMedia) return;
 
-    setCurrentAudioTrack(streamIndex);
-
     const wasPlaying = isPlaying;
     const currentPosition = video.currentTime + seekOffset.current;
+    setCurrentAudioTrack(streamIndex);
     setIsLoading(true);
-    seekOffset.current = currentPosition;
 
-    video.src = getStreamUrl(currentPosition, streamIndex);
-    video.load();
+    // For HLS streams, reload with new audio track
+    if (hlsRef.current || currentMedia.type === 'Video') {
+      // Store position and current quality level before destroying HLS
+      const seekPosition = currentPosition;
+      const currentLevel = hlsRef.current?.currentLevel ?? -1;
+      destroyHls();
 
-    const handleCanPlayOnce = () => {
-      video.removeEventListener('canplay', handleCanPlayOnce);
-      setIsLoading(false);
-      if (wasPlaying) {
-        video.play();
+      const hlsUrl = apiClient.getHlsMasterPlaylistUrl(currentMedia.id, streamIndex);
+
+      if (Hls.isSupported()) {
+        // Get auth token for HLS requests
+        const token = localStorage.getItem('token');
+
+        const hls = new Hls({
+          startPosition: seekPosition,
+          debug: false,
+          // Use same level as before the switch, or start low for auto
+          startLevel: currentLevel >= 0 ? currentLevel : 0,
+          abrEwmaDefaultEstimate: 1000000,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          // Add Authorization header to all HLS requests
+          xhrSetup: (xhr) => {
+            if (token) {
+              xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            }
+          },
+        });
+
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          // Restore the quality setting
+          if (currentQuality === 'auto') {
+            hls.currentLevel = -1;
+          } else if (currentLevel >= 0) {
+            hls.currentLevel = currentLevel;
+          }
+          setIsLoading(false);
+          if (wasPlaying) {
+            video.play().catch(() => {});
+          }
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            console.error('HLS error on audio track switch:', data.type, data.details);
+          }
+        });
+
+        hlsRef.current = hls;
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = hlsUrl;
+        video.currentTime = seekPosition;
+        video.addEventListener('canplay', () => {
+          setIsLoading(false);
+          if (wasPlaying) {
+            video.play().catch(() => {});
+          }
+        }, { once: true });
       }
-    };
-    video.addEventListener('canplay', handleCanPlayOnce);
-  }, [currentMedia, isPlaying, getStreamUrl]);
+    } else {
+      // Fallback for non-HLS streams
+      seekOffset.current = currentPosition;
+      video.src = getStreamUrl(currentPosition, streamIndex);
+      video.load();
+
+      const handleCanPlayOnce = () => {
+        video.removeEventListener('canplay', handleCanPlayOnce);
+        setIsLoading(false);
+        if (wasPlaying) {
+          video.play();
+        }
+      };
+      video.addEventListener('canplay', handleCanPlayOnce);
+    }
+  }, [currentMedia, isPlaying, currentQuality, getStreamUrl, destroyHls]);
 
   const setSubtitleTrack = useCallback((streamIndex: number | null) => {
     setCurrentSubtitleTrack(streamIndex);
+  }, []);
+
+  const setQuality = useCallback((quality: string) => {
+    if (!hlsRef.current) return;
+
+    setCurrentQuality(quality);
+
+    if (quality === 'auto') {
+      // Enable automatic quality selection
+      hlsRef.current.currentLevel = -1;
+    } else {
+      // Find the level index matching the quality name
+      const levelIndex = hlsRef.current.levels.findIndex(
+        (level) => level.name === quality || `${level.height}p` === quality
+      );
+      if (levelIndex >= 0) {
+        hlsRef.current.currentLevel = levelIndex;
+      }
+    }
   }, []);
 
   const setMode = useCallback((newMode: 'fullscreen' | 'mini' | 'hidden') => {
@@ -365,6 +614,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [currentMedia]);
 
   const close = useCallback(() => {
+    // Clean up HLS instance
+    destroyHls();
+
     const video = videoRef.current;
     if (video) {
       video.pause();
@@ -373,8 +625,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCurrentMedia(null);
     setModeState('hidden');
     setCurrentTime(0);
+    setAvailableQualities([]);
+    setCurrentQuality('auto');
     seekOffset.current = 0;
-  }, []);
+  }, [destroyHls]);
 
   const setMiniPlayerPosition = useCallback((position: MiniPlayerPosition) => {
     setMiniPlayerPositionState(position);
@@ -401,6 +655,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const handleVideoMouseDown = useCallback((e: React.MouseEvent) => {
     mouseDownHandlerRef.current?.(e);
+  }, []);
+
+  // Click handler for video element (for play/pause toggle)
+  const clickHandlerRef = useRef<(() => void) | null>(null);
+
+  const registerClickHandler = useCallback((handler: (() => void) | null) => {
+    clickHandlerRef.current = handler;
+  }, []);
+
+  const handleVideoClick = useCallback(() => {
+    clickHandlerRef.current?.();
   }, []);
 
   // Video element - always rendered in same location to prevent reload on mode switch
@@ -439,6 +704,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     isLoading,
     currentAudioTrack,
     currentSubtitleTrack,
+    currentQuality,
+    availableQualities,
     mode,
     miniPlayerPosition,
     playMedia,
@@ -451,10 +718,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     toggleMute,
     setAudioTrack,
     setSubtitleTrack,
+    setQuality,
     setMode,
     registerFullscreenContainer,
     registerMouseMoveHandler,
     registerMouseDownHandler,
+    registerClickHandler,
     close,
     setMiniPlayerPosition,
   };
@@ -495,6 +764,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       {/* Video container - always exists, moved via DOM manipulation */}
       <div
         ref={videoContainerRef}
+        onClick={handleVideoClick}
         onMouseDown={handleVideoMouseDown}
         onMouseMove={handleVideoMouseMove}
         style={{

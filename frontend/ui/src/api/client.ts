@@ -459,6 +459,37 @@ class ApiClient {
     return `${API_BASE}/stream/subtitles/${mediaId}?token=${token}&streamIndex=${streamIndex}`;
   }
 
+  // HLS streaming URLs
+  getHlsMasterPlaylistUrl(mediaId: string, audioTrack?: number): string {
+    const token = this.getToken();
+    let url = `${API_BASE}/stream/hls/${mediaId}/master.m3u8?token=${token}`;
+    if (audioTrack !== undefined) {
+      url += `&audioTrack=${audioTrack}`;
+    }
+    return url;
+  }
+
+  getHlsVariantPlaylistUrl(mediaId: string, quality: string, audioTrack?: string): string {
+    const token = this.getToken();
+    let url = `${API_BASE}/stream/hls/${mediaId}/${quality}.m3u8?token=${token}`;
+    if (audioTrack) {
+      url += `&audioTrack=${audioTrack}`;
+    }
+    return url;
+  }
+
+  async getHlsQualities(mediaId: string): Promise<ApiResponse<{
+    qualities: Array<{
+      name: string;
+      label: string;
+      width: number | null;
+      height: number | null;
+      bitrate: number | null;
+    }>;
+  }>> {
+    return this.request(`/stream/hls/${mediaId}/qualities`);
+  }
+
   hasToken(): boolean {
     return !!this.getToken();
   }

@@ -6,10 +6,12 @@ import sharp from 'sharp';
 import { authenticate } from '../middleware/auth';
 import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
+import { HlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
 
 const router = Router();
 const mediaService = new MediaService();
 const authService = new AuthService();
+const hlsService = new HlsService();
 
 // Custom auth middleware that also accepts token via query parameter
 // This is needed because <video> elements can't set Authorization headers
@@ -647,6 +649,286 @@ router.get('/trickplay/:id/:width/:index', async (req, res) => {
   } catch (error) {
     console.error('Trickplay sprite error:', error);
     return res.status(500).json({ error: 'Failed to get trickplay sprite' });
+  }
+});
+
+// ============================================
+// HLS Streaming Routes
+// ============================================
+
+/**
+ * @openapi
+ * /api/stream/hls/{id}/master.m3u8:
+ *   get:
+ *     tags:
+ *       - Streaming
+ *     summary: Get HLS master playlist
+ *     description: Returns master playlist listing all available quality levels
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: JWT token (alternative to Authorization header)
+ *       - in: query
+ *         name: audioTrack
+ *         schema:
+ *           type: integer
+ *         description: Audio stream index to use
+ *     responses:
+ *       200:
+ *         description: HLS master playlist
+ *         content:
+ *           application/vnd.apple.mpegurl:
+ *             schema:
+ *               type: string
+ *       404:
+ *         description: Media not found
+ */
+router.get('/hls/:id/master.m3u8', async (req, res) => {
+  try {
+    const audioTrack = req.query.audioTrack !== undefined
+      ? parseInt(req.query.audioTrack as string, 10)
+      : undefined;
+
+    const playlist = await hlsService.generateMasterPlaylist(req.params.id, audioTrack);
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(playlist);
+  } catch (error) {
+    console.error('HLS master playlist error:', error);
+    if ((error as Error).message === 'Media not found') {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+    return res.status(500).json({ error: 'Failed to generate master playlist' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/stream/hls/{id}/{quality}.m3u8:
+ *   get:
+ *     tags:
+ *       - Streaming
+ *     summary: Get HLS variant playlist
+ *     description: Returns variant playlist for a specific quality level
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: quality
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [original, 1080p, 720p, 480p, 360p]
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: JWT token
+ *       - in: query
+ *         name: audioTrack
+ *         schema:
+ *           type: string
+ *         description: Audio track identifier
+ *     responses:
+ *       200:
+ *         description: HLS variant playlist
+ *         content:
+ *           application/vnd.apple.mpegurl:
+ *             schema:
+ *               type: string
+ *       404:
+ *         description: Media not found
+ */
+router.get('/hls/:id/:quality.m3u8', async (req, res) => {
+  try {
+    const { id, quality } = req.params;
+    const audioTrack = (req.query.audioTrack as string) || 'default';
+
+    // Validate quality
+    if (quality !== ORIGINAL_QUALITY && !QUALITY_PRESETS[quality]) {
+      return res.status(400).json({ error: 'Invalid quality level' });
+    }
+
+    const playlist = await hlsService.generateVariantPlaylist(id, quality, audioTrack);
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(playlist);
+  } catch (error) {
+    console.error('HLS variant playlist error:', error);
+    if ((error as Error).message === 'Media not found') {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+    return res.status(500).json({ error: 'Failed to generate variant playlist' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/stream/hls/{id}/{quality}/{segment}.ts:
+ *   get:
+ *     tags:
+ *       - Streaming
+ *     summary: Get HLS segment
+ *     description: Returns a specific video segment (generates on-demand if not cached)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: quality
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [original, 1080p, 720p, 480p, 360p]
+ *       - in: path
+ *         name: segment
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Segment index (0, 1, 2, etc.)
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: JWT token
+ *       - in: query
+ *         name: audioTrack
+ *         schema:
+ *           type: string
+ *         description: Audio track identifier
+ *     responses:
+ *       200:
+ *         description: MPEG-TS segment
+ *         content:
+ *           video/mp2t:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       404:
+ *         description: Segment not found
+ */
+router.get('/hls/:id/:quality/:segment.ts', async (req, res) => {
+  try {
+    const { id, quality, segment } = req.params;
+    const audioTrack = (req.query.audioTrack as string) || 'default';
+    const segmentIndex = parseInt(segment, 10);
+
+    // Validate quality
+    if (quality !== ORIGINAL_QUALITY && !QUALITY_PRESETS[quality]) {
+      return res.status(400).json({ error: 'Invalid quality level' });
+    }
+
+    if (isNaN(segmentIndex) || segmentIndex < 0) {
+      return res.status(400).json({ error: 'Invalid segment index' });
+    }
+
+    const segmentPath = await hlsService.getSegment(id, quality, segmentIndex, audioTrack);
+
+    if (!segmentPath) {
+      return res.status(404).json({ error: 'Segment not found' });
+    }
+
+    const stat = fs.statSync(segmentPath);
+    res.setHeader('Content-Type', 'video/mp2t');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache segments for 1 hour
+
+    fs.createReadStream(segmentPath).pipe(res);
+  } catch (error) {
+    console.error('HLS segment error:', error);
+    return res.status(500).json({ error: 'Failed to get segment' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/stream/hls/{id}/qualities:
+ *   get:
+ *     tags:
+ *       - Streaming
+ *     summary: Get available qualities
+ *     description: Returns list of available quality levels for a media item
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: JWT token
+ *     responses:
+ *       200:
+ *         description: Available qualities
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 qualities:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       name:
+ *                         type: string
+ *                       label:
+ *                         type: string
+ *                       width:
+ *                         type: integer
+ *                       height:
+ *                         type: integer
+ *                       bitrate:
+ *                         type: integer
+ */
+router.get('/hls/:id/qualities', async (req, res) => {
+  try {
+    const availableQualities = await hlsService.getAvailableQualities(req.params.id);
+
+    const qualities = availableQualities.map(q => {
+      if (q === ORIGINAL_QUALITY) {
+        return {
+          name: ORIGINAL_QUALITY,
+          label: 'Original',
+          width: null,
+          height: null,
+          bitrate: null,
+        };
+      }
+      const preset = QUALITY_PRESETS[q];
+      return {
+        name: q,
+        label: preset.label,
+        width: preset.width,
+        height: preset.height,
+        bitrate: preset.videoBitrate + preset.audioBitrate,
+      };
+    });
+
+    res.json({ qualities });
+  } catch (error) {
+    console.error('HLS qualities error:', error);
+    return res.status(500).json({ error: 'Failed to get qualities' });
   }
 });
 

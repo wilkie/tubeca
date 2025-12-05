@@ -45,6 +45,7 @@ const mockSetSubtitleTrack = jest.fn();
 const mockRegisterFullscreenContainer = jest.fn();
 const mockRegisterMouseMoveHandler = jest.fn();
 const mockRegisterMouseDownHandler = jest.fn();
+const mockRegisterClickHandler = jest.fn();
 
 let mockPlayerState = {
   currentMedia: null as null | {
@@ -86,6 +87,7 @@ jest.mock('../../context/PlayerContext', () => ({
     registerFullscreenContainer: mockRegisterFullscreenContainer,
     registerMouseMoveHandler: mockRegisterMouseMoveHandler,
     registerMouseDownHandler: mockRegisterMouseDownHandler,
+    registerClickHandler: mockRegisterClickHandler,
     close: jest.fn(),
     setMiniPlayerPosition: jest.fn(),
   }),
