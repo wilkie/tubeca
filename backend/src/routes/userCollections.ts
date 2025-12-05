@@ -119,6 +119,11 @@ router.get('/favorites', async (req: Request, res) => {
  *         schema:
  *           type: string
  *         description: Comma-separated media IDs to check
+ *       - in: query
+ *         name: userCollectionIds
+ *         schema:
+ *           type: string
+ *         description: Comma-separated user collection IDs to check
  *     responses:
  *       200:
  *         description: Favorite status for requested items
@@ -135,6 +140,10 @@ router.get('/favorites', async (req: Request, res) => {
  *                   type: array
  *                   items:
  *                     type: string
+ *                 userCollectionIds:
+ *                   type: array
+ *                   items:
+ *                     type: string
  */
 router.get('/favorites/check', async (req: Request, res) => {
   try {
@@ -144,11 +153,15 @@ router.get('/favorites/check', async (req: Request, res) => {
     const mediaIds = req.query.mediaIds
       ? (req.query.mediaIds as string).split(',').filter(Boolean)
       : undefined;
+    const userCollectionIds = req.query.userCollectionIds
+      ? (req.query.userCollectionIds as string).split(',').filter(Boolean)
+      : undefined;
 
     const result = await userCollectionService.checkFavorites(
       req.user!.userId,
       collectionIds,
-      mediaIds
+      mediaIds,
+      userCollectionIds
     );
     res.json(result);
   } catch {
@@ -177,6 +190,9 @@ router.get('/favorites/check', async (req: Request, res) => {
  *               mediaId:
  *                 type: string
  *                 format: uuid
+ *               userCollectionId:
+ *                 type: string
+ *                 format: uuid
  *     responses:
  *       200:
  *         description: Toggle result
@@ -192,10 +208,10 @@ router.get('/favorites/check', async (req: Request, res) => {
  */
 router.post('/favorites/toggle', async (req: Request, res) => {
   try {
-    const { collectionId, mediaId } = req.body;
+    const { collectionId, mediaId, userCollectionId } = req.body;
     const result = await userCollectionService.toggleFavorite(
       req.user!.userId,
-      { collectionId, mediaId }
+      { collectionId, mediaId, userCollectionId }
     );
     res.json(result);
   } catch (error) {
@@ -721,7 +737,7 @@ router.delete('/:id', async (req: Request, res) => {
  *     tags:
  *       - User Collections
  *     summary: Add item to collection
- *     description: Add a collection or media item to a user collection (owner only)
+ *     description: Add a collection, media item, or user collection to a user collection (owner only)
  *     parameters:
  *       - in: path
  *         name: id
@@ -744,6 +760,10 @@ router.delete('/:id', async (req: Request, res) => {
  *                 type: string
  *                 format: uuid
  *                 description: ID of a media item (episode, track, etc.)
+ *               userCollectionId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: ID of another user collection
  *     responses:
  *       201:
  *         description: Item added
@@ -763,12 +783,12 @@ router.delete('/:id', async (req: Request, res) => {
  */
 router.post('/:id/items', async (req: Request, res) => {
   try {
-    const { collectionId, mediaId } = req.body;
+    const { collectionId, mediaId, userCollectionId } = req.body;
 
     const item = await userCollectionService.addItem(
       req.params.id,
       req.user!.userId,
-      { collectionId, mediaId }
+      { collectionId, mediaId, userCollectionId }
     );
 
     res.status(201).json({ item });
@@ -777,7 +797,7 @@ router.post('/:id/items', async (req: Request, res) => {
     if (message.includes('not found') || message.includes('access denied')) {
       return res.status(404).json({ error: message });
     }
-    if (message.includes('already exists') || message.includes('Exactly one')) {
+    if (message.includes('already exists') || message.includes('Exactly one') || message.includes('Cannot add')) {
       return res.status(400).json({ error: message });
     }
     res.status(500).json({ error: message });

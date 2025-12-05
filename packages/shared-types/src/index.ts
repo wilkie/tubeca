@@ -673,8 +673,10 @@ export interface UserCollectionItem {
   userCollectionId: string
   collectionId: string | null
   mediaId: string | null
+  itemUserCollectionId: string | null
   collection?: UserCollectionItemCollection | null
   media?: UserCollectionItemMedia | null
+  itemUserCollection?: UserCollectionItemUserCollection | null
 }
 
 export interface UserCollectionItemCollection {
@@ -714,6 +716,15 @@ export interface UserCollectionItemMedia {
   } | null
 }
 
+export interface UserCollectionItemUserCollection {
+  id: string
+  name: string
+  description: string | null
+  isPublic: boolean
+  _count?: { items: number }
+  user?: { id: string; name: string }
+}
+
 export interface UserCollectionsResponse {
   userCollections: UserCollection[]
 }
@@ -741,12 +752,14 @@ export interface UpdateUserCollectionInput {
 export interface AddUserCollectionItemInput {
   collectionId?: string
   mediaId?: string
+  userCollectionId?: string
 }
 
 // Favorites types
 export interface CheckFavoritesResponse {
   collectionIds: string[]
   mediaIds: string[]
+  userCollectionIds: string[]
 }
 
 export interface ToggleFavoriteResponse {
