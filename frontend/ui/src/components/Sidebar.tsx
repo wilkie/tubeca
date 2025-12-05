@@ -98,8 +98,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           ))
         )}
 
+        {/* Collections section */}
+        <ListSubheader sx={{ mt: 2 }}>{t('nav.collectionsSection')}</ListSubheader>
+
         {/* Favorites */}
-        <ListItem disablePadding sx={{ mt: 1 }}>
+        <ListItem disablePadding>
           <ListItemButton
             selected={location.pathname === '/favorites'}
             onClick={() => handleNavigate('/favorites')}
