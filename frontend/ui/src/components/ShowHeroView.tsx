@@ -33,7 +33,8 @@ import {
 } from '@mui/icons-material';
 import { apiClient, type Collection, type ShowCredit, type Image, type UserCollection } from '../api/client';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
-import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
+import { StickyHeroBreadcrumbs } from './StickyHeroBreadcrumbs';
+import type { BreadcrumbItem } from './CollectionBreadcrumbs';
 import { FavoriteButton } from './FavoriteButton';
 import { WatchLaterButton } from './WatchLaterButton';
 import { CardQuickActions } from './CardQuickActions';
@@ -198,16 +199,14 @@ export function ShowHeroView({
 
   return (
     <>
+      <StickyHeroBreadcrumbs
+        breadcrumbs={breadcrumbs}
+        currentName={collection.name}
+        onNavigate={onBreadcrumbNavigate}
+      />
       <HeroSection backdropImageId={backdropImage?.id}>
-        {/* Breadcrumbs */}
-        <Box sx={{ position: 'relative', zIndex: 2, px: 3, pt: 2 }}>
-          <CollectionBreadcrumbs
-            breadcrumbs={breadcrumbs}
-            currentName={collection.name}
-            onNavigate={onBreadcrumbNavigate}
-            variant="hero"
-          />
-        </Box>
+        {/* Spacer for sticky breadcrumbs */}
+        <Box sx={{ pt: 6 }} />
 
         {/* Description */}
         {showDetails?.description && (
