@@ -61,9 +61,30 @@ export class CollectionService {
             releaseDate: true,
           },
         },
+        keywords: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
       orderBy: { name: 'asc' },
     });
+  }
+
+  async getKeywordsByLibrary(libraryId: string) {
+    // Get all unique keywords used by collections in this library
+    const keywords = await prisma.keyword.findMany({
+      where: {
+        collections: {
+          some: {
+            libraryId,
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+    return keywords;
   }
 
   async getCollectionById(id: string) {

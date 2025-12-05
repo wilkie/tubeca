@@ -96,7 +96,11 @@
     },
     "filter": {
       "rating": "Rating",
-      "clearAll": "Clear"
+      "tags": "Tags",
+      "searchTags": "Search tags...",
+      "noTags": "No tags found",
+      "clearAll": "Clear",
+      "toggle": "Toggle filters"
     }
   },
   "collection": {
