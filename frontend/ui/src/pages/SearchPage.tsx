@@ -218,6 +218,7 @@ export function SearchPage() {
                 <IconButton
                   onClick={() => setShowFilters((prev) => !prev)}
                   color={showFilters ? 'primary' : 'default'}
+                  aria-label={t('library.filter.toggle', 'Toggle filters')}
                 >
                   <FilterList />
                 </IconButton>

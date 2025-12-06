@@ -164,8 +164,9 @@ export function UserCollectionsPage() {
       <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={collection.id}>
         <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <CardActionArea
+            component="div"
             onClick={() => handleCollectionClick(collection.id)}
-            sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+            sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch', cursor: 'pointer' }}
           >
             <CardContent sx={{ flexGrow: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
