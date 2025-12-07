@@ -197,6 +197,11 @@
       "start": "Start"
     }
   },
+  "view": {
+    "toggle": "Change view",
+    "poster": "Poster",
+    "list": "List"
+  },
   "userCollections": {
     "title": "My Collections",
     "publicCollections": "Public Collections",

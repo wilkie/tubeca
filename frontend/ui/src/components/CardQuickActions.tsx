@@ -19,6 +19,8 @@ interface CardQuickActionsProps {
   initialFavorited?: boolean;
   initialInWatchLater?: boolean;
   onAddToCollection?: () => void;
+  /** 'overlay' (default) - absolute positioned in top-right corner, 'inline' - static layout for list views */
+  variant?: 'overlay' | 'inline';
 }
 
 export function CardQuickActions({
@@ -27,6 +29,7 @@ export function CardQuickActions({
   initialFavorited = false,
   initialInWatchLater = false,
   onAddToCollection,
+  variant = 'overlay',
 }: CardQuickActionsProps) {
   const { t } = useTranslation();
   const [isFavorited, setIsFavorited] = useState(initialFavorited);
@@ -117,74 +120,91 @@ export function CardQuickActions({
     ? t('watchLater.removeFromWatchLater', 'Remove from Watch Later')
     : t('watchLater.addToWatchLater', 'Add to Watch Later');
 
+  const isOverlay = variant === 'overlay';
+
+  // Button styles based on variant
+  const buttonSize = isOverlay ? 32 : 40;
+  const iconSize = isOverlay ? 'small' : 18;
+  const buttonSx = isOverlay
+    ? {
+        bgcolor: 'rgba(0,0,0,0.6)',
+        '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
+        width: buttonSize,
+        height: buttonSize,
+        minWidth: buttonSize,
+        padding: 0,
+      }
+    : {
+        width: buttonSize,
+        height: buttonSize,
+        minWidth: buttonSize,
+        padding: 0,
+        borderRadius: 0.5,
+      };
+
   return (
     <Box
       sx={{
-        position: 'absolute',
-        top: 4,
-        right: 4,
+        ...(isOverlay
+          ? {
+              position: 'absolute',
+              top: 4,
+              right: 4,
+              opacity: 0,
+              transition: 'opacity 0.2s',
+              '.MuiCard-root:hover &': {
+                opacity: 1,
+              },
+            }
+          : {
+              position: 'relative',
+            }),
         display: 'flex',
         flexDirection: 'column',
+        alignItems: 'center',
         gap: 0.5,
-        opacity: 0,
-        transition: 'opacity 0.2s',
-        '.MuiCard-root:hover &': {
-          opacity: 1,
-        },
       }}
     >
       <Tooltip title={favoriteTooltip} placement="left">
         <span>
           <IconButton
-            size="small"
             onClick={handleToggleFavorite}
             disabled={isTogglingFavorite}
             sx={{
-              bgcolor: 'rgba(0,0,0,0.6)',
-              color: isFavorited ? 'error.main' : 'white',
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
-              width: 32,
-              height: 32,
+              ...buttonSx,
+              color: isFavorited ? 'error.main' : (isOverlay ? 'white' : 'action.active'),
             }}
           >
-            {isFavorited ? <Favorite fontSize="small" /> : <FavoriteBorder fontSize="small" />}
+            {isFavorited ? <Favorite sx={{ fontSize: iconSize }} /> : <FavoriteBorder sx={{ fontSize: iconSize }} />}
           </IconButton>
         </span>
       </Tooltip>
       <Tooltip title={watchLaterTooltip} placement="left">
         <span>
           <IconButton
-            size="small"
             onClick={handleToggleWatchLater}
             disabled={isTogglingWatchLater}
             sx={{
-              bgcolor: 'rgba(0,0,0,0.6)',
-              color: isInWatchLater ? 'primary.main' : 'white',
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
-              width: 32,
-              height: 32,
+              ...buttonSx,
+              color: isInWatchLater ? 'primary.main' : (isOverlay ? 'white' : 'action.active'),
             }}
           >
-            {isInWatchLater ? <WatchLater fontSize="small" /> : <WatchLaterOutlined fontSize="small" />}
+            {isInWatchLater ? <WatchLater sx={{ fontSize: iconSize }} /> : <WatchLaterOutlined sx={{ fontSize: iconSize }} />}
           </IconButton>
         </span>
       </Tooltip>
       <Tooltip title={t('userCollections.addToCollection', 'Add to Collection')} placement="left">
         <IconButton
-          size="small"
           onClick={handleAddMenuClick}
           aria-controls={addMenuOpen ? 'card-add-menu' : undefined}
           aria-haspopup="true"
           aria-expanded={addMenuOpen ? 'true' : undefined}
           sx={{
-            bgcolor: 'rgba(0,0,0,0.6)',
-            color: 'white',
-            '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },
-            width: 32,
-            height: 32,
+            ...buttonSx,
+            color: isOverlay ? 'white' : 'action.active',
           }}
         >
-          <Add fontSize="small" />
+          <Add sx={{ fontSize: iconSize }} />
         </IconButton>
       </Tooltip>
       <Menu
