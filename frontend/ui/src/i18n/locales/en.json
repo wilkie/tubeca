@@ -20,7 +20,8 @@
     "account": "Account",
     "menu": "Menu",
     "favorites": "Favorites",
-    "watchLater": "Watch Later"
+    "watchLater": "Watch Later",
+    "queue": "Playback Queue"
   },
   "nav": {
     "settings": "Settings",
