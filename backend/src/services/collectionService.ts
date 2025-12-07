@@ -56,6 +56,7 @@ export class CollectionService {
           select: {
             releaseDate: true,
             rating: true,
+            description: true,
           },
         },
         filmDetails: {
@@ -64,6 +65,7 @@ export class CollectionService {
             rating: true,
             runtime: true,
             contentRating: true,
+            description: true,
           },
         },
         albumDetails: {
@@ -198,6 +200,7 @@ export class CollectionService {
           select: {
             releaseDate: true,
             rating: true,
+            description: true,
           },
         },
         filmDetails: {
@@ -206,6 +209,7 @@ export class CollectionService {
             rating: true,
             runtime: true,
             contentRating: true,
+            description: true,
           },
         },
         albumDetails: {

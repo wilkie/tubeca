@@ -18,13 +18,14 @@ import {
   Tooltip,
   Badge,
 } from '@mui/material';
-import { Folder, Movie, Tv, Album, FilterList, Clear } from '@mui/icons-material';
+import { Folder, Movie, Tv, Album, FilterList, Clear, PlayArrow } from '@mui/icons-material';
 import { apiClient, type Library, type Collection, type Keyword } from '../api/client';
 import { CardQuickActions } from '../components/CardQuickActions';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
 import { FilterChips } from '../components/FilterChips';
 import { KeywordFilter } from '../components/KeywordFilter';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
+import { ViewModeMenu, type ViewMode } from '../components/ViewModeMenu';
 
 type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
 
@@ -65,6 +66,7 @@ export function LibraryPage() {
   const [selectedCollectionForAdd, setSelectedCollectionForAdd] = useState<Collection | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [badgeHovered, setBadgeHovered] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('poster');
 
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -262,6 +264,43 @@ export function LibraryPage() {
     setAddToCollectionOpen(true);
   };
 
+  const handlePlay = async (collectionId: string) => {
+    // Fetch the collection to get its media
+    const result = await apiClient.getCollection(collectionId);
+    if (!result.data) return;
+
+    const col = result.data.collection;
+    let mediaId: string | null = null;
+
+    // For films, play the first media item directly
+    if (col.media && col.media.length > 0) {
+      mediaId = col.media[0].id;
+    }
+    // For shows, get the first episode from the first season
+    else if (col.children && col.children.length > 0) {
+      // Sort seasons by name to get first season
+      const sortedSeasons = [...col.children].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      const firstSeason = sortedSeasons[0];
+
+      // Fetch the season to get its episodes
+      const seasonResult = await apiClient.getCollection(firstSeason.id);
+      if (seasonResult.data?.collection.media && seasonResult.data.collection.media.length > 0) {
+        // Sort episodes by episode number
+        const sortedEpisodes = [...seasonResult.data.collection.media].sort((a, b) => {
+          const aNum = a.videoDetails?.episode ?? 0;
+          const bNum = b.videoDetails?.episode ?? 0;
+          return aNum - bNum;
+        });
+        mediaId = sortedEpisodes[0].id;
+      }
+    }
+
+    if (mediaId) {
+      await apiClient.setPlaybackQueue([{ mediaId }]);
+      navigate(`/play/${mediaId}`);
+    }
+  };
+
   // Lazy load keywords when filter panel is opened for the first time
   const handleToggleFilters = async () => {
     const willOpen = !showFilters;
@@ -376,6 +415,7 @@ export function LibraryPage() {
               </Tooltip>
             );
           })()}
+          <ViewModeMenu value={viewMode} onChange={setViewMode} />
           <SortControls
             options={sortOptions}
             value={sortField}
@@ -453,144 +493,293 @@ export function LibraryPage() {
                 <CircularProgress />
               </Box>
             )}
-            <Grid container spacing={2}>
-            {collections.map((collection) => {
-              const primaryImage = collection.images?.[0];
-              const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
+            {viewMode === 'poster' ? (
+              <Grid container spacing={2}>
+                {collections.map((collection) => {
+                  const primaryImage = collection.images?.[0];
+                  const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
 
-              // Get rating info from showDetails or filmDetails
-              const rating = collection.filmDetails?.rating ?? collection.showDetails?.rating;
-              const contentRating = collection.filmDetails?.contentRating;
-              const hasRatingInfo = rating != null || contentRating != null;
+                  // Get rating info from showDetails or filmDetails
+                  const rating = collection.filmDetails?.rating ?? collection.showDetails?.rating;
+                  const contentRating = collection.filmDetails?.contentRating;
+                  const hasRatingInfo = rating != null || contentRating != null;
 
-              return (
-                <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
-                  <Card
-                    sx={{
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      position: 'relative',
-                      '&:hover .rating-overlay': {
-                        opacity: 1,
-                      },
-                    }}
-                  >
-                    <CardActionArea
-                      onClick={() => handleCollectionClick(collection.id)}
-                      sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
-                    >
-                      {/* Rating overlay (visible on hover) */}
-                      {hasRatingInfo && (
-                        <Box
-                          className="rating-overlay"
-                          sx={{
-                            position: 'absolute',
-                            top: 8,
-                            left: 8,
-                            zIndex: 2,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 0.5,
-                            opacity: 0,
-                            transition: 'opacity 0.2s ease-in-out',
-                          }}
+                  return (
+                    <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
+                      <Card
+                        sx={{
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          position: 'relative',
+                          '&:hover .rating-overlay': {
+                            opacity: 1,
+                          },
+                        }}
+                      >
+                        <CardActionArea
+                          onClick={() => handleCollectionClick(collection.id)}
+                          sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                         >
-                          {contentRating && (
+                          {/* Rating overlay (visible on hover) */}
+                          {hasRatingInfo && (
                             <Box
+                              className="rating-overlay"
                               sx={{
-                                bgcolor: 'rgba(0, 0, 0, 0.75)',
-                                color: 'white',
-                                px: 1,
-                                py: 0.25,
-                                borderRadius: 0.5,
-                                fontSize: '0.7rem',
-                                fontWeight: 600,
+                                position: 'absolute',
+                                top: 8,
+                                left: 8,
+                                zIndex: 2,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 0.5,
+                                opacity: 0,
+                                transition: 'opacity 0.2s ease-in-out',
                               }}
                             >
-                              {contentRating}
+                              {contentRating && (
+                                <Box
+                                  sx={{
+                                    bgcolor: 'rgba(0, 0, 0, 0.75)',
+                                    color: 'white',
+                                    px: 1,
+                                    py: 0.25,
+                                    borderRadius: 0.5,
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  {contentRating}
+                                </Box>
+                              )}
+                              {rating != null && (
+                                <Box
+                                  sx={{
+                                    bgcolor: 'rgba(0, 0, 0, 0.75)',
+                                    color: 'white',
+                                    px: 1,
+                                    py: 0.25,
+                                    borderRadius: 0.5,
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 0.5,
+                                  }}
+                                >
+                                  ★ {rating.toFixed(1)}
+                                </Box>
+                              )}
                             </Box>
                           )}
-                          {rating != null && (
+                          {hasImage ? (
+                            <CardMedia
+                              component="img"
+                              image={apiClient.getImageUrl(primaryImage.id)}
+                              alt={collection.name}
+                              sx={{
+                                aspectRatio: '2/3',
+                                objectFit: 'cover',
+                              }}
+                            />
+                          ) : (
                             <Box
                               sx={{
-                                bgcolor: 'rgba(0, 0, 0, 0.75)',
-                                color: 'white',
-                                px: 1,
-                                py: 0.25,
-                                borderRadius: 0.5,
-                                fontSize: '0.7rem',
-                                fontWeight: 600,
+                                aspectRatio: '2/3',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: 0.5,
+                                justifyContent: 'center',
+                                bgcolor: 'action.hover',
                               }}
                             >
-                              ★ {rating.toFixed(1)}
+                              {library.libraryType === 'Film' ? (
+                                <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
+                              ) : library.libraryType === 'Television' ? (
+                                <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
+                              ) : library.libraryType === 'Music' ? (
+                                <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
+                              ) : (
+                                <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
+                              )}
                             </Box>
                           )}
-                        </Box>
-                      )}
-                      {hasImage ? (
-                        <CardMedia
-                          component="img"
-                          image={apiClient.getImageUrl(primaryImage.id)}
-                          alt={collection.name}
-                          sx={{
-                            aspectRatio: '2/3',
-                            objectFit: 'cover',
-                          }}
+                          <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                            <Typography variant="body2" noWrap title={collection.name}>
+                              {collection.name}
+                            </Typography>
+                            {library.libraryType !== 'Film' && collection._count && (
+                              <Typography variant="caption" color="text.secondary">
+                                {collection._count.children > 0 &&
+                                  (collection.collectionType === 'Show'
+                                    ? t('library.seasons', { count: collection._count.children })
+                                    : t('library.folders', { count: collection._count.children }))}
+                                {collection._count.children > 0 && collection._count.media > 0 && ' | '}
+                                {collection._count.media > 0 &&
+                                  t('library.items', { count: collection._count.media })}
+                              </Typography>
+                            )}
+                          </CardContent>
+                        </CardActionArea>
+                        <CardQuickActions
+                          collectionId={collection.id}
+                          initialFavorited={favoritedIds.has(collection.id)}
+                          initialInWatchLater={watchLaterIds.has(collection.id)}
+                          onAddToCollection={() => handleAddToCollection(collection)}
                         />
-                      ) : (
-                        <Box
-                          sx={{
-                            aspectRatio: '2/3',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            bgcolor: 'action.hover',
-                          }}
-                        >
-                          {library.libraryType === 'Film' ? (
-                            <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          ) : library.libraryType === 'Television' ? (
-                            <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          ) : library.libraryType === 'Music' ? (
-                            <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          ) : (
-                            <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          )}
-                        </Box>
-                      )}
-                      <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                        <Typography variant="body2" noWrap title={collection.name}>
-                          {collection.name}
-                        </Typography>
-                        {library.libraryType !== 'Film' && collection._count && (
-                          <Typography variant="caption" color="text.secondary">
-                            {collection._count.children > 0 &&
-                              (collection.collectionType === 'Show'
-                                ? t('library.seasons', { count: collection._count.children })
-                                : t('library.folders', { count: collection._count.children }))}
-                            {collection._count.children > 0 && collection._count.media > 0 && ' | '}
-                            {collection._count.media > 0 &&
-                              t('library.items', { count: collection._count.media })}
-                          </Typography>
+                      </Card>
+                    </Grid>
+                  );
+                })}
+              </Grid>
+            ) : (
+              /* List View */
+              <Stack spacing={1}>
+                {collections.map((collection) => {
+                  const primaryImage = collection.images?.[0];
+                  const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
+
+                  // Get details from showDetails or filmDetails
+                  const rating = collection.filmDetails?.rating ?? collection.showDetails?.rating;
+                  const contentRating = collection.filmDetails?.contentRating;
+                  const releaseYear = collection.filmDetails?.releaseDate?.slice(0, 4) ?? collection.showDetails?.releaseDate?.slice(0, 4);
+                  const runtime = collection.filmDetails?.runtime;
+                  const description = collection.filmDetails?.description ?? collection.showDetails?.description;
+
+                  return (
+                    <Card key={collection.id} sx={{ display: 'flex' }}>
+                      {/* Image - fixed width based on 2:3 aspect ratio at max height of 188px */}
+                      <CardActionArea
+                        onClick={() => handleCollectionClick(collection.id)}
+                        sx={{
+                          width: 125,
+                          flexShrink: 0,
+                          flexGrow: 0,
+                        }}
+                      >
+                        {hasImage ? (
+                          <CardMedia
+                            component="img"
+                            image={apiClient.getImageUrl(primaryImage.id)}
+                            alt={collection.name}
+                            sx={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                          />
+                        ) : (
+                          <Box
+                            sx={{
+                              width: '100%',
+                              height: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              bgcolor: 'action.hover',
+                            }}
+                          >
+                            {library.libraryType === 'Film' ? (
+                              <Movie sx={{ fontSize: 32, color: 'text.secondary' }} />
+                            ) : library.libraryType === 'Television' ? (
+                              <Tv sx={{ fontSize: 32, color: 'text.secondary' }} />
+                            ) : library.libraryType === 'Music' ? (
+                              <Album sx={{ fontSize: 32, color: 'text.secondary' }} />
+                            ) : (
+                              <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />
+                            )}
+                          </Box>
                         )}
-                      </CardContent>
-                    </CardActionArea>
-                    <CardQuickActions
-                      collectionId={collection.id}
-                      initialFavorited={favoritedIds.has(collection.id)}
-                      initialInWatchLater={watchLaterIds.has(collection.id)}
-                      onAddToCollection={() => handleAddToCollection(collection)}
-                    />
-                  </Card>
-                </Grid>
-              );
-            })}
-          </Grid>
-        </Box>
+                      </CardActionArea>
+
+                      {/* Details */}
+                      <CardActionArea
+                        onClick={() => handleCollectionClick(collection.id)}
+                        sx={{ flexGrow: 1, display: 'flex', alignItems: 'flex-start' }}
+                      >
+                        <CardContent sx={{ py: 1.5, px: 2, flexGrow: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="medium">
+                            {collection.name}
+                          </Typography>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                            {releaseYear && (
+                              <Typography variant="caption" color="text.secondary">
+                                {releaseYear}
+                              </Typography>
+                            )}
+                            {contentRating && (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  bgcolor: 'action.selected',
+                                  px: 0.5,
+                                  borderRadius: 0.5,
+                                }}
+                              >
+                                {contentRating}
+                              </Typography>
+                            )}
+                            {runtime && (
+                              <Typography variant="caption" color="text.secondary">
+                                {Math.floor(runtime / 60)}h {runtime % 60}m
+                              </Typography>
+                            )}
+                            {rating != null && (
+                              <Typography variant="caption" color="text.secondary">
+                                ★ {rating.toFixed(1)}
+                              </Typography>
+                            )}
+                            {library.libraryType !== 'Film' && collection._count && (
+                              <Typography variant="caption" color="text.secondary">
+                                {collection._count.children > 0 &&
+                                  (collection.collectionType === 'Show'
+                                    ? t('library.seasons', { count: collection._count.children })
+                                    : t('library.folders', { count: collection._count.children }))}
+                                {collection._count.children > 0 && collection._count.media > 0 && ' • '}
+                                {collection._count.media > 0 &&
+                                  t('library.items', { count: collection._count.media })}
+                              </Typography>
+                            )}
+                          </Stack>
+                          {description && (
+                            <Typography
+                              variant="body2"
+                              color="text.secondary"
+                              sx={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {description}
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </CardActionArea>
+
+                      {/* Actions */}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 0.5 }}>
+                        <IconButton
+                          color="primary"
+                          onClick={() => handlePlay(collection.id)}
+                          sx={{ width: 40, height: 56, borderRadius: 0.5 }}
+                        >
+                          <PlayArrow sx={{ fontSize: 28 }} />
+                        </IconButton>
+                        <CardQuickActions
+                          collectionId={collection.id}
+                          initialFavorited={favoritedIds.has(collection.id)}
+                          initialInWatchLater={watchLaterIds.has(collection.id)}
+                          onAddToCollection={() => handleAddToCollection(collection)}
+                          variant="inline"
+                        />
+                      </Box>
+                    </Card>
+                  );
+                })}
+              </Stack>
+            )}
+          </Box>
 
           {/* Infinite scroll sentinel */}
           <Box ref={loadMoreRef} sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
