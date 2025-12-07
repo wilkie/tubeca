@@ -14,6 +14,7 @@ import {
 import {
   PlayArrow,
   Pause,
+  SkipNext,
   VolumeUp,
   VolumeOff,
   Fullscreen,
@@ -82,6 +83,7 @@ export interface VideoControlsProps {
   showExpandButton?: boolean; // For mini-player: navigate to PlayPage
   showCloseButton?: boolean; // For mini-player: stop playback
   showControls?: boolean; // Whether controls are visible
+  showSkipNext?: boolean; // Show skip to next button
 
   // Callbacks
   onPlayPause: () => void;
@@ -93,6 +95,7 @@ export interface VideoControlsProps {
   onSubtitleTrackChange?: (streamIndex: number | null) => void;
   onQualityChange?: (quality: string) => void;
   onFullscreenToggle?: () => void;
+  onSkipNext?: () => void; // Skip to next item in queue/next episode
   onClose?: () => void;
 
   // Container ref for menus
@@ -204,6 +207,7 @@ export function VideoControls({
   showExpandButton = false,
   showCloseButton = false,
   showControls = true,
+  showSkipNext = false,
   onPlayPause,
   onSeek,
   onSeekCommit,
@@ -213,6 +217,7 @@ export function VideoControls({
   onSubtitleTrackChange,
   onQualityChange,
   onFullscreenToggle,
+  onSkipNext,
   onClose,
   containerRef,
 }: VideoControlsProps) {
@@ -457,6 +462,17 @@ export function VideoControls({
           <IconButton onClick={onPlayPause} sx={{ color: 'white' }} size={compact ? 'small' : 'medium'}>
             {isPlaying ? <Pause fontSize={compact ? 'small' : 'medium'} /> : <PlayArrow fontSize={compact ? 'small' : 'medium'} />}
           </IconButton>
+
+          {showSkipNext && onSkipNext && (
+            <IconButton
+              onClick={onSkipNext}
+              sx={{ color: 'white' }}
+              size={compact ? 'small' : 'medium'}
+              title="Skip to next"
+            >
+              <SkipNext fontSize={compact ? 'small' : 'medium'} />
+            </IconButton>
+          )}
 
           {!compact && (
             <Typography variant="body2" sx={{ color: 'white', minWidth: 100 }}>

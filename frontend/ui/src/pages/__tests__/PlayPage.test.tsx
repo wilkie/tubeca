@@ -67,6 +67,10 @@ let mockPlayerState = {
   currentSubtitleTrack: null,
   mode: 'hidden' as 'fullscreen' | 'mini' | 'hidden',
   miniPlayerPosition: 'bottom-right' as const,
+  // Queue state
+  queue: [],
+  queueIndex: -1,
+  nextItem: null,
 };
 
 // Mock PlayerContext
@@ -90,6 +94,10 @@ jest.mock('../../context/PlayerContext', () => ({
     registerClickHandler: mockRegisterClickHandler,
     close: jest.fn(),
     setMiniPlayerPosition: jest.fn(),
+    // Queue functions
+    refreshQueue: jest.fn(),
+    playNext: jest.fn(),
+    hasNextItem: jest.fn().mockReturnValue(false),
   }),
   PlayerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -136,6 +144,9 @@ describe('PlayPage', () => {
       currentSubtitleTrack: null,
       mode: 'hidden',
       miniPlayerPosition: 'bottom-right',
+      queue: [],
+      queueIndex: -1,
+      nextItem: null,
     };
   });
 

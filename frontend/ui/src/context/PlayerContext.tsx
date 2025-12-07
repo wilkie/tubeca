@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import Hls from 'hls.js';
-import { apiClient, type Media, type TrickplayResolution } from '../api/client';
+import { apiClient, type Media, type TrickplayResolution, type UserCollectionItem } from '../api/client';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../components/VideoControls';
 import { MiniPlayer } from '../components/MiniPlayer';
 
@@ -22,6 +22,11 @@ export interface CurrentMedia {
   subtitleTracks: SubtitleTrackInfo[];
   trickplay?: TrickplayResolution;
   poster?: string;
+  // For episode detection
+  collectionId?: string;
+  seasonNumber?: number | null;
+  episodeNumber?: number | null;
+  isEpisode?: boolean;
 }
 
 interface PlayerContextState {
@@ -38,6 +43,20 @@ interface PlayerContextState {
   availableQualities: QualityOption[];
   mode: 'fullscreen' | 'mini' | 'hidden';
   miniPlayerPosition: MiniPlayerPosition;
+  // Queue and next item
+  queue: UserCollectionItem[];
+  queueIndex: number;
+  nextItem: NextItemInfo | null;
+}
+
+// Next item can be from queue or next episode
+export interface NextItemInfo {
+  id: string;
+  name: string;
+  type: 'queue' | 'episode';
+  // For episodes
+  seasonNumber?: number | null;
+  episodeNumber?: number | null;
 }
 
 interface PlayerContextActions {
@@ -59,6 +78,10 @@ interface PlayerContextActions {
   registerClickHandler: (handler: (() => void) | null) => void;
   close: () => void;
   setMiniPlayerPosition: (position: MiniPlayerPosition) => void;
+  // Queue actions
+  refreshQueue: () => Promise<void>;
+  playNext: () => Promise<void>;
+  hasNextItem: () => boolean;
 }
 
 type PlayerContextValue = PlayerContextState & PlayerContextActions;
@@ -103,6 +126,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<'fullscreen' | 'mini' | 'hidden'>('hidden');
   const [miniPlayerPosition, setMiniPlayerPositionState] = useState<MiniPlayerPosition>(loadPosition);
   const [fullscreenContainer, setFullscreenContainer] = useState<HTMLElement | null>(null);
+
+  // Queue state
+  const [queue, setQueue] = useState<UserCollectionItem[]>([]);
+  const [queueIndex, setQueueIndex] = useState(-1);
+  const [nextItem, setNextItem] = useState<NextItemInfo | null>(null);
+  const prevCurrentMediaIdRef = useRef<string | null>(null);
+
+  // Reset queue state when currentMedia becomes null (ref pattern to avoid setState in effect)
+  const currentMediaId = currentMedia?.id ?? null;
+  if (currentMediaId !== prevCurrentMediaIdRef.current) {
+    prevCurrentMediaIdRef.current = currentMediaId;
+    if (currentMedia === null) {
+      setQueueIndex(-1);
+      setNextItem(null);
+    }
+  }
 
   // Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -379,6 +418,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         poster = apiClient.getImageUrl(backdropImage.id);
       }
 
+      // Check if this is an episode (has season/episode numbers and belongs to a collection)
+      const isEpisode = !!(
+        media.videoDetails?.season != null &&
+        media.videoDetails?.episode != null &&
+        media.collectionId
+      );
+
       const currentMediaData: CurrentMedia = {
         id: media.id,
         name: media.name,
@@ -388,6 +434,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         subtitleTracks,
         trickplay: trickplayResult.data?.trickplay?.resolutions?.[0],
         poster,
+        // Episode info
+        collectionId: media.collectionId || undefined,
+        seasonNumber: media.videoDetails?.season,
+        episodeNumber: media.videoDetails?.episode,
+        isEpisode,
       };
 
       setCurrentMedia(currentMediaData);
@@ -635,6 +686,118 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     savePosition(position);
   }, []);
 
+  // Queue functions
+  const refreshQueue = useCallback(async () => {
+    try {
+      const result = await apiClient.getPlaybackQueue();
+      if (result.data?.userCollection?.items) {
+        setQueue(result.data.userCollection.items);
+      }
+    } catch (error) {
+      console.error('Failed to fetch playback queue:', error);
+    }
+  }, []);
+
+  // Update queue index and next item when currentMedia or queue changes
+  useEffect(() => {
+    // Skip if no current media (reset is handled by ref pattern above)
+    if (!currentMedia) return;
+
+    let cancelled = false;
+
+    async function updateNextItem() {
+      // Find current media in queue
+      const index = queue.findIndex((item) => item.media?.id === currentMedia?.id);
+      setQueueIndex(index);
+
+      // Check queue first
+      if (index >= 0 && index < queue.length - 1) {
+        const next = queue[index + 1];
+        if (next.media && !cancelled) {
+          setNextItem({
+            id: next.media.id,
+            name: next.media.name,
+            type: 'queue',
+            seasonNumber: next.media.videoDetails?.season,
+            episodeNumber: next.media.videoDetails?.episode,
+          });
+          return;
+        }
+      }
+
+      // If no queue item, check for next episode
+      if (currentMedia?.isEpisode && currentMedia.collectionId) {
+        try {
+          const result = await apiClient.getCollection(currentMedia.collectionId);
+          if (cancelled) return;
+
+          const seasonMedia = result.data?.collection?.media || [];
+          // Sort by episode number
+          const sortedEpisodes = [...seasonMedia].sort((a, b) => {
+            const aEp = a.videoDetails?.episode ?? 0;
+            const bEp = b.videoDetails?.episode ?? 0;
+            return aEp - bEp;
+          });
+
+          // Find current episode and get next
+          const currentEpIndex = sortedEpisodes.findIndex((ep) => ep.id === currentMedia.id);
+          if (currentEpIndex >= 0 && currentEpIndex < sortedEpisodes.length - 1) {
+            const nextEp = sortedEpisodes[currentEpIndex + 1];
+            if (!cancelled) {
+              setNextItem({
+                id: nextEp.id,
+                name: nextEp.name,
+                type: 'episode',
+                seasonNumber: nextEp.videoDetails?.season,
+                episodeNumber: nextEp.videoDetails?.episode,
+              });
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch next episode:', error);
+        }
+      }
+
+      // No next item available
+      if (!cancelled) {
+        setNextItem(null);
+      }
+    }
+
+    updateNextItem();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentMedia, queue]);
+
+  const hasNextItem = useCallback(() => {
+    return nextItem !== null;
+  }, [nextItem]);
+
+  const playNext = useCallback(async () => {
+    if (!nextItem) return;
+    await playMedia(nextItem.id);
+  }, [nextItem, playMedia]);
+
+  // Auto-play next item when current media ends
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleEnded = () => {
+      if (nextItem) {
+        playMedia(nextItem.id);
+      }
+    };
+
+    video.addEventListener('ended', handleEnded);
+    return () => {
+      video.removeEventListener('ended', handleEnded);
+    };
+  }, [nextItem, playMedia]);
+
   // Mouse move handler for video element
   const mouseMoveHandlerRef = useRef<(() => void) | null>(null);
 
@@ -726,6 +889,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     registerClickHandler,
     close,
     setMiniPlayerPosition,
+    // Queue
+    queue,
+    queueIndex,
+    nextItem,
+    refreshQueue,
+    playNext,
+    hasNextItem,
   };
 
   // Refs for DOM-based video container movement

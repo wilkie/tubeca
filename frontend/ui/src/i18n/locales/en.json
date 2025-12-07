@@ -179,7 +179,15 @@
   "player": {
     "expand": "Expand to full screen",
     "close": "Close player",
-    "miniPlayer": "Mini player"
+    "miniPlayer": "Mini player",
+    "skipNext": "Skip to next",
+    "upNext": {
+      "title": "Up Next",
+      "episode": "S{{season}}:E{{episode}}",
+      "fromQueue": "From queue",
+      "hide": "Hide",
+      "start": "Start"
+    }
   },
   "userCollections": {
     "title": "My Collections",

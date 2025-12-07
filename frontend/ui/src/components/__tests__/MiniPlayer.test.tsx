@@ -60,6 +60,13 @@ describe('MiniPlayer', () => {
     registerClickHandler: jest.fn(),
     close: jest.fn(),
     setMiniPlayerPosition: jest.fn(),
+    // Queue
+    queue: [],
+    queueIndex: -1,
+    nextItem: null,
+    refreshQueue: jest.fn(),
+    playNext: jest.fn(),
+    hasNextItem: jest.fn().mockReturnValue(false),
   };
 
   const defaultProps = {
