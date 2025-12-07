@@ -5,6 +5,7 @@ import { Box, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
 import { usePlayer } from '../context/PlayerContext';
 import { VideoControls } from '../components/VideoControls';
+import { UpNextPopup } from '../components/UpNextPopup';
 import { apiClient } from '../api/client';
 
 export function PlayPage() {
@@ -28,6 +29,7 @@ export function PlayPage() {
     currentSubtitleTrack,
     currentQuality,
     availableQualities,
+    nextItem,
     playMedia,
     togglePlay,
     seek,
@@ -40,6 +42,9 @@ export function PlayPage() {
     registerFullscreenContainer,
     registerMouseMoveHandler,
     registerClickHandler,
+    refreshQueue,
+    playNext,
+    hasNextItem,
   } = usePlayer();
 
   // Register this container for fullscreen mode
@@ -52,15 +57,25 @@ export function PlayPage() {
     };
   }, [registerFullscreenContainer]);
 
-  // Load media if not already loaded or different media
+  // Refresh playback queue on mount
+  useEffect(() => {
+    refreshQueue();
+  }, [refreshQueue]);
+
+  // Load media from URL, or sync URL to current media
   useEffect(() => {
     if (!mediaId) return;
 
-    // Only load if no media or different media
-    if (!currentMedia || currentMedia.id !== mediaId) {
+    if (!currentMedia) {
+      // No media loaded yet - load from URL
       playMedia(mediaId);
+    } else if (currentMedia.id !== mediaId) {
+      // Player has a different media than URL (e.g., from playNext)
+      // Update URL to match what's playing (don't reload)
+      navigate(`/play/${currentMedia.id}`, { replace: true });
     }
-  }, [mediaId, currentMedia, playMedia]);
+    // If currentMedia.id === mediaId, we're in sync - do nothing
+  }, [mediaId, currentMedia, playMedia, navigate]);
 
   // Keep ref in sync with isPlaying state
   useEffect(() => {
@@ -306,6 +321,7 @@ export function PlayPage() {
           title={currentMedia.name}
           showControls={showControls}
           showFullscreenButton={true}
+          showSkipNext={hasNextItem()}
           onPlayPause={togglePlay}
           onSeek={seek}
           onSeekCommit={seekCommit}
@@ -315,7 +331,19 @@ export function PlayPage() {
           onSubtitleTrackChange={setSubtitleTrack}
           onQualityChange={setQuality}
           onFullscreenToggle={handleFullscreenToggle}
+          onSkipNext={playNext}
           containerRef={containerRef}
+        />
+      )}
+
+      {/* Up Next popup */}
+      {nextItem && (
+        <UpNextPopup
+          nextItem={nextItem}
+          currentTime={currentTime}
+          duration={duration}
+          onStart={playNext}
+          showControls={showControls}
         />
       )}
     </Box>
