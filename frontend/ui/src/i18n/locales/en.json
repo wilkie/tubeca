@@ -176,6 +176,13 @@
     "addToWatchLater": "Add to Watch Later",
     "removeFromWatchLater": "Remove from Watch Later"
   },
+  "queue": {
+    "title": "Playback Queue",
+    "empty": "Your playback queue is empty. Add items to queue from the media page.",
+    "clear": "Clear Queue",
+    "remove": "Remove from Queue",
+    "play": "Play"
+  },
   "player": {
     "expand": "Expand to full screen",
     "close": "Close player",

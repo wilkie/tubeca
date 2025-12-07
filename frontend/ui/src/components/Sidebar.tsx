@@ -21,6 +21,7 @@ import {
   FolderSpecial,
   Favorite,
   WatchLater,
+  QueueMusic,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
@@ -124,6 +125,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <WatchLater />
             </ListItemIcon>
             <ListItemText primary={t('watchLater.title')} />
+          </ListItemButton>
+        </ListItem>
+
+        {/* Playback Queue */}
+        <ListItem disablePadding>
+          <ListItemButton
+            selected={location.pathname === '/queue'}
+            onClick={() => handleNavigate('/queue')}
+          >
+            <ListItemIcon>
+              <QueueMusic />
+            </ListItemIcon>
+            <ListItemText primary={t('queue.title')} />
           </ListItemButton>
         </ListItem>
 
