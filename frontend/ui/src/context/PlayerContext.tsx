@@ -728,10 +728,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // If no queue item, check for next episode
       if (currentMedia?.isEpisode && currentMedia.collectionId) {
         try {
-          const result = await apiClient.getCollection(currentMedia.collectionId);
+          const seasonResult = await apiClient.getCollection(currentMedia.collectionId);
           if (cancelled) return;
 
-          const seasonMedia = result.data?.collection?.media || [];
+          const seasonCollection = seasonResult.data?.collection;
+          const seasonMedia = seasonCollection?.media || [];
           // Sort by episode number
           const sortedEpisodes = [...seasonMedia].sort((a, b) => {
             const aEp = a.videoDetails?.episode ?? 0;
@@ -742,6 +743,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           // Find current episode and get next
           const currentEpIndex = sortedEpisodes.findIndex((ep) => ep.id === currentMedia.id);
           if (currentEpIndex >= 0 && currentEpIndex < sortedEpisodes.length - 1) {
+            // Next episode in same season
             const nextEp = sortedEpisodes[currentEpIndex + 1];
             if (!cancelled) {
               setNextItem({
@@ -752,6 +754,49 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 episodeNumber: nextEp.videoDetails?.episode,
               });
               return;
+            }
+          } else if (currentEpIndex === sortedEpisodes.length - 1 && seasonCollection?.parentId) {
+            // Last episode of season - check for next season
+            const showResult = await apiClient.getCollection(seasonCollection.parentId);
+            if (cancelled) return;
+
+            const showCollection = showResult.data?.collection;
+            const seasons = showCollection?.children || [];
+
+            // Sort seasons by season number and find the next one
+            const sortedSeasons = [...seasons].sort((a, b) => {
+              // SeasonDetails not available on CollectionSummary, need to fetch each season
+              // For now, use name sorting as a fallback (Season 1, Season 2, etc.)
+              return a.name.localeCompare(b.name, undefined, { numeric: true });
+            });
+
+            const currentSeasonIndex = sortedSeasons.findIndex((s) => s.id === currentMedia.collectionId);
+            if (currentSeasonIndex >= 0 && currentSeasonIndex < sortedSeasons.length - 1) {
+              // Fetch the next season to get its first episode
+              const nextSeasonId = sortedSeasons[currentSeasonIndex + 1].id;
+              const nextSeasonResult = await apiClient.getCollection(nextSeasonId);
+              if (cancelled) return;
+
+              const nextSeasonMedia = nextSeasonResult.data?.collection?.media || [];
+              const nextSeasonNumber = nextSeasonResult.data?.collection?.seasonDetails?.seasonNumber;
+              // Sort episodes and get the first one
+              const sortedNextEpisodes = [...nextSeasonMedia].sort((a, b) => {
+                const aEp = a.videoDetails?.episode ?? 0;
+                const bEp = b.videoDetails?.episode ?? 0;
+                return aEp - bEp;
+              });
+
+              if (sortedNextEpisodes.length > 0 && !cancelled) {
+                const firstEp = sortedNextEpisodes[0];
+                setNextItem({
+                  id: firstEp.id,
+                  name: firstEp.name,
+                  type: 'episode',
+                  seasonNumber: nextSeasonNumber ?? firstEp.videoDetails?.season,
+                  episodeNumber: firstEp.videoDetails?.episode,
+                });
+                return;
+              }
             }
           }
         } catch (error) {
