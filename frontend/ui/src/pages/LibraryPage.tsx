@@ -458,13 +458,79 @@ export function LibraryPage() {
               const primaryImage = collection.images?.[0];
               const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
 
+              // Get rating info from showDetails or filmDetails
+              const rating = collection.filmDetails?.rating ?? collection.showDetails?.rating;
+              const contentRating = collection.filmDetails?.contentRating;
+              const hasRatingInfo = rating != null || contentRating != null;
+
               return (
                 <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
-                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                  <Card
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      position: 'relative',
+                      '&:hover .rating-overlay': {
+                        opacity: 1,
+                      },
+                    }}
+                  >
                     <CardActionArea
                       onClick={() => handleCollectionClick(collection.id)}
                       sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                     >
+                      {/* Rating overlay (visible on hover) */}
+                      {hasRatingInfo && (
+                        <Box
+                          className="rating-overlay"
+                          sx={{
+                            position: 'absolute',
+                            top: 8,
+                            left: 8,
+                            zIndex: 2,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 0.5,
+                            opacity: 0,
+                            transition: 'opacity 0.2s ease-in-out',
+                          }}
+                        >
+                          {contentRating && (
+                            <Box
+                              sx={{
+                                bgcolor: 'rgba(0, 0, 0, 0.75)',
+                                color: 'white',
+                                px: 1,
+                                py: 0.25,
+                                borderRadius: 0.5,
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {contentRating}
+                            </Box>
+                          )}
+                          {rating != null && (
+                            <Box
+                              sx={{
+                                bgcolor: 'rgba(0, 0, 0, 0.75)',
+                                color: 'white',
+                                px: 1,
+                                py: 0.25,
+                                borderRadius: 0.5,
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.5,
+                              }}
+                            >
+                              ★ {rating.toFixed(1)}
+                            </Box>
+                          )}
+                        </Box>
+                      )}
                       {hasImage ? (
                         <CardMedia
                           component="img"
