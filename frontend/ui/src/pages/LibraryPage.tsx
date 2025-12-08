@@ -647,55 +647,55 @@ export function LibraryPage() {
 
                   return (
                     <Card key={collection.id} sx={{ display: 'flex' }}>
-                      {/* Image - fixed width based on 2:3 aspect ratio at max height of 188px */}
+                      {/* Image and Details - single clickable area */}
                       <CardActionArea
                         onClick={() => handleCollectionClick(collection.id)}
-                        sx={{
-                          width: 125,
-                          flexShrink: 0,
-                          flexGrow: 0,
-                        }}
+                        sx={{ flexGrow: 1, display: 'flex', alignItems: 'stretch' }}
                       >
-                        {hasImage ? (
-                          <CardMedia
-                            component="img"
-                            image={apiClient.getImageUrl(primaryImage.id)}
-                            alt={collection.name}
-                            sx={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover',
-                            }}
-                          />
-                        ) : (
-                          <Box
-                            sx={{
-                              width: '100%',
-                              height: '100%',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              bgcolor: 'action.hover',
-                            }}
-                          >
-                            {library.libraryType === 'Film' ? (
-                              <Movie sx={{ fontSize: 32, color: 'text.secondary' }} />
-                            ) : library.libraryType === 'Television' ? (
-                              <Tv sx={{ fontSize: 32, color: 'text.secondary' }} />
-                            ) : library.libraryType === 'Music' ? (
-                              <Album sx={{ fontSize: 32, color: 'text.secondary' }} />
-                            ) : (
-                              <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />
-                            )}
-                          </Box>
-                        )}
-                      </CardActionArea>
+                        {/* Image - fixed width based on 2:3 aspect ratio at max height of 188px */}
+                        <Box
+                          sx={{
+                            width: 125,
+                            flexShrink: 0,
+                            flexGrow: 0,
+                          }}
+                        >
+                          {hasImage ? (
+                            <CardMedia
+                              component="img"
+                              image={apiClient.getImageUrl(primaryImage.id)}
+                              alt={collection.name}
+                              sx={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                              }}
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                bgcolor: 'action.hover',
+                              }}
+                            >
+                              {library.libraryType === 'Film' ? (
+                                <Movie sx={{ fontSize: 32, color: 'text.secondary' }} />
+                              ) : library.libraryType === 'Television' ? (
+                                <Tv sx={{ fontSize: 32, color: 'text.secondary' }} />
+                              ) : library.libraryType === 'Music' ? (
+                                <Album sx={{ fontSize: 32, color: 'text.secondary' }} />
+                              ) : (
+                                <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />
+                              )}
+                            </Box>
+                          )}
+                        </Box>
 
-                      {/* Details */}
-                      <CardActionArea
-                        onClick={() => handleCollectionClick(collection.id)}
-                        sx={{ flexGrow: 1, display: 'flex', alignItems: 'flex-start' }}
-                      >
+                        {/* Details */}
                         <CardContent sx={{ py: 1.5, px: 2, flexGrow: 1 }}>
                           <Typography variant="subtitle1" fontWeight="medium">
                             {collection.name}
