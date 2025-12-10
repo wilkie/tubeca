@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Box, Container, CircularProgress, Alert } from '@mui/material';
@@ -14,6 +14,8 @@ import { FilmHeroView } from '../components/FilmHeroView';
 import { ShowHeroView } from '../components/ShowHeroView';
 import { StandardCollectionView } from '../components/StandardCollectionView';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
+import { QuickSearchOverlay } from '../components/QuickSearchOverlay';
+import { useQuickSearch } from '../hooks/useQuickSearch';
 
 interface CreditWithPerson extends Credit {
   person?: {
@@ -84,6 +86,9 @@ export function CollectionPage() {
   // Add to collection dialog state
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
   const [selectedChildForAdd, setSelectedChildForAdd] = useState<{ id: string; name: string } | null>(null);
+
+  // Quick search for filtering visible items
+  const { query: quickSearchQuery, isActive: isQuickSearchActive } = useQuickSearch();
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
 
@@ -251,6 +256,32 @@ export function CollectionPage() {
     setAddToCollectionOpen(true);
   };
 
+  // Extract and filter children/media (must be before early returns for hook rules)
+  const childCollections = useMemo(
+    () => (collection?.children || []) as ChildCollection[],
+    [collection?.children]
+  );
+  const rawMedia = useMemo(
+    () => (collection?.media || []) as MediaItem[],
+    [collection?.media]
+  );
+
+  // Filter children and media by quick search query
+  const filteredChildren = useMemo(() => {
+    if (!quickSearchQuery) return childCollections;
+    const lowerQuery = quickSearchQuery.toLowerCase();
+    return childCollections.filter((c) => c.name.toLowerCase().includes(lowerQuery));
+  }, [childCollections, quickSearchQuery]);
+
+  const filteredMedia = useMemo(() => {
+    if (!quickSearchQuery) return rawMedia;
+    const lowerQuery = quickSearchQuery.toLowerCase();
+    return rawMedia.filter((m) => m.name.toLowerCase().includes(lowerQuery));
+  }, [rawMedia, quickSearchQuery]);
+
+  const totalItems = childCollections.length + rawMedia.length;
+  const filteredItems = filteredChildren.length + filteredMedia.length;
+
   if (isLoading) {
     return (
       <Box
@@ -282,9 +313,6 @@ export function CollectionPage() {
     );
   }
 
-  const childCollections = (collection.children || []) as ChildCollection[];
-  const rawMedia = (collection.media || []) as MediaItem[];
-
   const isFilmLibrary = collection.library?.libraryType === 'Film';
   const isShow = collection.collectionType === 'Show';
   const primaryMedia = rawMedia.length > 0 ? rawMedia[0] : null;
@@ -315,7 +343,7 @@ export function CollectionPage() {
       return (
         <ShowHeroView
           collection={collection}
-          seasons={childCollections}
+          seasons={filteredChildren}
           breadcrumbs={breadcrumbs}
           menuOpen={menuOpen}
           onBreadcrumbNavigate={handleBreadcrumbNavigate}
@@ -355,8 +383,8 @@ export function CollectionPage() {
 
         <StandardCollectionView
           collection={collection}
-          childCollections={childCollections}
-          media={rawMedia}
+          childCollections={filteredChildren}
+          media={filteredMedia}
           menuOpen={menuOpen}
           onCollectionClick={handleCollectionClick}
           onMediaClick={handleMediaClick}
@@ -409,6 +437,15 @@ export function CollectionPage() {
         collectionId={selectedChildForAdd?.id ?? collection.id}
         itemName={selectedChildForAdd?.name ?? collection.name}
       />
+
+      {/* Quick Search Overlay */}
+      {totalItems > 0 && (
+        <QuickSearchOverlay
+          query={quickSearchQuery}
+          matchCount={isQuickSearchActive ? filteredItems : undefined}
+          totalCount={isQuickSearchActive ? totalItems : undefined}
+        />
+      )}
     </Container>
   );
 }
