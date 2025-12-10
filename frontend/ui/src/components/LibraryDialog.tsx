@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -16,11 +16,15 @@ import {
   Alert,
   CircularProgress,
   Box,
+  Chip,
+  OutlinedInput,
 } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material/Select';
 import {
   apiClient,
   type Library,
   type LibraryType,
+  type Group,
 } from '../api/client';
 
 interface LibraryDialogProps {
@@ -38,11 +42,29 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
   const [path, setPath] = useState('');
   const [libraryType, setLibraryType] = useState<LibraryType>('Film');
   const [watchForChanges, setWatchForChanges] = useState(false);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [availableGroups, setAvailableGroups] = useState<Group[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const lastLibraryIdRef = useRef<string | null>(null);
 
   const isEditing = !!library;
+
+  // Load available groups when dialog opens
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    async function loadGroups() {
+      const result = await apiClient.getGroups();
+      if (cancelled) return;
+      if (result.data) {
+        setAvailableGroups(result.data.groups);
+      }
+    }
+    loadGroups();
+    return () => { cancelled = true; };
+  }, [open]);
 
   // Reset form when library changes (using ref to avoid re-render loop)
   const currentLibraryId = library?.id ?? null;
@@ -53,14 +75,21 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
       setPath(library.path);
       setLibraryType(library.libraryType);
       setWatchForChanges(library.watchForChanges);
+      setSelectedGroupIds(library.groups.map(g => g.id));
     } else {
       setName('');
       setPath('');
       setLibraryType('Film');
       setWatchForChanges(false);
+      setSelectedGroupIds([]);
     }
     setError(null);
   }
+
+  const handleGroupChange = (event: SelectChangeEvent<string[]>) => {
+    const value = event.target.value;
+    setSelectedGroupIds(typeof value === 'string' ? value.split(',') : value);
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -77,6 +106,7 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
       path: path.trim(),
       libraryType,
       watchForChanges,
+      groupIds: selectedGroupIds,
     };
 
     const result = isEditing
@@ -137,6 +167,37 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
               ))}
             </Select>
           </FormControl>
+
+          <FormControl fullWidth>
+            <InputLabel>{t('libraries.groups')}</InputLabel>
+            <Select
+              multiple
+              value={selectedGroupIds}
+              onChange={handleGroupChange}
+              input={<OutlinedInput label={t('libraries.groups')} />}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {selected.length === 0 ? (
+                    <Chip label={t('libraries.noGroups')} size="small" />
+                  ) : (
+                    selected.map((id) => {
+                      const group = availableGroups.find(g => g.id === id);
+                      return <Chip key={id} label={group?.name ?? id} size="small" />;
+                    })
+                  )}
+                </Box>
+              )}
+            >
+              {availableGroups.map((group) => (
+                <MenuItem key={group.id} value={group.id}>
+                  {group.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Box sx={{ mt: -1.5, ml: 0.5, color: 'text.secondary', fontSize: '0.75rem' }}>
+            {t('libraries.groupsHelp')}
+          </Box>
 
           <FormControlLabel
             control={

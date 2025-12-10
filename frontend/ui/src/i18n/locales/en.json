@@ -59,6 +59,7 @@
     "pathHelp": "The filesystem path where media files are stored",
     "libraryType": "Library Type",
     "groups": "Groups",
+    "groupsHelp": "Select groups to restrict access. Leave empty to allow all users.",
     "actions": "Actions",
     "scan": "Scan",
     "noLibraries": "No libraries configured",

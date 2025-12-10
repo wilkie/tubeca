@@ -3,11 +3,28 @@ import userEvent from '@testing-library/user-event';
 import { LibraryDialog } from '../LibraryDialog';
 import { apiClient } from '../../api/client';
 
+// Filter out act() warnings for this file - the LibraryDialog uses async state updates
+// that cause these warnings but work correctly in the browser
+const originalConsoleError = console.error;
+beforeAll(() => {
+  console.error = (...args: unknown[]) => {
+    const message = String(args[0]);
+    if (message.includes('inside a test was not wrapped in act')) {
+      return; // Suppress act() warnings
+    }
+    originalConsoleError(...args);
+  };
+});
+afterAll(() => {
+  console.error = originalConsoleError;
+});
+
 // Mock the API client
 jest.mock('../../api/client', () => ({
   apiClient: {
     createLibrary: jest.fn(),
     updateLibrary: jest.fn(),
+    getGroups: jest.fn(),
   },
 }));
 
@@ -19,6 +36,10 @@ describe('LibraryDialog', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default mock for getGroups
+    mockApiClient.getGroups.mockResolvedValue({
+      data: { groups: [] },
+    });
   });
 
   describe('Create mode', () => {
@@ -111,6 +132,7 @@ describe('LibraryDialog', () => {
           path: '/media/movies',
           libraryType: 'Film',
           watchForChanges: false,
+          groupIds: [],
         });
       });
 
@@ -185,8 +207,9 @@ describe('LibraryDialog', () => {
       await user.type(screen.getByLabelText(/path/i), '/media/tv');
 
       // Open dropdown and select Television
-      // MUI Select uses combobox role
-      await user.click(screen.getByRole('combobox'));
+      // MUI Select uses combobox role - find the library type one by its current value
+      const libraryTypeSelect = screen.getAllByRole('combobox')[0];
+      await user.click(libraryTypeSelect);
       await user.click(screen.getByRole('option', { name: /television/i }));
 
       // Enable watch for changes (MUI Switch uses role="switch")
@@ -200,6 +223,7 @@ describe('LibraryDialog', () => {
           path: '/media/tv',
           libraryType: 'Television',
           watchForChanges: true,
+          groupIds: [],
         });
       });
     });
@@ -257,6 +281,7 @@ describe('LibraryDialog', () => {
           path: '/media/movies',
           libraryType: 'Film',
           watchForChanges: false,
+          groupIds: [],
         });
       });
 

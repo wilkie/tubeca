@@ -20,8 +20,8 @@ router.use(authenticate);
  *   get:
  *     tags:
  *       - Libraries
- *     summary: Get all libraries
- *     description: Get all media libraries
+ *     summary: Get all accessible libraries
+ *     description: Get all media libraries the user has access to. Admins see all libraries. Other users see public libraries (no groups assigned) and libraries where they're a member of at least one assigned group.
  *     responses:
  *       200:
  *         description: List of libraries
@@ -35,9 +35,11 @@ router.use(authenticate);
  *                   items:
  *                     $ref: '#/components/schemas/Library'
  */
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const libraries = await libraryService.getAllLibraries();
+    const userId = req.user!.userId;
+    const isAdmin = req.user!.role === 'Admin';
+    const libraries = await libraryService.getAccessibleLibraries(userId, isAdmin);
     res.json({ libraries });
   } catch {
     res.status(500).json({ error: 'Failed to fetch libraries' });
@@ -51,7 +53,7 @@ router.get('/', async (_req, res) => {
  *     tags:
  *       - Libraries
  *     summary: Get a library
- *     description: Get a single library by ID
+ *     description: Get a single library by ID. Returns 404 if the library doesn't exist or the user doesn't have access.
  *     parameters:
  *       - in: path
  *         name: id
@@ -70,7 +72,7 @@ router.get('/', async (_req, res) => {
  *                 library:
  *                   $ref: '#/components/schemas/Library'
  *       404:
- *         description: Library not found
+ *         description: Library not found or access denied
  *         content:
  *           application/json:
  *             schema:
@@ -78,6 +80,15 @@ router.get('/', async (_req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
+    const userId = req.user!.userId;
+    const isAdmin = req.user!.role === 'Admin';
+
+    // Check if user can access this library
+    const canAccess = await libraryService.canUserAccessLibrary(userId, isAdmin, req.params.id);
+    if (!canAccess) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
     const library = await libraryService.getLibraryById(req.params.id);
     if (!library) {
       return res.status(404).json({ error: 'Library not found' });
