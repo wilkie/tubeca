@@ -53,6 +53,18 @@ const itemInclude = {
         select: {
           id: true,
           name: true,
+          images: {
+            where: {
+              isPrimary: true,
+              imageType: { in: [ImageType.Thumbnail, ImageType.Backdrop, ImageType.Poster] as ImageType[] },
+            },
+          },
+          parent: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           library: {
             select: {
               id: true,
