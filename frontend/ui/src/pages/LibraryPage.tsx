@@ -26,6 +26,9 @@ import { FilterChips } from '../components/FilterChips';
 import { KeywordFilter } from '../components/KeywordFilter';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { ViewModeMenu, type ViewMode } from '../components/ViewModeMenu';
+import { QuickSearchOverlay } from '../components/QuickSearchOverlay';
+import { useQuickSearch } from '../hooks/useQuickSearch';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
 
@@ -68,6 +71,11 @@ export function LibraryPage() {
   const [badgeHovered, setBadgeHovered] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('poster');
 
+  // Quick search for filtering items (server-side)
+  const { query: quickSearchQuery, isActive: isQuickSearchActive } = useQuickSearch();
+  // Debounce the search query for API calls to avoid excessive requests
+  const debouncedSearchQuery = useDebouncedValue(quickSearchQuery, 300);
+
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
@@ -95,6 +103,7 @@ export function LibraryPage() {
       sortDirection,
       excludedRatings: excludedRatings.size > 0 ? Array.from(excludedRatings) : undefined,
       keywordIds: selectedKeywords.length > 0 ? selectedKeywords.map(k => k.id) : undefined,
+      nameFilter: debouncedSearchQuery || undefined,
     });
 
     if (result.error) {
@@ -158,7 +167,7 @@ export function LibraryPage() {
 
     setIsLoading(false);
     setIsLoadingMore(false);
-  }, [libraryId, sortField, sortDirection, excludedRatings, selectedKeywords]);
+  }, [libraryId, sortField, sortDirection, excludedRatings, selectedKeywords, debouncedSearchQuery]);
 
   // Initial load - fetch library details
   useEffect(() => {
@@ -219,7 +228,7 @@ export function LibraryPage() {
     setFavoritedIds(new Set());
     setWatchLaterIds(new Set());
     fetchCollections(1);
-  }, [sortField, sortDirection, excludedRatings, selectedKeywords]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sortField, sortDirection, excludedRatings, selectedKeywords, debouncedSearchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Infinite scroll with IntersectionObserver
   useEffect(() => {
@@ -797,6 +806,12 @@ export function LibraryPage() {
         }}
         collectionId={selectedCollectionForAdd?.id}
         itemName={selectedCollectionForAdd?.name || ''}
+      />
+
+      {/* Quick Search Overlay */}
+      <QuickSearchOverlay
+        query={quickSearchQuery}
+        matchCount={isQuickSearchActive ? total : undefined}
       />
     </Container>
   );

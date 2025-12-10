@@ -17,6 +17,7 @@ export interface PaginatedCollectionsInput {
   sortDirection?: 'asc' | 'desc'
   excludedRatings?: string[]
   keywordIds?: string[]
+  nameFilter?: string
 }
 
 export interface UpdateCollectionInput {
@@ -108,6 +109,7 @@ export class CollectionService {
       sortDirection = 'asc',
       excludedRatings = [],
       keywordIds = [],
+      nameFilter,
     } = input;
 
     const skip = (page - 1) * limit;
@@ -118,6 +120,14 @@ export class CollectionService {
       libraryId,
       parentId: null,
     };
+
+    // Add name filter if specified (substring match)
+    // Note: SQLite's LIKE is case-insensitive for ASCII by default
+    if (nameFilter && nameFilter.trim()) {
+      baseWhere.name = {
+        contains: nameFilter.trim(),
+      };
+    }
 
     // Add content rating filter if specified
     if (excludedRatings.length > 0) {

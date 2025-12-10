@@ -60,6 +60,11 @@ router.use(authenticate);
  *         schema:
  *           type: string
  *         description: Comma-separated list of keyword IDs to filter by (AND logic)
+ *       - in: query
+ *         name: nameFilter
+ *         schema:
+ *           type: string
+ *         description: Filter collections by name (case-insensitive substring match)
  *     responses:
  *       200:
  *         description: Paginated list of collections
@@ -93,6 +98,7 @@ router.get('/library/:libraryId', async (req, res) => {
       sortDirection,
       excludedRatings,
       keywordIds,
+      nameFilter,
     } = req.query;
 
     const result = await collectionService.getPaginatedCollections({
@@ -103,6 +109,7 @@ router.get('/library/:libraryId', async (req, res) => {
       sortDirection: sortDirection as 'asc' | 'desc' | undefined,
       excludedRatings: excludedRatings ? (excludedRatings as string).split(',') : undefined,
       keywordIds: keywordIds ? (keywordIds as string).split(',') : undefined,
+      nameFilter: nameFilter as string | undefined,
     });
 
     res.json(result);

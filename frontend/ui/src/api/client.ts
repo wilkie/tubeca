@@ -384,6 +384,7 @@ class ApiClient {
       sortDirection?: 'asc' | 'desc';
       excludedRatings?: string[];
       keywordIds?: string[];
+      nameFilter?: string;
     }
   ): Promise<ApiResponse<PaginatedCollectionsResponse>> {
     const params = new URLSearchParams();
@@ -393,6 +394,7 @@ class ApiClient {
     if (options?.sortDirection) params.set('sortDirection', options.sortDirection);
     if (options?.excludedRatings?.length) params.set('excludedRatings', options.excludedRatings.join(','));
     if (options?.keywordIds?.length) params.set('keywordIds', options.keywordIds.join(','));
+    if (options?.nameFilter) params.set('nameFilter', options.nameFilter);
 
     const queryString = params.toString();
     const url = `/collections/library/${libraryId}${queryString ? `?${queryString}` : ''}`;
