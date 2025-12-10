@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -26,6 +26,8 @@ import { apiClient, type Collection, type Media, type Keyword } from '../api/cli
 import { FilterChips } from '../components/FilterChips';
 import { KeywordFilter } from '../components/KeywordFilter';
 
+const ITEMS_PER_PAGE = 50;
+
 export function SearchPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -36,62 +38,167 @@ export function SearchPage() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [media, setMedia] = useState<Media[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
   const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
   const [selectedKeywords, setSelectedKeywords] = useState<Keyword[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [badgeHovered, setBadgeHovered] = useState(false);
 
-  // Track the last searched query to avoid re-searching
-  const lastSearchedQuery = useRef<string>('');
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalCollections, setTotalCollections] = useState(0);
+  const [totalMedia, setTotalMedia] = useState(0);
 
-  // Perform search when query param changes (e.g., from URL or initial load)
-  useEffect(() => {
-    const searchQuery = initialQuery.trim();
+  // Available filters (populated from first unfiltered load, persists for the session)
+  const [allContentRatings, setAllContentRatings] = useState<string[]>([]);
+  const [allKeywords, setAllKeywords] = useState<Keyword[]>([]);
 
-    // Skip if empty or already searched this query
-    if (!searchQuery || searchQuery === lastSearchedQuery.current) {
-      return;
-    }
+  // Ref for infinite scroll sentinel
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-    let cancelled = false;
-    lastSearchedQuery.current = searchQuery;
+  // Track current search params to detect changes
+  const searchParamsRef = useRef({
+    query: '',
+    keywordIds: [] as string[],
+    excludedRatings: [] as string[],
+  });
 
-    async function doSearch() {
+  // Build search params object
+  const currentSearchParams = useMemo(() => ({
+    query: initialQuery.trim(),
+    keywordIds: selectedKeywords.map((k) => k.id),
+    excludedRatings: Array.from(excludedRatings),
+  }), [initialQuery, selectedKeywords, excludedRatings]);
+
+  // Perform search
+  const performSearch = useCallback(async (pageNum: number, append: boolean = false) => {
+    const isFirstPage = pageNum === 1;
+
+    if (isFirstPage) {
       setIsLoading(true);
-      setError(null);
-      setHasSearched(true);
+    } else {
+      setIsLoadingMore(true);
+    }
+    setError(null);
 
-      const result = await apiClient.search(searchQuery);
+    const result = await apiClient.search({
+      query: currentSearchParams.query || undefined,
+      page: pageNum,
+      limit: ITEMS_PER_PAGE,
+      keywordIds: currentSearchParams.keywordIds.length > 0 ? currentSearchParams.keywordIds : undefined,
+      excludedRatings: currentSearchParams.excludedRatings.length > 0 ? currentSearchParams.excludedRatings : undefined,
+    });
 
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
+    if (result.error) {
+      setError(result.error);
+      if (isFirstPage) {
         setCollections([]);
         setMedia([]);
-      } else if (result.data) {
+      }
+    } else if (result.data) {
+      if (append) {
+        setCollections((prev) => [...prev, ...result.data!.collections]);
+        setMedia((prev) => [...prev, ...result.data!.media]);
+      } else {
         setCollections(result.data.collections);
         setMedia(result.data.media);
       }
+      setTotalCollections(result.data.totalCollections);
+      setTotalMedia(result.data.totalMedia);
+      setHasMore(result.data.hasMore);
+      setPage(pageNum);
 
-      setIsLoading(false);
+      // When loading first page without filters, update available filter options
+      const filtersApplied = currentSearchParams.keywordIds.length > 0 || currentSearchParams.excludedRatings.length > 0;
+      if (isFirstPage && !filtersApplied) {
+        // Extract content ratings from results
+        const ratings = new Set<string>();
+        result.data.collections.forEach((c) => {
+          if (c.filmDetails?.contentRating) {
+            ratings.add(c.filmDetails.contentRating);
+          }
+        });
+        const ratingOrder = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
+        const sortedRatings = Array.from(ratings).sort((a, b) => {
+          const aIndex = ratingOrder.indexOf(a);
+          const bIndex = ratingOrder.indexOf(b);
+          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+          if (aIndex !== -1) return -1;
+          if (bIndex !== -1) return 1;
+          return a.localeCompare(b);
+        });
+        setAllContentRatings(sortedRatings);
+
+        // Extract keywords from results
+        const keywordMap = new Map<string, Keyword>();
+        result.data.collections.forEach((c) => {
+          c.keywords?.forEach((k) => {
+            if (!keywordMap.has(k.id)) {
+              keywordMap.set(k.id, k);
+            }
+          });
+        });
+        const sortedKeywords = Array.from(keywordMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+        setAllKeywords(sortedKeywords);
+      }
     }
 
-    doSearch();
+    setIsLoading(false);
+    setIsLoadingMore(false);
+  }, [currentSearchParams]);
+
+  // Load data when search params change (query or filters)
+  useEffect(() => {
+    const paramsChanged =
+      searchParamsRef.current.query !== currentSearchParams.query ||
+      JSON.stringify(searchParamsRef.current.keywordIds) !== JSON.stringify(currentSearchParams.keywordIds) ||
+      JSON.stringify(searchParamsRef.current.excludedRatings) !== JSON.stringify(currentSearchParams.excludedRatings);
+
+    if (paramsChanged) {
+      searchParamsRef.current = { ...currentSearchParams };
+      performSearch(1);
+    }
+  }, [currentSearchParams, performSearch]);
+
+  // Load initial data on mount
+  useEffect(() => {
+    performSearch(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Infinite scroll with IntersectionObserver
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoading && !isLoadingMore) {
+          performSearch(page + 1, true);
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
 
     return () => {
-      cancelled = true;
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
     };
-  }, [initialQuery]);
+  }, [hasMore, isLoading, isLoadingMore, page, performSearch]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) {
-      // Reset last searched so the effect will trigger
-      lastSearchedQuery.current = '';
-      setSearchParams({ q: query.trim() });
+    const trimmedQuery = query.trim();
+    if (trimmedQuery) {
+      setSearchParams({ q: trimmedQuery });
+    } else {
+      // Clear query param to show all results
+      setSearchParams({});
     }
   };
 
@@ -103,64 +210,9 @@ export function SearchPage() {
     navigate(`/media/${mediaId}`);
   };
 
-  // Extract available content ratings from collections
-  const availableContentRatings = useMemo(() => {
-    const ratings = new Set<string>();
-    collections.forEach((c) => {
-      if (c.filmDetails?.contentRating) {
-        ratings.add(c.filmDetails.contentRating);
-      }
-    });
-    const ratingOrder = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
-    return Array.from(ratings).sort((a, b) => {
-      const aIndex = ratingOrder.indexOf(a);
-      const bIndex = ratingOrder.indexOf(b);
-      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-      if (aIndex !== -1) return -1;
-      if (bIndex !== -1) return 1;
-      return a.localeCompare(b);
-    });
-  }, [collections]);
-
-  // Extract available keywords from collections
-  const availableKeywords = useMemo(() => {
-    const keywordMap = new Map<string, Keyword>();
-    collections.forEach((c) => {
-      c.keywords?.forEach((k) => {
-        if (!keywordMap.has(k.id)) {
-          keywordMap.set(k.id, k);
-        }
-      });
-    });
-    return Array.from(keywordMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [collections]);
-
-  // Filter collections based on current filter settings
-  const filteredCollections = useMemo(() => {
-    let filtered = collections;
-
-    // Filter by content rating
-    if (excludedRatings.size > 0) {
-      filtered = filtered.filter((c) => {
-        const rating = c.filmDetails?.contentRating;
-        return !rating || !excludedRatings.has(rating);
-      });
-    }
-
-    // Filter by keywords (must have ALL selected keywords)
-    if (selectedKeywords.length > 0) {
-      const selectedKeywordIds = new Set(selectedKeywords.map((k) => k.id));
-      filtered = filtered.filter((c) => {
-        const collectionKeywordIds = new Set(c.keywords?.map((k) => k.id) || []);
-        return [...selectedKeywordIds].every((id) => collectionKeywordIds.has(id));
-      });
-    }
-
-    return filtered;
-  }, [collections, excludedRatings, selectedKeywords]);
-
   const activeFilterCount = excludedRatings.size + selectedKeywords.length;
-  const totalResults = filteredCollections.length + media.length;
+  const totalResults = collections.length + media.length;
+  const showFilterButton = allContentRatings.length > 0 || allKeywords.length > 0 || activeFilterCount > 0;
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -187,7 +239,7 @@ export function SearchPage() {
             }}
           />
         </Box>
-        {hasSearched && (availableContentRatings.length > 0 || availableKeywords.length > 0) && (() => {
+        {showFilterButton && (() => {
           const canClear = activeFilterCount > 0;
           return (
             <Tooltip title={canClear && badgeHovered ? t('library.filter.clearAll', 'Clear') : t('library.filter.toggle', 'Toggle filters')}>
@@ -230,10 +282,10 @@ export function SearchPage() {
 
       {/* Filter Section (collapsible) */}
       <Collapse in={showFilters}>
-        {availableContentRatings.length > 0 && (
+        {allContentRatings.length > 0 && (
           <FilterChips
             label={t('library.filter.rating', 'Rating')}
-            options={availableContentRatings}
+            options={allContentRatings}
             excluded={excludedRatings}
             onToggle={(rating) => {
               setExcludedRatings((prev) => {
@@ -247,11 +299,11 @@ export function SearchPage() {
               });
             }}
             onClear={() => setExcludedRatings(new Set())}
-            onSelectOnly={(rating) => setExcludedRatings(new Set(availableContentRatings.filter((r) => r !== rating)))}
+            onSelectOnly={(rating) => setExcludedRatings(new Set(allContentRatings.filter((r) => r !== rating)))}
           />
         )}
         <KeywordFilter
-          keywords={availableKeywords}
+          keywords={allKeywords}
           selectedKeywords={selectedKeywords}
           onSelectionChange={setSelectedKeywords}
         />
@@ -269,17 +321,17 @@ export function SearchPage() {
         </Alert>
       )}
 
-      {!isLoading && hasSearched && totalResults === 0 && (
+      {!isLoading && totalResults === 0 && (
         <Alert severity="info">{t('search.noResults')}</Alert>
       )}
 
-      {!isLoading && filteredCollections.length > 0 && (
+      {!isLoading && collections.length > 0 && (
         <Box sx={{ mb: 4 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>
-            {t('search.collections')} ({filteredCollections.length})
+            {t('search.collections')} ({totalCollections})
           </Typography>
           <Grid container spacing={2}>
-            {filteredCollections.map((collection) => {
+            {collections.map((collection) => {
               const primaryImage = collection.images?.[0];
               const hasImage = primaryImage != null;
 
@@ -338,14 +390,14 @@ export function SearchPage() {
         </Box>
       )}
 
-      {!isLoading && filteredCollections.length > 0 && media.length > 0 && (
+      {!isLoading && collections.length > 0 && media.length > 0 && (
         <Divider sx={{ my: 3 }} />
       )}
 
       {!isLoading && media.length > 0 && (
         <Box>
           <Typography variant="h6" sx={{ mb: 2 }}>
-            {t('search.media')} ({media.length})
+            {t('search.media')} ({totalMedia})
           </Typography>
           <Grid container spacing={2}>
             {media.map((item) => {
@@ -428,6 +480,13 @@ export function SearchPage() {
               );
             })}
           </Grid>
+        </Box>
+      )}
+
+      {/* Infinite scroll sentinel */}
+      {hasMore && !isLoading && (
+        <Box ref={loadMoreRef} sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          {isLoadingMore && <CircularProgress />}
         </Box>
       )}
     </Container>

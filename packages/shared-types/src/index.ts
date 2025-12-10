@@ -657,6 +657,10 @@ export interface PersonsResponse {
 export interface SearchResponse {
   collections: Collection[]
   media: Media[]
+  totalCollections: number
+  totalMedia: number
+  page: number
+  hasMore: boolean
 }
 
 // ============================================

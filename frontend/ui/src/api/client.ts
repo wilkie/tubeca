@@ -555,12 +555,22 @@ class ApiClient {
   }
 
   // Search methods
-  async search(query: string, limit?: number): Promise<ApiResponse<SearchResponse>> {
-    const params = new URLSearchParams({ q: query });
-    if (limit) {
-      params.set('limit', limit.toString());
-    }
-    return this.request<SearchResponse>(`/search?${params.toString()}`);
+  async search(options?: {
+    query?: string;
+    page?: number;
+    limit?: number;
+    keywordIds?: string[];
+    excludedRatings?: string[];
+  }): Promise<ApiResponse<SearchResponse>> {
+    const params = new URLSearchParams();
+    if (options?.query) params.set('q', options.query);
+    if (options?.page) params.set('page', options.page.toString());
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.keywordIds?.length) params.set('keywordIds', options.keywordIds.join(','));
+    if (options?.excludedRatings?.length) params.set('excludedRatings', options.excludedRatings.join(','));
+
+    const queryString = params.toString();
+    return this.request<SearchResponse>(`/search${queryString ? `?${queryString}` : ''}`);
   }
 
   // User Collection methods
