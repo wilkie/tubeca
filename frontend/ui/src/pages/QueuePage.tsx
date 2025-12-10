@@ -274,7 +274,13 @@ export function QueuePage() {
 
   const handleItemClick = (item: UserCollectionItem) => {
     if (item.media) {
-      navigate(`/media/${item.media.id}`);
+      // For films, navigate to the parent collection (the film) instead of the media page
+      const libraryType = item.media.collection?.library?.libraryType;
+      if (libraryType === 'Film' && item.media.collection) {
+        navigate(`/collection/${item.media.collection.id}`);
+      } else {
+        navigate(`/media/${item.media.id}`);
+      }
     } else if (item.collection) {
       navigate(`/collection/${item.collection.id}`);
     }
@@ -314,11 +320,37 @@ export function QueuePage() {
   };
 
   const getItemImage = (item: UserCollectionItem) => {
+    // Helper to find image by type preference
+    const findImage = (images: { id: string; imageType: string }[] | undefined, preferLandscape: boolean) => {
+      if (!images || images.length === 0) return null;
+      // For landscape preference (films), prefer Thumbnail > Backdrop > Poster
+      // For portrait preference (shows, music), prefer Poster > Backdrop > Thumbnail
+      const typeOrder = preferLandscape
+        ? ['Thumbnail', 'Backdrop', 'Poster']
+        : ['Poster', 'Backdrop', 'Thumbnail'];
+      for (const type of typeOrder) {
+        const img = images.find((i) => i.imageType === type);
+        if (img) return img;
+      }
+      return images[0]; // Fall back to any image
+    };
+
+    const libraryType = item.media?.collection?.library?.libraryType || item.collection?.library?.libraryType;
+    const isFilm = libraryType === 'Film';
+
+    // Check media's own images first
     if (item.media?.images?.[0]) {
       return apiClient.getImageUrl(item.media.images[0].id);
     }
-    if (item.collection?.images?.[0]) {
-      return apiClient.getImageUrl(item.collection.images[0].id);
+    // Fall back to media's parent collection images (e.g., film poster/thumbnail)
+    if (item.media?.collection?.images) {
+      const img = findImage(item.media.collection.images, isFilm);
+      if (img) return apiClient.getImageUrl(img.id);
+    }
+    // Check if the queue item is a collection itself
+    if (item.collection?.images) {
+      const img = findImage(item.collection.images, isFilm);
+      if (img) return apiClient.getImageUrl(img.id);
     }
     return null;
   };
@@ -332,7 +364,10 @@ export function QueuePage() {
       if (item.media.videoDetails) {
         const { season, episode } = item.media.videoDetails;
         if (season !== null && episode !== null) {
-          return `S${season}E${episode}`;
+          // For TV shows, include the show name (parent of the season)
+          const showName = item.media.collection?.parent?.name;
+          const episodeTag = `S${season}E${episode}`;
+          return showName ? `${showName} · ${episodeTag}` : episodeTag;
         }
       }
       if (item.media.audioDetails) {

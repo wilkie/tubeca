@@ -716,6 +716,11 @@ export interface UserCollectionItemMedia {
   collection?: {
     id: string
     name: string
+    images?: Image[]
+    parent?: {
+      id: string
+      name: string
+    } | null
     library?: {
       id: string
       name: string
