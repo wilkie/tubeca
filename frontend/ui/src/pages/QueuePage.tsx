@@ -7,7 +7,6 @@ import {
   Typography,
   CircularProgress,
   Alert,
-  Grid,
   Card,
   CardContent,
   CardActionArea,
@@ -17,9 +16,189 @@ import {
   Stack,
   Button,
 } from '@mui/material';
-import { QueueMusic, Movie, Tv, Album, Folder, VideoFile, AudioFile, Clear, PlayArrow } from '@mui/icons-material';
+import { QueueMusic, Movie, Tv, Album, Folder, VideoFile, AudioFile, Clear, PlayArrow, DragIndicator } from '@mui/icons-material';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { apiClient, type UserCollection, type UserCollectionItem } from '../api/client';
 import { usePlayer } from '../context/PlayerContext';
+
+interface SortableQueueItemProps {
+  item: UserCollectionItem;
+  index: number;
+  onItemClick: (item: UserCollectionItem) => void;
+  onPlayItem: (item: UserCollectionItem, event: React.MouseEvent) => void;
+  onRemoveFromQueue: (item: UserCollectionItem, event: React.MouseEvent) => void;
+  getItemImage: (item: UserCollectionItem) => string | null;
+  getItemName: (item: UserCollectionItem) => string;
+  getItemSubtitle: (item: UserCollectionItem) => string;
+  getItemIcon: (item: UserCollectionItem) => React.ReactNode;
+  t: ReturnType<typeof useTranslation>['t'];
+}
+
+function SortableQueueItem({
+  item,
+  index,
+  onItemClick,
+  onPlayItem,
+  onRemoveFromQueue,
+  getItemImage,
+  getItemName,
+  getItemSubtitle,
+  getItemIcon,
+  t,
+}: SortableQueueItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 1000 : 'auto',
+  };
+
+  const imageUrl = getItemImage(item);
+  const name = getItemName(item);
+  const subtitle = getItemSubtitle(item);
+  const duration = item.media?.duration;
+
+  return (
+    <Card ref={setNodeRef} style={style} sx={{ display: 'flex' }}>
+      {/* Drag handle */}
+      <Box
+        {...attributes}
+        {...listeners}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          px: 1,
+          cursor: 'grab',
+          '&:active': { cursor: 'grabbing' },
+          color: 'text.secondary',
+          '&:hover': { color: 'text.primary' },
+        }}
+      >
+        <DragIndicator />
+      </Box>
+
+      {/* Image and Details - single clickable area */}
+      <CardActionArea
+        onClick={() => onItemClick(item)}
+        sx={{ flexGrow: 1, display: 'flex', alignItems: 'stretch' }}
+      >
+        {/* Image - fixed width based on 2:3 aspect ratio */}
+        <Box
+          sx={{
+            width: 125,
+            flexShrink: 0,
+            flexGrow: 0,
+          }}
+        >
+          {imageUrl ? (
+            <CardMedia
+              component="img"
+              image={imageUrl}
+              alt={name}
+              sx={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+              }}
+            />
+          ) : (
+            <Box
+              sx={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'action.hover',
+              }}
+            >
+              {getItemIcon(item)}
+            </Box>
+          )}
+        </Box>
+
+        {/* Details */}
+        <CardContent sx={{ py: 1.5, px: 2, flexGrow: 1 }}>
+          <Typography variant="subtitle1" fontWeight="medium">
+            {name}
+          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                bgcolor: 'action.selected',
+                px: 0.5,
+                borderRadius: 0.5,
+                fontWeight: 600,
+              }}
+            >
+              #{index + 1}
+            </Typography>
+            {subtitle && (
+              <Typography variant="caption" color="text.secondary">
+                {subtitle}
+              </Typography>
+            )}
+            {duration && (
+              <Typography variant="caption" color="text.secondary">
+                {Math.floor(duration / 3600) > 0
+                  ? `${Math.floor(duration / 3600)}h ${Math.floor((duration % 3600) / 60)}m`
+                  : `${Math.floor(duration / 60)}m`}
+              </Typography>
+            )}
+          </Stack>
+        </CardContent>
+      </CardActionArea>
+
+      {/* Actions */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 0.5 }}>
+        {item.media && (
+          <IconButton
+            color="primary"
+            onClick={(e) => onPlayItem(item, e)}
+            sx={{ width: 40, height: 56, borderRadius: 0.5 }}
+          >
+            <PlayArrow sx={{ fontSize: 28 }} />
+          </IconButton>
+        )}
+        <Tooltip title={t('queue.remove', 'Remove from Queue')}>
+          <IconButton
+            size="small"
+            onClick={(e) => onRemoveFromQueue(item, e)}
+          >
+            <Clear />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    </Card>
+  );
+}
 
 export function QueuePage() {
   const { t } = useTranslation();
@@ -30,6 +209,17 @@ export function QueuePage() {
   const [error, setError] = useState<string | null>(null);
 
   const items = queue?.items ?? [];
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +245,32 @@ export function QueuePage() {
       cancelled = true;
     };
   }, []);
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = items.findIndex((item) => item.id === active.id);
+      const newIndex = items.findIndex((item) => item.id === over.id);
+
+      const newItems = arrayMove(items, oldIndex, newIndex);
+
+      // Optimistically update UI
+      setQueue((prev) => prev ? { ...prev, items: newItems } : null);
+
+      // Persist the new order
+      const input = newItems
+        .filter((i) => i.mediaId)
+        .map((i) => ({ mediaId: i.mediaId! }));
+
+      const result = await apiClient.setPlaybackQueue(input);
+
+      if (result.data) {
+        setQueue(result.data.userCollection);
+        refreshPlayerQueue();
+      }
+    }
+  };
 
   const handleItemClick = (item: UserCollectionItem) => {
     if (item.media) {
@@ -135,17 +351,17 @@ export function QueuePage() {
 
   const getItemIcon = (item: UserCollectionItem) => {
     if (item.media) {
-      if (item.media.type === 'Video') return <VideoFile sx={{ fontSize: 48, color: 'text.secondary' }} />;
-      return <AudioFile sx={{ fontSize: 48, color: 'text.secondary' }} />;
+      if (item.media.type === 'Video') return <VideoFile sx={{ fontSize: 32, color: 'text.secondary' }} />;
+      return <AudioFile sx={{ fontSize: 32, color: 'text.secondary' }} />;
     }
     if (item.collection) {
       const libraryType = item.collection.library?.libraryType;
-      if (libraryType === 'Film') return <Movie sx={{ fontSize: 48, color: 'text.secondary' }} />;
-      if (libraryType === 'Television') return <Tv sx={{ fontSize: 48, color: 'text.secondary' }} />;
-      if (libraryType === 'Music') return <Album sx={{ fontSize: 48, color: 'text.secondary' }} />;
-      return <Folder sx={{ fontSize: 48, color: 'text.secondary' }} />;
+      if (libraryType === 'Film') return <Movie sx={{ fontSize: 32, color: 'text.secondary' }} />;
+      if (libraryType === 'Television') return <Tv sx={{ fontSize: 32, color: 'text.secondary' }} />;
+      if (libraryType === 'Music') return <Album sx={{ fontSize: 32, color: 'text.secondary' }} />;
+      return <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />;
     }
-    return <Folder sx={{ fontSize: 48, color: 'text.secondary' }} />;
+    return <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />;
   };
 
   if (isLoading) {
@@ -201,114 +417,31 @@ export function QueuePage() {
           {t('queue.empty', 'Your playback queue is empty. Add items to queue from the media page.')}
         </Alert>
       ) : (
-        <Grid container spacing={2}>
-          {items.map((item, index) => {
-            const imageUrl = getItemImage(item);
-            const name = getItemName(item);
-            const subtitle = getItemSubtitle(item);
-
-            return (
-              <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={item.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                  <CardActionArea
-                    onClick={() => handleItemClick(item)}
-                    sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
-                  >
-                    {/* Queue position badge */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: 8,
-                        left: 8,
-                        zIndex: 2,
-                        bgcolor: 'rgba(0, 0, 0, 0.75)',
-                        color: 'white',
-                        width: 24,
-                        height: 24,
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {index + 1}
-                    </Box>
-                    {imageUrl ? (
-                      <CardMedia
-                        component="img"
-                        image={imageUrl}
-                        alt={name}
-                        sx={{ aspectRatio: '2/3', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          aspectRatio: '2/3',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          bgcolor: 'action.hover',
-                        }}
-                      >
-                        {getItemIcon(item)}
-                      </Box>
-                    )}
-                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                      <Typography variant="body2" noWrap title={name}>
-                        {name}
-                      </Typography>
-                      {subtitle && (
-                        <Typography variant="caption" color="text.secondary" noWrap>
-                          {subtitle}
-                        </Typography>
-                      )}
-                    </CardContent>
-                  </CardActionArea>
-                  {/* Action buttons */}
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: 4,
-                      right: 4,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 0.5,
-                    }}
-                  >
-                    {item.media && (
-                      <Tooltip title={t('queue.play', 'Play')}>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => handlePlayItem(item, e)}
-                          sx={{
-                            bgcolor: 'rgba(0,0,0,0.5)',
-                            '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
-                          }}
-                        >
-                          <PlayArrow sx={{ color: 'white', fontSize: 20 }} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    <Tooltip title={t('queue.remove', 'Remove from Queue')}>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => handleRemoveFromQueue(item, e)}
-                        sx={{
-                          bgcolor: 'rgba(0,0,0,0.5)',
-                          '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
-                        }}
-                      >
-                        <Clear sx={{ color: 'white', fontSize: 20 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Card>
-              </Grid>
-            );
-          })}
-        </Grid>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+            <Stack spacing={1}>
+              {items.map((item, index) => (
+                <SortableQueueItem
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  onItemClick={handleItemClick}
+                  onPlayItem={handlePlayItem}
+                  onRemoveFromQueue={handleRemoveFromQueue}
+                  getItemImage={getItemImage}
+                  getItemName={getItemName}
+                  getItemSubtitle={getItemSubtitle}
+                  getItemIcon={getItemIcon}
+                  t={t}
+                />
+              ))}
+            </Stack>
+          </SortableContext>
+        </DndContext>
       )}
     </Container>
   );
