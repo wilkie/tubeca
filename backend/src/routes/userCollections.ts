@@ -614,7 +614,7 @@ router.get('/:id', async (req: Request, res) => {
  */
 router.post('/', async (req: Request, res) => {
   try {
-    const { name, description, isPublic } = req.body;
+    const { name, description, collectionType, isPublic } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'Name is required' });
@@ -622,7 +622,7 @@ router.post('/', async (req: Request, res) => {
 
     const userCollection = await userCollectionService.createCollection(
       req.user!.userId,
-      { name: name.trim(), description, isPublic }
+      { name: name.trim(), description, collectionType, isPublic }
     );
 
     res.status(201).json({ userCollection });
@@ -676,12 +676,12 @@ router.post('/', async (req: Request, res) => {
  */
 router.patch('/:id', async (req: Request, res) => {
   try {
-    const { name, description, isPublic } = req.body;
+    const { name, description, collectionType, isPublic } = req.body;
 
     const userCollection = await userCollectionService.updateCollection(
       req.params.id,
       req.user!.userId,
-      { name, description, isPublic }
+      { name, description, collectionType, isPublic }
     );
 
     res.json({ userCollection });

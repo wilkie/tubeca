@@ -90,6 +90,7 @@ const mockFavorites: UserCollection = {
   id: 'fav-collection',
   name: 'Favorites',
   description: null,
+  collectionType: 'Set',
   isPublic: false,
   isSystem: true,
   systemType: 'Favorites',

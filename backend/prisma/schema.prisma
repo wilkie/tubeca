@@ -268,6 +268,11 @@ enum ImageType {
   ArtistImage // Artist promotional image
 }
 
+enum UserCollectionType {
+  Set         // Unordered collection (existing behavior)
+  Playlist    // Ordered collection for sequential playback
+}
+
 // Audio-specific metadata
 model AudioDetails {
   id          String   @id @default(uuid())
@@ -641,12 +646,13 @@ model Person {
 
 // User-owned collection for playlists/watchlists
 model UserCollection {
-  id          String               @id @default(uuid())
-  name        String
-  description String?
-  isPublic    Boolean              @default(false)
-  isSystem    Boolean              @default(false)
-  systemType  String?              // e.g., 'Favorites', 'WatchLater', etc.
+  id             String               @id @default(uuid())
+  name           String
+  description    String?
+  collectionType UserCollectionType   @default(Set)
+  isPublic       Boolean              @default(false)
+  isSystem       Boolean              @default(false)
+  systemType     String?              // e.g., 'Favorites', 'WatchLater', etc.
 
   // Owner
   user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
