@@ -80,6 +80,7 @@ const mockUserCollection: UserCollection = {
   id: 'col-1',
   name: 'My Playlist',
   description: 'A collection of my favorite media',
+  collectionType: 'Set',
   isPublic: false,
   isSystem: false,
   systemType: null,

@@ -667,10 +667,13 @@ export interface SearchResponse {
 // User Collection Types
 // ============================================
 
+export type UserCollectionType = 'Set' | 'Playlist'
+
 export interface UserCollection {
   id: string
   name: string
   description: string | null
+  collectionType: UserCollectionType
   isPublic: boolean
   isSystem: boolean
   systemType: string | null
@@ -761,12 +764,14 @@ export interface UserCollectionItemResponse {
 export interface CreateUserCollectionInput {
   name: string
   description?: string
+  collectionType?: UserCollectionType
   isPublic?: boolean
 }
 
 export interface UpdateUserCollectionInput {
   name?: string
   description?: string
+  collectionType?: UserCollectionType
   isPublic?: boolean
 }
 

@@ -92,6 +92,7 @@ const mockWatchLater: UserCollection = {
   id: 'watch-later-collection',
   name: 'Watch Later',
   description: null,
+  collectionType: 'Set',
   isPublic: false,
   isSystem: true,
   systemType: 'WatchLater',

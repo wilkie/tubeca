@@ -1,15 +1,17 @@
 import { prisma } from '../config/database';
-import { ImageType } from '@prisma/client';
+import { ImageType, UserCollectionType } from '@prisma/client';
 
 export interface CreateUserCollectionInput {
   name: string
   description?: string
+  collectionType?: UserCollectionType
   isPublic?: boolean
 }
 
 export interface UpdateUserCollectionInput {
   name?: string
   description?: string
+  collectionType?: UserCollectionType
   isPublic?: boolean
 }
 
@@ -187,12 +189,13 @@ export class UserCollectionService {
    * Create a new user collection
    */
   async createCollection(userId: string, input: CreateUserCollectionInput) {
-    const { name, description, isPublic } = input;
+    const { name, description, collectionType, isPublic } = input;
 
     return prisma.userCollection.create({
       data: {
         name,
         description,
+        collectionType: collectionType ?? 'Set',
         isPublic: isPublic ?? false,
         userId,
       },
