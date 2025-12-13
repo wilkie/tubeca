@@ -708,6 +708,7 @@ export interface UserCollectionItemCollection {
     name: string
     libraryType: LibraryType
   }
+  media?: { id: string }[]
 }
 
 export interface UserCollectionItemMedia {

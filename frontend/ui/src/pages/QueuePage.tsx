@@ -7,16 +7,10 @@ import {
   Typography,
   CircularProgress,
   Alert,
-  Card,
-  CardContent,
-  CardActionArea,
-  CardMedia,
-  IconButton,
-  Tooltip,
   Stack,
   Button,
 } from '@mui/material';
-import { QueueMusic, Movie, Tv, Album, Folder, VideoFile, AudioFile, Clear, PlayArrow, DragIndicator } from '@mui/icons-material';
+import { QueueMusic, Movie, Tv, Album, Folder, VideoFile, AudioFile, Clear } from '@mui/icons-material';
 import {
   DndContext,
   closestCenter,
@@ -30,175 +24,11 @@ import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
-  useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { apiClient, type UserCollection, type UserCollectionItem } from '../api/client';
 import { usePlayer } from '../context/PlayerContext';
-
-interface SortableQueueItemProps {
-  item: UserCollectionItem;
-  index: number;
-  onItemClick: (item: UserCollectionItem) => void;
-  onPlayItem: (item: UserCollectionItem, event: React.MouseEvent) => void;
-  onRemoveFromQueue: (item: UserCollectionItem, event: React.MouseEvent) => void;
-  getItemImage: (item: UserCollectionItem) => string | null;
-  getItemName: (item: UserCollectionItem) => string;
-  getItemSubtitle: (item: UserCollectionItem) => string;
-  getItemIcon: (item: UserCollectionItem) => React.ReactNode;
-  t: ReturnType<typeof useTranslation>['t'];
-}
-
-function SortableQueueItem({
-  item,
-  index,
-  onItemClick,
-  onPlayItem,
-  onRemoveFromQueue,
-  getItemImage,
-  getItemName,
-  getItemSubtitle,
-  getItemIcon,
-  t,
-}: SortableQueueItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: item.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 1000 : 'auto',
-  };
-
-  const imageUrl = getItemImage(item);
-  const name = getItemName(item);
-  const subtitle = getItemSubtitle(item);
-  const duration = item.media?.duration;
-
-  return (
-    <Card ref={setNodeRef} style={style} sx={{ display: 'flex' }}>
-      {/* Drag handle */}
-      <Box
-        {...attributes}
-        {...listeners}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          px: 1,
-          cursor: 'grab',
-          '&:active': { cursor: 'grabbing' },
-          color: 'text.secondary',
-          '&:hover': { color: 'text.primary' },
-        }}
-      >
-        <DragIndicator />
-      </Box>
-
-      {/* Image and Details - single clickable area */}
-      <CardActionArea
-        onClick={() => onItemClick(item)}
-        sx={{ flexGrow: 1, display: 'flex', alignItems: 'stretch' }}
-      >
-        {/* Image - fixed width based on 2:3 aspect ratio */}
-        <Box
-          sx={{
-            width: 125,
-            flexShrink: 0,
-            flexGrow: 0,
-          }}
-        >
-          {imageUrl ? (
-            <CardMedia
-              component="img"
-              image={imageUrl}
-              alt={name}
-              sx={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-              }}
-            />
-          ) : (
-            <Box
-              sx={{
-                width: '100%',
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                bgcolor: 'action.hover',
-              }}
-            >
-              {getItemIcon(item)}
-            </Box>
-          )}
-        </Box>
-
-        {/* Details */}
-        <CardContent sx={{ py: 1.5, px: 2, flexGrow: 1 }}>
-          <Typography variant="subtitle1" fontWeight="medium">
-            {name}
-          </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                bgcolor: 'action.selected',
-                px: 0.5,
-                borderRadius: 0.5,
-                fontWeight: 600,
-              }}
-            >
-              #{index + 1}
-            </Typography>
-            {subtitle && (
-              <Typography variant="caption" color="text.secondary">
-                {subtitle}
-              </Typography>
-            )}
-            {duration && (
-              <Typography variant="caption" color="text.secondary">
-                {Math.floor(duration / 3600) > 0
-                  ? `${Math.floor(duration / 3600)}h ${Math.floor((duration % 3600) / 60)}m`
-                  : `${Math.floor(duration / 60)}m`}
-              </Typography>
-            )}
-          </Stack>
-        </CardContent>
-      </CardActionArea>
-
-      {/* Actions */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 0.5 }}>
-        {item.media && (
-          <IconButton
-            color="primary"
-            onClick={(e) => onPlayItem(item, e)}
-            sx={{ width: 40, height: 56, borderRadius: 0.5 }}
-          >
-            <PlayArrow sx={{ fontSize: 28 }} />
-          </IconButton>
-        )}
-        <Tooltip title={t('queue.remove', 'Remove from Queue')}>
-          <IconButton
-            size="small"
-            onClick={(e) => onRemoveFromQueue(item, e)}
-          >
-            <Clear />
-          </IconButton>
-        </Tooltip>
-      </Box>
-    </Card>
-  );
-}
+import { SortableMediaListItem } from '../components/SortableMediaListItem';
 
 export function QueuePage() {
   const { t } = useTranslation();
@@ -286,7 +116,7 @@ export function QueuePage() {
     }
   };
 
-  const handlePlayItem = async (item: UserCollectionItem, event: React.MouseEvent) => {
+  const handlePlayItem = async (item: UserCollectionItem, _index: number, event: React.MouseEvent) => {
     event.stopPropagation();
     if (item.media) {
       await playMedia(item.media.id);
@@ -460,18 +290,18 @@ export function QueuePage() {
           <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
             <Stack spacing={1}>
               {items.map((item, index) => (
-                <SortableQueueItem
+                <SortableMediaListItem
                   key={item.id}
                   item={item}
                   index={index}
                   onItemClick={handleItemClick}
                   onPlayItem={handlePlayItem}
-                  onRemoveFromQueue={handleRemoveFromQueue}
+                  onRemoveItem={handleRemoveFromQueue}
                   getItemImage={getItemImage}
                   getItemName={getItemName}
                   getItemSubtitle={getItemSubtitle}
                   getItemIcon={getItemIcon}
-                  t={t}
+                  removeTooltip={t('queue.remove', 'Remove from Queue')}
                 />
               ))}
             </Stack>

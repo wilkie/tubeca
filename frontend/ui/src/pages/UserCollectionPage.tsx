@@ -40,17 +40,112 @@ import {
   ArrowBack,
   Favorite,
   FavoriteBorder,
+  PlayArrow,
 } from '@mui/icons-material';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import {
   apiClient,
   type UserCollection,
   type UserCollectionItem,
 } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { usePlayer } from '../context/PlayerContext';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
 import { FilterChips } from '../components/FilterChips';
+import { SortableMediaListItem } from '../components/SortableMediaListItem';
 
 type SortField = 'name' | 'dateAdded' | 'type';
+
+// Helper to get image URL for an item
+function getItemImage(item: UserCollectionItem): string | null {
+  // Helper to find image by type preference
+  const findImage = (images: { id: string; imageType: string }[] | undefined, preferLandscape: boolean) => {
+    if (!images || images.length === 0) return null;
+    // For landscape preference (films), prefer Thumbnail > Backdrop > Poster
+    // For portrait preference (shows, music), prefer Poster > Backdrop > Thumbnail
+    const typeOrder = preferLandscape
+      ? ['Thumbnail', 'Backdrop', 'Poster']
+      : ['Poster', 'Backdrop', 'Thumbnail'];
+    for (const type of typeOrder) {
+      const img = images.find((i) => i.imageType === type);
+      if (img) return img;
+    }
+    return images[0];
+  };
+
+  const libraryType = item.media?.collection?.library?.libraryType || item.collection?.library?.libraryType;
+  const isFilm = libraryType === 'Film';
+
+  // Check media's own images first
+  if (item.media?.images?.[0]) {
+    const img = findImage(item.media.images, isFilm);
+    if (img) return apiClient.getImageUrl(img.id);
+  }
+  // Fall back to media's parent collection images (e.g., film poster/thumbnail)
+  if (item.media?.collection?.images) {
+    const img = findImage(item.media.collection.images, isFilm);
+    if (img) return apiClient.getImageUrl(img.id);
+  }
+  // Check if the item is a collection itself
+  if (item.collection?.images) {
+    const img = findImage(item.collection.images, isFilm);
+    if (img) return apiClient.getImageUrl(img.id);
+  }
+  return null;
+}
+
+// Helper to get item name
+function getItemName(item: UserCollectionItem): string {
+  return item.media?.name || item.collection?.name || 'Unknown';
+}
+
+// Helper to get item subtitle
+function getItemSubtitle(item: UserCollectionItem): string {
+  if (item.media) {
+    if (item.media.videoDetails) {
+      const { season, episode } = item.media.videoDetails;
+      if (season !== null && episode !== null) {
+        const showName = item.media.collection?.parent?.name;
+        const episodeTag = `S${season}E${episode}`;
+        return showName ? `${showName} · ${episodeTag}` : episodeTag;
+      }
+    }
+    if (item.media.audioDetails) {
+      const { track, disc } = item.media.audioDetails;
+      if (track !== null) {
+        return disc !== null ? `Disc ${disc}, Track ${track}` : `Track ${track}`;
+      }
+    }
+    return item.media.collection?.name || '';
+  }
+  if (item.collection) {
+    return item.collection.library?.name || '';
+  }
+  return '';
+}
+
+// Helper to get item icon
+function getItemIcon(item: UserCollectionItem): React.ReactNode {
+  if (item.media) {
+    if (item.media.type === 'Video') return <VideoFile sx={{ fontSize: 32, color: 'text.secondary' }} />;
+    return <AudioFile sx={{ fontSize: 32, color: 'text.secondary' }} />;
+  }
+  return <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />;
+}
 
 // Get the item type for filtering/sorting
 function getItemType(item: UserCollectionItem): string {
@@ -84,6 +179,7 @@ export function UserCollectionPage() {
   const { collectionId } = useParams<{ collectionId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { playMedia, refreshQueue } = usePlayer();
 
   const [collection, setCollection] = useState<UserCollection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -100,6 +196,19 @@ export function UserCollectionPage() {
   const [isFavorited, setIsFavorited] = useState(false);
 
   const isOwner = collection?.userId === user?.id;
+  const isPlaylist = collection?.collectionType === 'Playlist';
+
+  // DnD sensors for Playlist view
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   useEffect(() => {
     if (!collectionId) return;
@@ -283,6 +392,116 @@ export function UserCollectionPage() {
     }
   };
 
+  // Handle drag end for Playlist reordering
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    const items = collection?.items ?? [];
+
+    if (over && active.id !== over.id) {
+      const oldIndex = items.findIndex((item) => item.id === active.id);
+      const newIndex = items.findIndex((item) => item.id === over.id);
+
+      const newItems = arrayMove(items, oldIndex, newIndex);
+
+      // Optimistically update UI
+      setCollection((prev) => prev ? { ...prev, items: newItems } : null);
+
+      // Persist the new order
+      if (collectionId) {
+        const result = await apiClient.reorderUserCollectionItems(collectionId, newItems.map((i) => i.id));
+        if (result.data) {
+          setCollection(result.data.userCollection);
+        }
+      }
+    }
+  };
+
+  // Helper to get the playable media ID from an item
+  // Items can have media directly (episodes) or be collections with media (films)
+  const getPlayableMediaId = (item: UserCollectionItem): string | null => {
+    if (item.mediaId) return item.mediaId;
+    if (item.collection?.media?.[0]?.id) return item.collection.media[0].id;
+    return null;
+  };
+
+  // Handle playing from a specific item in the playlist
+  const handlePlayItem = async (item: UserCollectionItem, index: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+
+    if (isPlaylist) {
+      // For playlists, set the queue with all items in playlist order
+      const playlistItems = collection?.items ?? [];
+      const mediaItems = playlistItems
+        .map((i) => getPlayableMediaId(i))
+        .filter((id): id is string => id !== null)
+        .map((mediaId) => ({ mediaId }));
+
+      if (mediaItems.length === 0) return;
+
+      // Set the playback queue with all playlist items
+      await apiClient.setPlaybackQueue(mediaItems);
+      refreshQueue();
+
+      // Find the media to play from the clicked item
+      const clickedItem = playlistItems[index];
+      const clickedMediaId = getPlayableMediaId(clickedItem);
+      if (clickedMediaId) {
+        await playMedia(clickedMediaId);
+        navigate(`/play/${clickedMediaId}`);
+      } else {
+        // If clicked item has no media, find first playable from that point
+        const firstPlayableId = playlistItems.slice(index)
+          .map((i) => getPlayableMediaId(i))
+          .find((id) => id !== null);
+        if (firstPlayableId) {
+          await playMedia(firstPlayableId);
+          navigate(`/play/${firstPlayableId}`);
+        }
+      }
+    } else {
+      // For non-playlists, just play the single item
+      const mediaId = getPlayableMediaId(item);
+      if (mediaId) {
+        await playMedia(mediaId);
+        navigate(`/play/${mediaId}`);
+      }
+    }
+  };
+
+  // Handle playing all items in the collection
+  const handlePlayAll = async () => {
+    // Get items with media (either current sort order or playlist order)
+    const itemsToPlay = isPlaylist
+      ? (collection?.items ?? [])
+      : sortedItems;
+
+    const mediaItems = itemsToPlay
+      .map((item) => getPlayableMediaId(item))
+      .filter((id): id is string => id !== null)
+      .map((mediaId) => ({ mediaId }));
+
+    if (mediaItems.length === 0) return;
+
+    // Set the playback queue with all media items
+    await apiClient.setPlaybackQueue(mediaItems);
+    refreshQueue();
+
+    // Start playing the first item
+    const firstMediaId = itemsToPlay
+      .map((item) => getPlayableMediaId(item))
+      .find((id) => id !== null);
+    if (firstMediaId) {
+      await playMedia(firstMediaId);
+      navigate(`/play/${firstMediaId}`);
+    }
+  };
+
+  // Check if there are any playable items
+  const hasPlayableItems = useMemo(() => {
+    const items = collection?.items ?? [];
+    return items.some((item) => item.mediaId || item.collection?.media?.[0]?.id);
+  }, [collection?.items]);
+
   if (isLoading) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -376,6 +595,15 @@ export function UserCollectionPage() {
                 {collection.name}
               </Typography>
               <Box sx={{ display: 'flex', gap: 1 }}>
+                {hasPlayableItems && (
+                  <Button
+                    variant="contained"
+                    startIcon={<PlayArrow />}
+                    onClick={handlePlayAll}
+                  >
+                    {t('common.play', 'Play')}
+                  </Button>
+                )}
                 <Tooltip title={isFavorited ? t('favorites.removeFromFavorites') : t('favorites.addToFavorites')}>
                   <IconButton onClick={handleToggleFavorite} color={isFavorited ? 'error' : 'default'}>
                     {isFavorited ? <Favorite /> : <FavoriteBorder />}
@@ -411,8 +639,16 @@ export function UserCollectionPage() {
                   size="small"
                   variant="outlined"
                 />
+                {isPlaylist && (
+                  <Chip
+                    label={t('userCollections.playlist', 'Playlist')}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
+                )}
                 <Typography variant="body2" color="text.secondary">
-                  {t('userCollections.itemCount', { count: sortedItems.length })}
+                  {t('userCollections.itemCount', { count: isPlaylist ? items.length : sortedItems.length })}
                 </Typography>
                 {collection.user && !isOwner && (
                   <Typography variant="body2" color="text.secondary">
@@ -420,7 +656,8 @@ export function UserCollectionPage() {
                   </Typography>
                 )}
               </Box>
-              {sortedItems.length > 0 && (
+              {/* Sort controls only shown for Set type (not Playlist) */}
+              {!isPlaylist && sortedItems.length > 0 && (
                 <SortControls
                   options={sortOptions}
                   value={sortField}
@@ -434,8 +671,8 @@ export function UserCollectionPage() {
         )}
       </Box>
 
-      {/* Type Filter */}
-      {availableTypes.length > 1 && (
+      {/* Type Filter - only shown for Set type (not Playlist) */}
+      {!isPlaylist && availableTypes.length > 1 && (
         <FilterChips
           label={t('userCollections.filter.type', 'Type')}
           options={availableTypes}
@@ -446,84 +683,143 @@ export function UserCollectionPage() {
         />
       )}
 
-      {sortedItems.length === 0 ? (
-        <Alert severity="info">{t('userCollections.noItems')}</Alert>
+      {/* Playlist View - reorderable list */}
+      {isPlaylist ? (
+        items.length === 0 ? (
+          <Alert severity="info">{t('userCollections.noItems')}</Alert>
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+              <Stack spacing={1}>
+                {items.map((item, index) => (
+                  <SortableMediaListItem
+                    key={item.id}
+                    item={item}
+                    index={index}
+                    onItemClick={handleItemClick}
+                    onPlayItem={handlePlayItem}
+                    onRemoveItem={(i, e) => {
+                      e.stopPropagation();
+                      handleRemoveItem(i);
+                    }}
+                    getItemImage={getItemImage}
+                    getItemName={getItemName}
+                    getItemSubtitle={getItemSubtitle}
+                    getItemIcon={getItemIcon}
+                    removeTooltip={t('userCollections.removeFromCollection')}
+                    showDragHandle={isOwner}
+                    showRemoveButton={isOwner}
+                    showPlayButton
+                    useDeleteIcon
+                  />
+                ))}
+              </Stack>
+            </SortableContext>
+          </DndContext>
+        )
       ) : (
-        <Grid container spacing={2}>
-          {sortedItems.map((item) => {
-            const isCollection = !!item.collection;
-            const content = item.collection || item.media;
-            if (!content) return null;
+        /* Set View - Grid of cards */
+        sortedItems.length === 0 ? (
+          <Alert severity="info">{t('userCollections.noItems')}</Alert>
+        ) : (
+          <Grid container spacing={2}>
+            {sortedItems.map((item) => {
+              const isCollectionItem = !!item.collection;
+              const content = item.collection || item.media;
+              if (!content) return null;
 
-            const primaryImage = isCollection
-              ? item.collection?.images?.[0]
-              : item.media?.images?.[0];
-            const hasImage = primaryImage != null;
+              const primaryImage = isCollectionItem
+                ? item.collection?.images?.[0]
+                : item.media?.images?.[0];
+              const hasImage = primaryImage != null;
 
-            // Build subtitle
-            let subtitle = '';
-            if (!isCollection && item.media) {
-              if (item.media.videoDetails) {
-                const { season, episode } = item.media.videoDetails;
-                if (season != null && episode != null) {
-                  subtitle = `S${season}E${episode}`;
+              // Build subtitle
+              let subtitle = '';
+              if (!isCollectionItem && item.media) {
+                if (item.media.videoDetails) {
+                  const { season, episode } = item.media.videoDetails;
+                  if (season != null && episode != null) {
+                    subtitle = `S${season}E${episode}`;
+                  }
+                } else if (item.media.audioDetails) {
+                  const { track, disc } = item.media.audioDetails;
+                  if (disc != null && track != null) {
+                    subtitle = `Disc ${disc}, Track ${track}`;
+                  } else if (track != null) {
+                    subtitle = `Track ${track}`;
+                  }
                 }
-              } else if (item.media.audioDetails) {
-                const { track, disc } = item.media.audioDetails;
-                if (disc != null && track != null) {
-                  subtitle = `Disc ${disc}, Track ${track}`;
-                } else if (track != null) {
-                  subtitle = `Track ${track}`;
+                if (item.media.collection) {
+                  const collectionName = item.media.collection.name;
+                  if (subtitle) {
+                    subtitle = `${collectionName} - ${subtitle}`;
+                  } else {
+                    subtitle = collectionName;
+                  }
                 }
               }
-              if (item.media.collection) {
-                const collectionName = item.media.collection.name;
-                if (subtitle) {
-                  subtitle = `${collectionName} - ${subtitle}`;
-                } else {
-                  subtitle = collectionName;
-                }
-              }
-            }
 
-            return (
-              <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={item.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                  {isOwner && (
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveItem(item);
-                      }}
-                      sx={{
-                        position: 'absolute',
-                        top: 4,
-                        right: 4,
-                        zIndex: 1,
-                        bgcolor: 'background.paper',
-                        '&:hover': { bgcolor: 'error.light', color: 'error.contrastText' },
-                      }}
+              return (
+                <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={item.id}>
+                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                    {isOwner && (
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveItem(item);
+                        }}
+                        sx={{
+                          position: 'absolute',
+                          top: 4,
+                          right: 4,
+                          zIndex: 1,
+                          bgcolor: 'background.paper',
+                          '&:hover': { bgcolor: 'error.light', color: 'error.contrastText' },
+                        }}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    )}
+                    <CardActionArea
+                      onClick={() => handleItemClick(item)}
+                      sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                     >
-                      <Delete fontSize="small" />
-                    </IconButton>
-                  )}
-                  <CardActionArea
-                    onClick={() => handleItemClick(item)}
-                    sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
-                  >
-                    {hasImage ? (
-                      <>
-                        <CardMedia
-                          component="img"
-                          image={apiClient.getImageUrl(primaryImage.id)}
-                          alt={content.name}
-                          sx={{
-                            aspectRatio: isCollection ? '2/3' : '16/9',
-                            objectFit: 'cover',
-                          }}
-                        />
-                        <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      {hasImage ? (
+                        <>
+                          <CardMedia
+                            component="img"
+                            image={apiClient.getImageUrl(primaryImage.id)}
+                            alt={content.name}
+                            sx={{
+                              aspectRatio: isCollectionItem ? '2/3' : '16/9',
+                              objectFit: 'cover',
+                            }}
+                          />
+                          <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                            <Typography variant="body2" noWrap title={content.name}>
+                              {content.name}
+                            </Typography>
+                            {subtitle && (
+                              <Typography variant="caption" color="text.secondary" noWrap>
+                                {subtitle}
+                              </Typography>
+                            )}
+                          </CardContent>
+                        </>
+                      ) : (
+                        <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          {isCollectionItem ? (
+                            <Folder sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
+                          ) : item.media?.type === 'Video' ? (
+                            <VideoFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
+                          ) : (
+                            <AudioFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
+                          )}
                           <Typography variant="body2" noWrap title={content.name}>
                             {content.name}
                           </Typography>
@@ -533,32 +829,14 @@ export function UserCollectionPage() {
                             </Typography>
                           )}
                         </CardContent>
-                      </>
-                    ) : (
-                      <CardContent sx={{ textAlign: 'center', flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        {isCollection ? (
-                          <Folder sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
-                        ) : item.media?.type === 'Video' ? (
-                          <VideoFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
-                        ) : (
-                          <AudioFile sx={{ fontSize: 48, color: 'secondary.main', mb: 1 }} />
-                        )}
-                        <Typography variant="body2" noWrap title={content.name}>
-                          {content.name}
-                        </Typography>
-                        {subtitle && (
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {subtitle}
-                          </Typography>
-                        )}
-                      </CardContent>
-                    )}
-                  </CardActionArea>
-                </Card>
-              </Grid>
-            );
-          })}
-        </Grid>
+                      )}
+                    </CardActionArea>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        )
       )}
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>

@@ -44,7 +44,9 @@ export function PlayPage() {
     registerClickHandler,
     refreshQueue,
     playNext,
+    playPrevious,
     hasNextItem,
+    hasPreviousItem,
   } = usePlayer();
 
   // Register this container for fullscreen mode
@@ -322,6 +324,7 @@ export function PlayPage() {
           showControls={showControls}
           showFullscreenButton={true}
           showSkipNext={hasNextItem()}
+          showSkipPrevious={hasPreviousItem()}
           onPlayPause={togglePlay}
           onSeek={seek}
           onSeekCommit={seekCommit}
@@ -332,6 +335,7 @@ export function PlayPage() {
           onQualityChange={setQuality}
           onFullscreenToggle={handleFullscreenToggle}
           onSkipNext={playNext}
+          onSkipPrevious={playPrevious}
           containerRef={containerRef}
         />
       )}

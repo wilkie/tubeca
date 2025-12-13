@@ -21,7 +21,7 @@ jest.mock('../../components/CreateCollectionDialog', () => ({
   CreateCollectionDialog: jest.fn(({ open, onClose, onCreate }) =>
     open ? (
       <div data-testid="create-dialog">
-        <button onClick={() => onCreate('New Collection', 'Description', false)} data-testid="create-submit">
+        <button onClick={() => onCreate('New Collection', 'Description', false, 'Set')} data-testid="create-submit">
           Create
         </button>
         <button onClick={onClose} data-testid="create-cancel">Cancel</button>

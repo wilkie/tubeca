@@ -10,12 +10,17 @@ import {
   FormControlLabel,
   Switch,
   Box,
+  ToggleButtonGroup,
+  ToggleButton,
+  Typography,
 } from '@mui/material';
+import { ViewModule, QueueMusic } from '@mui/icons-material';
+import type { UserCollectionType } from '../api/client';
 
 interface CreateCollectionDialogProps {
   open: boolean;
   onClose: () => void;
-  onCreate: (name: string, description: string, isPublic: boolean) => void;
+  onCreate: (name: string, description: string, isPublic: boolean, collectionType: UserCollectionType) => void;
 }
 
 export function CreateCollectionDialog({ open, onClose, onCreate }: CreateCollectionDialogProps) {
@@ -23,6 +28,7 @@ export function CreateCollectionDialog({ open, onClose, onCreate }: CreateCollec
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
+  const [collectionType, setCollectionType] = useState<UserCollectionType>('Set');
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = () => {
@@ -30,7 +36,7 @@ export function CreateCollectionDialog({ open, onClose, onCreate }: CreateCollec
       setError(t('userCollections.validation.nameRequired'));
       return;
     }
-    onCreate(name.trim(), description.trim(), isPublic);
+    onCreate(name.trim(), description.trim(), isPublic, collectionType);
     handleClose();
   };
 
@@ -38,6 +44,7 @@ export function CreateCollectionDialog({ open, onClose, onCreate }: CreateCollec
     setName('');
     setDescription('');
     setIsPublic(false);
+    setCollectionType('Set');
     setError(null);
     onClose();
   };
@@ -67,6 +74,31 @@ export function CreateCollectionDialog({ open, onClose, onCreate }: CreateCollec
             multiline
             rows={3}
           />
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              {t('userCollections.collectionType', 'Collection Type')}
+            </Typography>
+            <ToggleButtonGroup
+              value={collectionType}
+              exclusive
+              onChange={(_, value) => value && setCollectionType(value)}
+              fullWidth
+            >
+              <ToggleButton value="Set">
+                <ViewModule sx={{ mr: 1 }} />
+                {t('userCollections.set', 'Set')}
+              </ToggleButton>
+              <ToggleButton value="Playlist">
+                <QueueMusic sx={{ mr: 1 }} />
+                {t('userCollections.playlist', 'Playlist')}
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              {collectionType === 'Set'
+                ? t('userCollections.setDescription', 'An unordered collection of items')
+                : t('userCollections.playlistDescription', 'An ordered list of items for sequential playback')}
+            </Typography>
+          </Box>
           <FormControlLabel
             control={
               <Switch

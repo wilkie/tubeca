@@ -43,10 +43,11 @@ interface PlayerContextState {
   availableQualities: QualityOption[];
   mode: 'fullscreen' | 'mini' | 'hidden';
   miniPlayerPosition: MiniPlayerPosition;
-  // Queue and next item
+  // Queue and next/previous item
   queue: UserCollectionItem[];
   queueIndex: number;
   nextItem: NextItemInfo | null;
+  previousItem: NextItemInfo | null;
 }
 
 // Next item can be from queue or next episode
@@ -81,7 +82,9 @@ interface PlayerContextActions {
   // Queue actions
   refreshQueue: () => Promise<void>;
   playNext: () => Promise<void>;
+  playPrevious: () => Promise<void>;
   hasNextItem: () => boolean;
+  hasPreviousItem: () => boolean;
 }
 
 type PlayerContextValue = PlayerContextState & PlayerContextActions;
@@ -131,6 +134,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<UserCollectionItem[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [nextItem, setNextItem] = useState<NextItemInfo | null>(null);
+  const [previousItem, setPreviousItem] = useState<NextItemInfo | null>(null);
   const prevCurrentMediaIdRef = useRef<string | null>(null);
 
   // Reset queue state when currentMedia becomes null (ref pattern to avoid setState in effect)
@@ -140,6 +144,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (currentMedia === null) {
       setQueueIndex(-1);
       setNextItem(null);
+      setPreviousItem(null);
     }
   }
 
@@ -698,19 +703,35 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Update queue index and next item when currentMedia or queue changes
+  // Update queue index and next/previous items when currentMedia or queue changes
   useEffect(() => {
     // Skip if no current media (reset is handled by ref pattern above)
     if (!currentMedia) return;
 
     let cancelled = false;
 
-    async function updateNextItem() {
+    async function updateNextAndPreviousItems() {
       // Find current media in queue
       const index = queue.findIndex((item) => item.media?.id === currentMedia?.id);
       setQueueIndex(index);
 
-      // Check queue first
+      // Check for previous item in queue
+      if (index > 0) {
+        const prev = queue[index - 1];
+        if (prev.media && !cancelled) {
+          setPreviousItem({
+            id: prev.media.id,
+            name: prev.media.name,
+            type: 'queue',
+            seasonNumber: prev.media.videoDetails?.season,
+            episodeNumber: prev.media.videoDetails?.episode,
+          });
+        }
+      } else if (!cancelled) {
+        setPreviousItem(null);
+      }
+
+      // Check queue for next item
       if (index >= 0 && index < queue.length - 1) {
         const next = queue[index + 1];
         if (next.media && !cancelled) {
@@ -810,7 +831,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    updateNextItem();
+    updateNextAndPreviousItems();
 
     return () => {
       cancelled = true;
@@ -821,10 +842,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return nextItem !== null;
   }, [nextItem]);
 
+  const hasPreviousItem = useCallback(() => {
+    return previousItem !== null;
+  }, [previousItem]);
+
   const playNext = useCallback(async () => {
     if (!nextItem) return;
     await playMedia(nextItem.id);
   }, [nextItem, playMedia]);
+
+  const playPrevious = useCallback(async () => {
+    if (!previousItem) return;
+    await playMedia(previousItem.id);
+  }, [previousItem, playMedia]);
 
   // Auto-play next item when current media ends
   useEffect(() => {
@@ -938,9 +968,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     queue,
     queueIndex,
     nextItem,
+    previousItem,
     refreshQueue,
     playNext,
+    playPrevious,
     hasNextItem,
+    hasPreviousItem,
   };
 
   // Refs for DOM-based video container movement
