@@ -29,8 +29,10 @@ const itemInclude = {
       name: true,
       collectionType: true,
       images: {
-        where: { isPrimary: true, imageType: ImageType.Poster },
-        take: 1,
+        where: {
+          isPrimary: true,
+          imageType: { in: [ImageType.Thumbnail, ImageType.Backdrop, ImageType.Poster] as ImageType[] },
+        },
       },
       library: {
         select: {
@@ -38,6 +40,13 @@ const itemInclude = {
           name: true,
           libraryType: true,
         },
+      },
+      // Include media for Film collections (films have a single media item)
+      media: {
+        select: {
+          id: true,
+        },
+        take: 1,
       },
     },
   },

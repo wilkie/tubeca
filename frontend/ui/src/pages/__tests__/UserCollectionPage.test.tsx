@@ -30,6 +30,14 @@ jest.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'user-1', name: 'Test User', role: 'Admin' } }),
 }));
 
+// Mock PlayerContext
+jest.mock('../../context/PlayerContext', () => ({
+  usePlayer: () => ({
+    playMedia: jest.fn(),
+    refreshQueue: jest.fn(),
+  }),
+}));
+
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
 
 // Helper to create minimal Image mock

@@ -22,7 +22,7 @@ import {
   DialogActions,
 } from '@mui/material';
 import { Add, Delete, Public, Lock, Favorite, FavoriteBorder } from '@mui/icons-material';
-import { apiClient, type UserCollection } from '../api/client';
+import { apiClient, type UserCollection, type UserCollectionType } from '../api/client';
 import { CreateCollectionDialog } from '../components/CreateCollectionDialog';
 import { Tooltip } from '@mui/material';
 
@@ -99,8 +99,8 @@ export function UserCollectionsPage() {
     navigate(`/my-collections/${collectionId}`);
   };
 
-  const handleCreateCollection = async (name: string, description: string, isPublic: boolean) => {
-    const result = await apiClient.createUserCollection({ name, description, isPublic });
+  const handleCreateCollection = async (name: string, description: string, isPublic: boolean, collectionType: UserCollectionType) => {
+    const result = await apiClient.createUserCollection({ name, description, isPublic, collectionType });
     if (result.error) {
       setError(result.error);
       return;

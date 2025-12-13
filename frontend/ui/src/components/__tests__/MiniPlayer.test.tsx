@@ -64,9 +64,12 @@ describe('MiniPlayer', () => {
     queue: [],
     queueIndex: -1,
     nextItem: null,
+    previousItem: null,
     refreshQueue: jest.fn(),
     playNext: jest.fn(),
+    playPrevious: jest.fn(),
     hasNextItem: jest.fn().mockReturnValue(false),
+    hasPreviousItem: jest.fn().mockReturnValue(false),
   };
 
   const defaultProps = {

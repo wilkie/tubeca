@@ -15,6 +15,7 @@ import {
   PlayArrow,
   Pause,
   SkipNext,
+  SkipPrevious,
   VolumeUp,
   VolumeOff,
   Fullscreen,
@@ -84,6 +85,7 @@ export interface VideoControlsProps {
   showCloseButton?: boolean; // For mini-player: stop playback
   showControls?: boolean; // Whether controls are visible
   showSkipNext?: boolean; // Show skip to next button
+  showSkipPrevious?: boolean; // Show skip to previous button
 
   // Callbacks
   onPlayPause: () => void;
@@ -96,6 +98,7 @@ export interface VideoControlsProps {
   onQualityChange?: (quality: string) => void;
   onFullscreenToggle?: () => void;
   onSkipNext?: () => void; // Skip to next item in queue/next episode
+  onSkipPrevious?: () => void; // Skip to previous item in queue
   onClose?: () => void;
 
   // Container ref for menus
@@ -208,6 +211,7 @@ export function VideoControls({
   showCloseButton = false,
   showControls = true,
   showSkipNext = false,
+  showSkipPrevious = false,
   onPlayPause,
   onSeek,
   onSeekCommit,
@@ -218,6 +222,7 @@ export function VideoControls({
   onQualityChange,
   onFullscreenToggle,
   onSkipNext,
+  onSkipPrevious,
   onClose,
   containerRef,
 }: VideoControlsProps) {
@@ -459,6 +464,17 @@ export function VideoControls({
 
         {/* Controls row */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: compact ? 0.5 : 1 }}>
+          {showSkipPrevious && onSkipPrevious && (
+            <IconButton
+              onClick={onSkipPrevious}
+              sx={{ color: 'white' }}
+              size={compact ? 'small' : 'medium'}
+              title="Skip to previous"
+            >
+              <SkipPrevious fontSize={compact ? 'small' : 'medium'} />
+            </IconButton>
+          )}
+
           <IconButton onClick={onPlayPause} sx={{ color: 'white' }} size={compact ? 'small' : 'medium'}>
             {isPlaying ? <Pause fontSize={compact ? 'small' : 'medium'} /> : <PlayArrow fontSize={compact ? 'small' : 'medium'} />}
           </IconButton>

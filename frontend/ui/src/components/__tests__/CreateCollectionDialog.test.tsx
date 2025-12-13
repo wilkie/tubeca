@@ -171,7 +171,7 @@ describe('CreateCollectionDialog', () => {
       await user.click(screen.getByRole('switch'));
       await user.click(screen.getByRole('button', { name: /create/i }));
 
-      expect(mockOnCreate).toHaveBeenCalledWith('My Collection', 'A description', true);
+      expect(mockOnCreate).toHaveBeenCalledWith('My Collection', 'A description', true, 'Set');
     });
 
     it('trims whitespace from name and description', async () => {
@@ -189,7 +189,7 @@ describe('CreateCollectionDialog', () => {
       await user.type(screen.getByLabelText(/description/i), '  A description  ');
       await user.click(screen.getByRole('button', { name: /create/i }));
 
-      expect(mockOnCreate).toHaveBeenCalledWith('My Collection', 'A description', false);
+      expect(mockOnCreate).toHaveBeenCalledWith('My Collection', 'A description', false, 'Set');
     });
 
     it('calls onClose after successful creation', async () => {

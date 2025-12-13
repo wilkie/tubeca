@@ -71,6 +71,7 @@ let mockPlayerState = {
   queue: [],
   queueIndex: -1,
   nextItem: null,
+  previousItem: null,
 };
 
 // Mock PlayerContext
@@ -97,7 +98,9 @@ jest.mock('../../context/PlayerContext', () => ({
     // Queue functions
     refreshQueue: jest.fn(),
     playNext: jest.fn(),
+    playPrevious: jest.fn(),
     hasNextItem: jest.fn().mockReturnValue(false),
+    hasPreviousItem: jest.fn().mockReturnValue(false),
   }),
   PlayerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -147,6 +150,7 @@ describe('PlayPage', () => {
       queue: [],
       queueIndex: -1,
       nextItem: null,
+      previousItem: null,
     };
   });
 
