@@ -71,13 +71,16 @@ import { SortableMediaListItem } from '../components/SortableMediaListItem';
 type SortField = 'name' | 'dateAdded' | 'type';
 
 // Helper to get image URL for an item
-function getItemImage(item: UserCollectionItem): string | null {
+// For list views (playlists), preferLandscape should be true for consistent row heights
+function getItemImage(item: UserCollectionItem, preferLandscape: boolean = false): string | null {
   // Helper to find image by type preference
-  const findImage = (images: { id: string; imageType: string }[] | undefined, preferLandscape: boolean) => {
+  const findImage = (images: { id: string; imageType: string }[] | undefined) => {
     if (!images || images.length === 0) return null;
-    // For landscape preference (films), prefer Thumbnail > Backdrop > Poster
-    // For portrait preference (shows, music), prefer Poster > Backdrop > Thumbnail
-    const typeOrder = preferLandscape
+    // For landscape preference, prefer Thumbnail > Backdrop > Poster
+    // For portrait preference, prefer Poster > Backdrop > Thumbnail
+    const libraryType = item.media?.collection?.library?.libraryType || item.collection?.library?.libraryType;
+    const useLandscape = preferLandscape || libraryType === 'Film';
+    const typeOrder = useLandscape
       ? ['Thumbnail', 'Backdrop', 'Poster']
       : ['Poster', 'Backdrop', 'Thumbnail'];
     for (const type of typeOrder) {
@@ -87,22 +90,19 @@ function getItemImage(item: UserCollectionItem): string | null {
     return images[0];
   };
 
-  const libraryType = item.media?.collection?.library?.libraryType || item.collection?.library?.libraryType;
-  const isFilm = libraryType === 'Film';
-
   // Check media's own images first
   if (item.media?.images?.[0]) {
-    const img = findImage(item.media.images, isFilm);
+    const img = findImage(item.media.images);
     if (img) return apiClient.getImageUrl(img.id);
   }
   // Fall back to media's parent collection images (e.g., film poster/thumbnail)
   if (item.media?.collection?.images) {
-    const img = findImage(item.media.collection.images, isFilm);
+    const img = findImage(item.media.collection.images);
     if (img) return apiClient.getImageUrl(img.id);
   }
   // Check if the item is a collection itself
   if (item.collection?.images) {
-    const img = findImage(item.collection.images, isFilm);
+    const img = findImage(item.collection.images);
     if (img) return apiClient.getImageUrl(img.id);
   }
   return null;
@@ -706,7 +706,7 @@ export function UserCollectionPage() {
                       e.stopPropagation();
                       handleRemoveItem(i);
                     }}
-                    getItemImage={getItemImage}
+                    getItemImage={(i) => getItemImage(i, true)}
                     getItemName={getItemName}
                     getItemSubtitle={getItemSubtitle}
                     getItemIcon={getItemIcon}

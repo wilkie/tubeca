@@ -18,7 +18,7 @@ import {
   Tooltip,
   Badge,
 } from '@mui/material';
-import { Folder, Movie, Tv, Album, FilterList, Clear, PlayArrow } from '@mui/icons-material';
+import { Folder, Movie, Tv, Album, FilterList, Clear, PlayArrow, CheckBox, CheckBoxOutlineBlank } from '@mui/icons-material';
 import { apiClient, type Library, type Collection, type Keyword } from '../api/client';
 import { CardQuickActions } from '../components/CardQuickActions';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
@@ -27,6 +27,7 @@ import { KeywordFilter } from '../components/KeywordFilter';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { ViewModeMenu, type ViewMode } from '../components/ViewModeMenu';
 import { QuickSearchOverlay } from '../components/QuickSearchOverlay';
+import { SelectionActionBar } from '../components/SelectionActionBar';
 import { useQuickSearch } from '../hooks/useQuickSearch';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
@@ -70,6 +71,8 @@ export function LibraryPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [badgeHovered, setBadgeHovered] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('poster');
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Quick search for filtering items (server-side)
   const { query: quickSearchQuery, isActive: isQuickSearchActive } = useQuickSearch();
@@ -273,6 +276,31 @@ export function LibraryPage() {
     setAddToCollectionOpen(true);
   };
 
+  const toggleSelection = (collectionId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(collectionId)) {
+        next.delete(collectionId);
+      } else {
+        next.add(collectionId);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
+  };
+
+  const handleItemClick = (collectionId: string) => {
+    if (isSelectionMode) {
+      toggleSelection(collectionId);
+    } else {
+      handleCollectionClick(collectionId);
+    }
+  };
+
   const handlePlay = async (collectionId: string) => {
     // Fetch the collection to get its media
     const result = await apiClient.getCollection(collectionId);
@@ -424,6 +452,21 @@ export function LibraryPage() {
               </Tooltip>
             );
           })()}
+          <Tooltip title={isSelectionMode ? t('selection.exitMode') : t('selection.enterMode')}>
+            <IconButton
+              size="small"
+              onClick={() => {
+                if (isSelectionMode) {
+                  clearSelection();
+                } else {
+                  setIsSelectionMode(true);
+                }
+              }}
+              color={isSelectionMode ? 'primary' : 'default'}
+            >
+              {isSelectionMode ? <CheckBox /> : <CheckBoxOutlineBlank />}
+            </IconButton>
+          </Tooltip>
           <ViewModeMenu value={viewMode} onChange={setViewMode} />
           <SortControls
             options={sortOptions}
@@ -524,10 +567,15 @@ export function LibraryPage() {
                           '&:hover .rating-overlay': {
                             opacity: 1,
                           },
+                          ...(isSelectionMode && selectedIds.has(collection.id) && {
+                            outline: '3px solid',
+                            outlineColor: 'primary.main',
+                            outlineOffset: -3,
+                          }),
                         }}
                       >
                         <CardActionArea
-                          onClick={() => handleCollectionClick(collection.id)}
+                          onClick={() => handleItemClick(collection.id)}
                           sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                         >
                           {/* Rating overlay (visible on hover) */}
@@ -581,37 +629,62 @@ export function LibraryPage() {
                               )}
                             </Box>
                           )}
-                          {hasImage ? (
-                            <CardMedia
-                              component="img"
-                              image={apiClient.getImageUrl(primaryImage.id)}
-                              alt={collection.name}
-                              sx={{
-                                aspectRatio: '2/3',
-                                objectFit: 'cover',
-                              }}
-                            />
-                          ) : (
-                            <Box
-                              sx={{
-                                aspectRatio: '2/3',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                bgcolor: 'action.hover',
-                              }}
-                            >
-                              {library.libraryType === 'Film' ? (
-                                <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
-                              ) : library.libraryType === 'Television' ? (
-                                <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
-                              ) : library.libraryType === 'Music' ? (
-                                <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
-                              ) : (
-                                <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
-                              )}
-                            </Box>
-                          )}
+                          <Box sx={{ position: 'relative' }}>
+                            {hasImage ? (
+                              <CardMedia
+                                component="img"
+                                image={apiClient.getImageUrl(primaryImage.id)}
+                                alt={collection.name}
+                                sx={{
+                                  aspectRatio: '2/3',
+                                  objectFit: 'cover',
+                                }}
+                              />
+                            ) : (
+                              <Box
+                                sx={{
+                                  aspectRatio: '2/3',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  bgcolor: 'action.hover',
+                                }}
+                              >
+                                {library.libraryType === 'Film' ? (
+                                  <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
+                                ) : library.libraryType === 'Television' ? (
+                                  <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
+                                ) : library.libraryType === 'Music' ? (
+                                  <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
+                                ) : (
+                                  <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
+                                )}
+                              </Box>
+                            )}
+                            {/* Selection checkbox (visible in selection mode) */}
+                            {isSelectionMode && (
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  bottom: 8,
+                                  left: 8,
+                                  bgcolor: 'rgba(0, 0, 0, 0.6)',
+                                  borderRadius: '50%',
+                                  width: 28,
+                                  height: 28,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                {selectedIds.has(collection.id) ? (
+                                  <CheckBox sx={{ color: 'primary.main', fontSize: 24 }} />
+                                ) : (
+                                  <CheckBoxOutlineBlank sx={{ color: 'white', fontSize: 24 }} />
+                                )}
+                              </Box>
+                            )}
+                          </Box>
                           <CardContent sx={{ textAlign: 'center', py: 1 }}>
                             <Typography variant="body2" noWrap title={collection.name}>
                               {collection.name}
@@ -655,10 +728,20 @@ export function LibraryPage() {
                   const description = collection.filmDetails?.description ?? collection.showDetails?.description;
 
                   return (
-                    <Card key={collection.id} sx={{ display: 'flex' }}>
+                    <Card
+                      key={collection.id}
+                      sx={{
+                        display: 'flex',
+                        ...(isSelectionMode && selectedIds.has(collection.id) && {
+                          outline: '3px solid',
+                          outlineColor: 'primary.main',
+                          outlineOffset: -3,
+                        }),
+                      }}
+                    >
                       {/* Image and Details - single clickable area */}
                       <CardActionArea
-                        onClick={() => handleCollectionClick(collection.id)}
+                        onClick={() => handleItemClick(collection.id)}
                         sx={{ flexGrow: 1, display: 'flex', alignItems: 'stretch' }}
                       >
                         {/* Image - fixed width based on 2:3 aspect ratio at max height of 188px */}
@@ -667,6 +750,7 @@ export function LibraryPage() {
                             width: 125,
                             flexShrink: 0,
                             flexGrow: 0,
+                            position: 'relative',
                           }}
                         >
                           {hasImage ? (
@@ -699,6 +783,29 @@ export function LibraryPage() {
                                 <Album sx={{ fontSize: 32, color: 'text.secondary' }} />
                               ) : (
                                 <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />
+                              )}
+                            </Box>
+                          )}
+                          {/* Selection checkbox (visible in selection mode) */}
+                          {isSelectionMode && (
+                            <Box
+                              sx={{
+                                position: 'absolute',
+                                bottom: 4,
+                                left: 4,
+                                bgcolor: 'rgba(0, 0, 0, 0.6)',
+                                borderRadius: '50%',
+                                width: 24,
+                                height: 24,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              {selectedIds.has(collection.id) ? (
+                                <CheckBox sx={{ color: 'primary.main', fontSize: 20 }} />
+                              ) : (
+                                <CheckBoxOutlineBlank sx={{ color: 'white', fontSize: 20 }} />
                               )}
                             </Box>
                           )}
@@ -812,6 +919,13 @@ export function LibraryPage() {
       <QuickSearchOverlay
         query={quickSearchQuery}
         matchCount={isQuickSearchActive ? total : undefined}
+      />
+
+      {/* Selection Action Bar */}
+      <SelectionActionBar
+        selectedCount={selectedIds.size}
+        selectedIds={Array.from(selectedIds)}
+        onClear={clearSelection}
       />
     </Container>
   );

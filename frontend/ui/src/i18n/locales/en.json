@@ -233,5 +233,12 @@
     "filter": {
       "type": "Type"
     }
+  },
+  "selection": {
+    "enterMode": "Select items",
+    "exitMode": "Exit selection",
+    "itemsSelected": "{{count}} selected",
+    "itemsSelected_one": "{{count}} selected",
+    "clear": "Clear selection"
   }
 }

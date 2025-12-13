@@ -151,13 +151,11 @@ export function QueuePage() {
 
   const getItemImage = (item: UserCollectionItem) => {
     // Helper to find image by type preference
-    const findImage = (images: { id: string; imageType: string }[] | undefined, preferLandscape: boolean) => {
+    // For list view, always prefer landscape images for consistent row height
+    const findImage = (images: { id: string; imageType: string }[] | undefined) => {
       if (!images || images.length === 0) return null;
-      // For landscape preference (films), prefer Thumbnail > Backdrop > Poster
-      // For portrait preference (shows, music), prefer Poster > Backdrop > Thumbnail
-      const typeOrder = preferLandscape
-        ? ['Thumbnail', 'Backdrop', 'Poster']
-        : ['Poster', 'Backdrop', 'Thumbnail'];
+      // Always prefer landscape images: Thumbnail > Backdrop > Poster
+      const typeOrder = ['Thumbnail', 'Backdrop', 'Poster'];
       for (const type of typeOrder) {
         const img = images.find((i) => i.imageType === type);
         if (img) return img;
@@ -165,21 +163,18 @@ export function QueuePage() {
       return images[0]; // Fall back to any image
     };
 
-    const libraryType = item.media?.collection?.library?.libraryType || item.collection?.library?.libraryType;
-    const isFilm = libraryType === 'Film';
-
     // Check media's own images first
     if (item.media?.images?.[0]) {
       return apiClient.getImageUrl(item.media.images[0].id);
     }
     // Fall back to media's parent collection images (e.g., film poster/thumbnail)
     if (item.media?.collection?.images) {
-      const img = findImage(item.media.collection.images, isFilm);
+      const img = findImage(item.media.collection.images);
       if (img) return apiClient.getImageUrl(img.id);
     }
     // Check if the queue item is a collection itself
     if (item.collection?.images) {
-      const img = findImage(item.collection.images, isFilm);
+      const img = findImage(item.collection.images);
       if (img) return apiClient.getImageUrl(img.id);
     }
     return null;
