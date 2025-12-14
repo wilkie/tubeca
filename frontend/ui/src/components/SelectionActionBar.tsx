@@ -16,20 +16,24 @@ import {
   Box,
   CircularProgress,
 } from '@mui/material';
-import { Close, Add, FolderSpecial, PlaylistAdd } from '@mui/icons-material';
+import { Close, Add, FolderSpecial, PlaylistAdd, SelectAll } from '@mui/icons-material';
 import { apiClient, type UserCollection } from '../api/client';
 
 interface SelectionActionBarProps {
   selectedCount: number;
-  selectedIds: string[];
+  selectedCollectionIds?: string[];
+  selectedMediaIds?: string[];
   onClear: () => void;
+  onSelectAll?: () => void;
   onAddComplete?: () => void;
 }
 
 export function SelectionActionBar({
   selectedCount,
-  selectedIds,
+  selectedCollectionIds = [],
+  selectedMediaIds = [],
   onClear,
+  onSelectAll,
   onAddComplete,
 }: SelectionActionBarProps) {
   const { t } = useTranslation();
@@ -80,15 +84,18 @@ export function SelectionActionBar({
     setNewCollectionName('');
   };
 
-  const handleAddToCollection = async (collectionId: string) => {
+  const handleAddToCollection = async (userCollectionId: string) => {
     setIsAdding(true);
 
     // Add all selected items to the collection
-    const results = await Promise.all(
-      selectedIds.map((id) =>
-        apiClient.addUserCollectionItem(collectionId, { collectionId: id })
-      )
+    const collectionPromises = selectedCollectionIds.map((id) =>
+      apiClient.addUserCollectionItem(userCollectionId, { collectionId: id })
     );
+    const mediaPromises = selectedMediaIds.map((id) =>
+      apiClient.addUserCollectionItem(userCollectionId, { mediaId: id })
+    );
+
+    const results = await Promise.all([...collectionPromises, ...mediaPromises]);
 
     // Check for real errors (not "already exists")
     const errors = results.filter(
@@ -140,6 +147,17 @@ export function SelectionActionBar({
         <Typography variant="body1" fontWeight="medium">
           {t('selection.itemsSelected', { count: selectedCount })}
         </Typography>
+
+        {onSelectAll && (
+          <Button
+            variant="outlined"
+            startIcon={<SelectAll />}
+            onClick={onSelectAll}
+            size="small"
+          >
+            {t('selection.selectAll')}
+          </Button>
+        )}
 
         <Button
           variant="contained"

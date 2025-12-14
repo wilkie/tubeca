@@ -293,6 +293,10 @@ export function LibraryPage() {
     setIsSelectionMode(false);
   };
 
+  const selectAll = () => {
+    setSelectedIds(new Set(collections.map((c) => c.id)));
+  };
+
   const handleItemClick = (collectionId: string) => {
     if (isSelectionMode) {
       toggleSelection(collectionId);
@@ -924,8 +928,9 @@ export function LibraryPage() {
       {/* Selection Action Bar */}
       <SelectionActionBar
         selectedCount={selectedIds.size}
-        selectedIds={Array.from(selectedIds)}
+        selectedCollectionIds={Array.from(selectedIds)}
         onClear={clearSelection}
+        onSelectAll={selectAll}
       />
     </Container>
   );

@@ -239,6 +239,7 @@
     "exitMode": "Exit selection",
     "itemsSelected": "{{count}} selected",
     "itemsSelected_one": "{{count}} selected",
-    "clear": "Clear selection"
+    "clear": "Clear selection",
+    "selectAll": "Select All"
   }
 }
