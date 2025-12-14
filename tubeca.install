@@ -1,0 +1,113 @@
+#!/bin/bash
+# Arch Linux package install script for Tubeca
+
+post_install() {
+    echo ":: Creating tubeca user and group..."
+    systemd-sysusers
+
+    echo ":: Creating directories..."
+    systemd-tmpfiles --create
+
+    echo ":: Setting permissions..."
+    chown -R tubeca:tubeca /opt/tubeca
+    chown -R tubeca:tubeca /var/lib/tubeca
+    chmod 640 /etc/tubeca/tubeca.env
+    chmod 640 /etc/tubeca/tubeca.config.json
+    chown root:tubeca /etc/tubeca/tubeca.env
+    chown root:tubeca /etc/tubeca/tubeca.config.json
+
+    echo ":: Initializing database..."
+    cd /opt/tubeca/backend
+
+    # Generate Prisma client if needed
+    sudo -u tubeca npx prisma generate 2>/dev/null || true
+
+    # Run database migrations
+    sudo -u tubeca npx prisma migrate deploy 2>/dev/null || sudo -u tubeca npx prisma db push 2>/dev/null || true
+
+    # Generate JWT secret if not set
+    if grep -q "JWT_SECRET=change-this" /etc/tubeca/tubeca.env 2>/dev/null; then
+        JWT_SECRET=$(openssl rand -hex 32)
+        sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" /etc/tubeca/tubeca.env
+        echo ":: Generated new JWT_SECRET"
+    fi
+
+    # Update environment for production
+    sed -i 's/NODE_ENV=development/NODE_ENV=production/' /etc/tubeca/tubeca.env
+    sed -i 's|DATABASE_URL="file:./prisma/dev.db"|DATABASE_URL="file:./prisma/tubeca.db"|' /etc/tubeca/tubeca.env
+
+    echo ""
+    echo "==> Tubeca has been installed!"
+    echo ""
+    echo "==> Next steps:"
+    echo "    1. Configure the application:"
+    echo "       sudo nano /etc/tubeca/tubeca.env"
+    echo ""
+    echo "    2. Start Redis (required):"
+    echo "       sudo systemctl enable --now redis"
+    echo ""
+    echo "    3. Start Tubeca services:"
+    echo "       sudo systemctl enable --now tubeca-backend tubeca-frontend"
+    echo ""
+    echo "    4. Access the application:"
+    echo "       Frontend: http://localhost:8080"
+    echo "       API:      http://localhost:3000"
+    echo ""
+    echo "    5. For production, see nginx configuration:"
+    echo "       /usr/share/doc/tubeca/nginx.conf.example"
+    echo ""
+}
+
+post_upgrade() {
+    echo ":: Updating permissions..."
+    chown -R tubeca:tubeca /opt/tubeca
+    chmod 640 /etc/tubeca/tubeca.env
+    chmod 640 /etc/tubeca/tubeca.config.json
+
+    echo ":: Running database migrations..."
+    cd /opt/tubeca/backend
+    sudo -u tubeca npx prisma generate 2>/dev/null || true
+    sudo -u tubeca npx prisma migrate deploy 2>/dev/null || true
+
+    echo ":: Restarting services..."
+    systemctl daemon-reload
+
+    if systemctl is-active --quiet tubeca-backend; then
+        systemctl restart tubeca-backend
+    fi
+
+    if systemctl is-active --quiet tubeca-frontend; then
+        systemctl restart tubeca-frontend
+    fi
+
+    echo ""
+    echo "==> Tubeca has been upgraded!"
+    echo ""
+}
+
+pre_remove() {
+    echo ":: Stopping services..."
+    systemctl stop tubeca-backend 2>/dev/null || true
+    systemctl stop tubeca-frontend 2>/dev/null || true
+    systemctl disable tubeca-backend 2>/dev/null || true
+    systemctl disable tubeca-frontend 2>/dev/null || true
+}
+
+post_remove() {
+    echo ":: Reloading systemd..."
+    systemctl daemon-reload
+
+    echo ""
+    echo "==> Tubeca has been removed."
+    echo ""
+    echo "==> The following were preserved:"
+    echo "    - Configuration: /etc/tubeca/"
+    echo "    - Database: /opt/tubeca/backend/prisma/tubeca.db"
+    echo "    - Data: /var/lib/tubeca/"
+    echo "    - User: tubeca"
+    echo ""
+    echo "    To remove completely:"
+    echo "    sudo rm -rf /etc/tubeca /var/lib/tubeca"
+    echo "    sudo userdel tubeca"
+    echo ""
+}
