@@ -11,9 +11,22 @@ import type {
   SeasonMetadata,
   PersonMetadata,
 } from '@tubeca/scraper-types'
+import { Agent } from 'undici'
 
 const TMDB_API_URL = 'https://api.themoviedb.org/3'
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
+
+// Custom HTTP agent with longer timeouts and no keepalive
+// This helps with WSL2/network issues where long-running processes have stale connections
+const httpAgent = new Agent({
+  connect: {
+    timeout: 30000, // 30 second connect timeout
+  },
+  bodyTimeout: 30000,
+  headersTimeout: 30000,
+  keepAliveTimeout: 1000, // Short keepalive to avoid stale connections
+  keepAliveMaxTimeout: 5000,
+})
 
 // TMDB API response types
 interface TMDBSearchResult {
@@ -205,13 +218,86 @@ class TMDBScraper implements ScraperPlugin {
       url.searchParams.set(key, value)
     }
 
-    const response = await fetch(url.toString())
+    const maxRetries = 3
+    const baseDelay = 3000 // 3 seconds
+    const requestTimeout = 30000 // 30 second timeout per request
 
-    if (!response.ok) {
-      throw new Error(`TMDB API error: ${response.status}`)
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), requestTimeout)
+
+      try {
+        const response = await fetch(url.toString(), {
+          signal: controller.signal,
+          // @ts-expect-error - dispatcher is valid for Node.js fetch but not in types
+          dispatcher: httpAgent,
+        })
+
+        clearTimeout(timeoutId)
+
+        if (!response.ok) {
+          // Don't retry on client errors (4xx) except rate limiting (429)
+          if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+            throw new Error(`TMDB API error: ${response.status}`)
+          }
+          // Retry on server errors (5xx) and rate limiting (429)
+          throw new Error(`TMDB API error: ${response.status}`)
+        }
+
+        return response.json() as Promise<T>
+      } catch (error) {
+        clearTimeout(timeoutId)
+
+        const isLastAttempt = attempt === maxRetries
+        const isRetryable = this.isRetryableError(error)
+
+        if (isLastAttempt || !isRetryable) {
+          throw error
+        }
+
+        // Exponential backoff with jitter
+        const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000
+        console.log(`TMDB request failed (attempt ${attempt}/${maxRetries}), retrying in ${Math.round(delay)}ms...`)
+        await this.sleep(delay)
+      }
     }
 
-    return response.json() as Promise<T>
+    // This should never be reached, but TypeScript needs it
+    throw new Error('TMDB request failed after all retries')
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (error instanceof Error) {
+      // AbortError from AbortController timeout
+      if (error.name === 'AbortError') {
+        return true
+      }
+
+      const message = error.message.toLowerCase()
+      // Retry on network errors, timeouts, and server errors
+      if (message.includes('fetch failed') ||
+          message.includes('timeout') ||
+          message.includes('aborted') ||
+          message.includes('econnreset') ||
+          message.includes('econnrefused') ||
+          message.includes('enotfound') ||
+          message.includes('socket hang up') ||
+          message.includes('network') ||
+          message.includes('api error: 5') || // 5xx errors
+          message.includes('api error: 429')) { // rate limiting
+        return true
+      }
+      // Check for undici/Node.js fetch error codes
+      const cause = (error as { cause?: { code?: string } }).cause
+      if (cause?.code?.startsWith('UND_ERR_') || cause?.code?.startsWith('ECONN')) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   private getImageUrl(path: string | null | undefined, size?: string): string | undefined {

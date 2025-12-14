@@ -70,6 +70,11 @@
     "scanComplete": "Scan complete",
     "scanFailed": "Scan failed",
     "scanResult": "Processed {{files}} files, created {{collections}} collections and {{media}} media items",
+    "scanOptions": "Scan options",
+    "scanNormal": "Quick Scan",
+    "scanNormalDesc": "Only scan for new media files",
+    "scanFull": "Full Scan",
+    "scanFullDesc": "Re-fetch metadata for all items",
     "validation": {
       "required": "Name and path are required"
     },

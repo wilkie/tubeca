@@ -5,6 +5,7 @@ export interface LibraryScanJobData {
   libraryId: string
   libraryPath: string
   libraryName: string
+  fullScan?: boolean
 }
 
 // Create library scan queue

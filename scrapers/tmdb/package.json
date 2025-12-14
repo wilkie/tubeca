@@ -11,7 +11,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@tubeca/scraper-types": "workspace:*"
+    "@tubeca/scraper-types": "workspace:*",
+    "undici": "^7.16.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

@@ -82,6 +82,9 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
     return { success: false, error: 'No video scrapers configured' };
   }
 
+  // Track errors to distinguish between "no results" and "API failures"
+  const errors: Error[] = [];
+
   // Try to find a match
   for (const scraper of scrapers) {
     if (!scraper) continue;
@@ -117,11 +120,53 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
       }
     } catch (error) {
       console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error);
+      if (error instanceof Error) {
+        errors.push(error);
+      }
       // Continue to next scraper
     }
   }
 
+  // If all scrapers failed with errors (not just empty results), throw to trigger BullMQ retry
+  if (errors.length > 0 && errors.length === scrapers.length) {
+    const lastError = errors[errors.length - 1];
+    // Check if this is a retryable error (network issues, timeouts, etc.)
+    if (isRetryableError(lastError)) {
+      throw lastError; // Let BullMQ retry the job
+    }
+  }
+
   return { success: false, error: 'No metadata found from any scraper' };
+}
+
+/**
+ * Check if an error is retryable (network issues, timeouts, server errors)
+ */
+function isRetryableError(error: Error): boolean {
+  // AbortError from AbortController timeout
+  if (error.name === 'AbortError') {
+    return true;
+  }
+
+  const message = error.message.toLowerCase();
+  if (message.includes('fetch failed') ||
+      message.includes('timeout') ||
+      message.includes('aborted') ||
+      message.includes('econnreset') ||
+      message.includes('econnrefused') ||
+      message.includes('enotfound') ||
+      message.includes('socket hang up') ||
+      message.includes('network') ||
+      message.includes('api error: 5') || // 5xx errors
+      message.includes('api error: 429')) { // rate limiting
+    return true;
+  }
+  // Check for undici/Node.js fetch error codes in cause
+  const cause = (error as { cause?: { code?: string } }).cause;
+  if (cause?.code?.startsWith('UND_ERR_') || cause?.code?.startsWith('ECONN')) {
+    return true;
+  }
+  return false;
 }
 
 async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeResult> {
@@ -148,6 +193,9 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
     return { success: false, error: 'No audio scrapers configured' };
   }
 
+  // Track errors to distinguish between "no results" and "API failures"
+  const errors: Error[] = [];
+
   // Try to find a match
   for (const scraper of scrapers) {
     if (!scraper || !scraper.searchAudio || !scraper.getAudioMetadata) continue;
@@ -167,7 +215,18 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
       }
     } catch (error) {
       console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error);
+      if (error instanceof Error) {
+        errors.push(error);
+      }
       // Continue to next scraper
+    }
+  }
+
+  // If all scrapers failed with errors (not just empty results), throw to trigger BullMQ retry
+  if (errors.length > 0 && errors.length === scrapers.length) {
+    const lastError = errors[errors.length - 1];
+    if (isRetryableError(lastError)) {
+      throw lastError; // Let BullMQ retry the job
     }
   }
 

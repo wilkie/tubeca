@@ -18,8 +18,12 @@ import {
   Chip,
   LinearProgress,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
-import { Add, Edit, Delete, Refresh, Stop, Visibility, VisibilityOff } from '@mui/icons-material';
+import { Add, Edit, Delete, Refresh, Stop, Visibility, VisibilityOff, ExpandMore } from '@mui/icons-material';
 import { apiClient, type Library, type ScanStatusResponse } from '../api/client';
 import { LibraryDialog } from '../components/LibraryDialog';
 
@@ -36,6 +40,7 @@ export function LibrariesPage() {
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null);
   const [scanStates, setScanStates] = useState<ScanState>({});
   const pollIntervalRef = useRef<number | null>(null);
+  const [scanMenuAnchor, setScanMenuAnchor] = useState<{ element: HTMLElement; libraryId: string } | null>(null);
 
   const loadLibraries = useCallback(async () => {
     const result = await apiClient.getLibraries();
@@ -140,8 +145,8 @@ export function LibrariesPage() {
     await loadLibraries();
   };
 
-  const handleStartScan = async (libraryId: string) => {
-    const result = await apiClient.startLibraryScan(libraryId);
+  const handleStartScan = async (libraryId: string, fullScan: boolean = false) => {
+    const result = await apiClient.startLibraryScan(libraryId, { fullScan });
     if (result.error) {
       setError(result.error);
     } else {
@@ -154,6 +159,21 @@ export function LibrariesPage() {
           progress: 0,
         },
       }));
+    }
+  };
+
+  const handleScanMenuOpen = (event: React.MouseEvent<HTMLElement>, libraryId: string) => {
+    setScanMenuAnchor({ element: event.currentTarget, libraryId });
+  };
+
+  const handleScanMenuClose = () => {
+    setScanMenuAnchor(null);
+  };
+
+  const handleScanMenuAction = (fullScan: boolean) => {
+    if (scanMenuAnchor) {
+      handleStartScan(scanMenuAnchor.libraryId, fullScan);
+      handleScanMenuClose();
     }
   };
 
@@ -313,15 +333,27 @@ export function LibrariesPage() {
                               />
                             </Tooltip>
                           )}
-                          <Tooltip title={t('libraries.startScan')}>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleStartScan(library.id)}
-                              color="primary"
-                            >
-                              <Refresh />
-                            </IconButton>
-                          </Tooltip>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Tooltip title={t('libraries.startScan')}>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleStartScan(library.id, false)}
+                                color="primary"
+                              >
+                                <Refresh />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title={t('libraries.scanOptions')}>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => handleScanMenuOpen(e, library.id)}
+                                color="primary"
+                                sx={{ ml: -0.5 }}
+                              >
+                                <ExpandMore fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
                         </Box>
                       )}
                     </TableCell>
@@ -352,6 +384,25 @@ export function LibrariesPage() {
         onClose={handleDialogClose}
         onSave={handleDialogSave}
       />
+
+      <Menu
+        anchorEl={scanMenuAnchor?.element}
+        open={Boolean(scanMenuAnchor)}
+        onClose={handleScanMenuClose}
+      >
+        <MenuItem onClick={() => handleScanMenuAction(false)}>
+          <ListItemIcon>
+            <Refresh fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary={t('libraries.scanNormal')} secondary={t('libraries.scanNormalDesc')} />
+        </MenuItem>
+        <MenuItem onClick={() => handleScanMenuAction(true)}>
+          <ListItemIcon>
+            <Refresh fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary={t('libraries.scanFull')} secondary={t('libraries.scanFullDesc')} />
+        </MenuItem>
+      </Menu>
     </Container>
   );
 }

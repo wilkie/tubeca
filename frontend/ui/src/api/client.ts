@@ -360,9 +360,10 @@ class ApiClient {
   }
 
   // Library scan methods
-  async startLibraryScan(libraryId: string): Promise<ApiResponse<ScanStartResponse>> {
+  async startLibraryScan(libraryId: string, options?: { fullScan?: boolean }): Promise<ApiResponse<ScanStartResponse>> {
     return this.request<ScanStartResponse>(`/libraries/${libraryId}/scan`, {
       method: 'POST',
+      body: JSON.stringify(options || {}),
     });
   }
 
