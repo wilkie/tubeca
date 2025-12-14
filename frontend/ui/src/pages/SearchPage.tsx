@@ -21,10 +21,11 @@ import {
   Tooltip,
   Badge,
 } from '@mui/material';
-import { Search, Movie, Tv, Album, VideoFile, AudioFile, FilterList, Clear } from '@mui/icons-material';
+import { Search, Movie, Tv, Album, VideoFile, AudioFile, FilterList, Clear, CheckBox, CheckBoxOutlineBlank } from '@mui/icons-material';
 import { apiClient, type Collection, type Media, type Keyword } from '../api/client';
 import { FilterChips } from '../components/FilterChips';
 import { KeywordFilter } from '../components/KeywordFilter';
+import { SelectionActionBar } from '../components/SelectionActionBar';
 
 const ITEMS_PER_PAGE = 50;
 
@@ -44,6 +45,9 @@ export function SearchPage() {
   const [selectedKeywords, setSelectedKeywords] = useState<Keyword[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [badgeHovered, setBadgeHovered] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(new Set());
+  const [selectedMediaIds, setSelectedMediaIds] = useState<Set<string>>(new Set());
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -210,6 +214,58 @@ export function SearchPage() {
     navigate(`/media/${mediaId}`);
   };
 
+  const toggleCollectionSelection = (collectionId: string) => {
+    setSelectedCollectionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(collectionId)) {
+        next.delete(collectionId);
+      } else {
+        next.add(collectionId);
+      }
+      return next;
+    });
+  };
+
+  const toggleMediaSelection = (mediaId: string) => {
+    setSelectedMediaIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(mediaId)) {
+        next.delete(mediaId);
+      } else {
+        next.add(mediaId);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedCollectionIds(new Set());
+    setSelectedMediaIds(new Set());
+    setIsSelectionMode(false);
+  };
+
+  const selectAll = () => {
+    setSelectedCollectionIds(new Set(collections.map((c) => c.id)));
+    setSelectedMediaIds(new Set(media.map((m) => m.id)));
+  };
+
+  const handleCollectionItemClick = (collectionId: string) => {
+    if (isSelectionMode) {
+      toggleCollectionSelection(collectionId);
+    } else {
+      handleCollectionClick(collectionId);
+    }
+  };
+
+  const handleMediaItemClick = (mediaId: string) => {
+    if (isSelectionMode) {
+      toggleMediaSelection(mediaId);
+    } else {
+      handleMediaClick(mediaId);
+    }
+  };
+
+  const selectedCount = selectedCollectionIds.size + selectedMediaIds.size;
   const activeFilterCount = excludedRatings.size + selectedKeywords.length;
   const totalResults = collections.length + media.length;
   const showFilterButton = allContentRatings.length > 0 || allKeywords.length > 0 || activeFilterCount > 0;
@@ -239,6 +295,20 @@ export function SearchPage() {
             }}
           />
         </Box>
+        <Tooltip title={isSelectionMode ? t('selection.exitMode') : t('selection.enterMode')}>
+          <IconButton
+            onClick={() => {
+              if (isSelectionMode) {
+                clearSelection();
+              } else {
+                setIsSelectionMode(true);
+              }
+            }}
+            color={isSelectionMode ? 'primary' : 'default'}
+          >
+            {isSelectionMode ? <CheckBox /> : <CheckBoxOutlineBlank />}
+          </IconButton>
+        </Tooltip>
         {showFilterButton && (() => {
           const canClear = activeFilterCount > 0;
           return (
@@ -337,42 +407,78 @@ export function SearchPage() {
 
               return (
                 <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
-                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Card
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      ...(isSelectionMode && selectedCollectionIds.has(collection.id) && {
+                        outline: '3px solid',
+                        outlineColor: 'primary.main',
+                        outlineOffset: -3,
+                      }),
+                    }}
+                  >
                     <CardActionArea
-                      onClick={() => handleCollectionClick(collection.id)}
+                      onClick={() => handleCollectionItemClick(collection.id)}
                       sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                     >
-                      {hasImage ? (
-                        <CardMedia
-                          component="img"
-                          image={apiClient.getImageUrl(primaryImage.id)}
-                          alt={collection.name}
-                          sx={{
-                            aspectRatio: '2/3',
-                            objectFit: 'cover',
-                          }}
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            aspectRatio: '2/3',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            bgcolor: 'action.hover',
-                          }}
-                        >
-                          {collection.collectionType === 'Film' ? (
-                            <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          ) : collection.collectionType === 'Show' ? (
-                            <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          ) : collection.collectionType === 'Album' || collection.collectionType === 'Artist' ? (
-                            <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          ) : (
-                            <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
-                          )}
-                        </Box>
-                      )}
+                      <Box sx={{ position: 'relative' }}>
+                        {hasImage ? (
+                          <CardMedia
+                            component="img"
+                            image={apiClient.getImageUrl(primaryImage.id)}
+                            alt={collection.name}
+                            sx={{
+                              aspectRatio: '2/3',
+                              objectFit: 'cover',
+                            }}
+                          />
+                        ) : (
+                          <Box
+                            sx={{
+                              aspectRatio: '2/3',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              bgcolor: 'action.hover',
+                            }}
+                          >
+                            {collection.collectionType === 'Film' ? (
+                              <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
+                            ) : collection.collectionType === 'Show' ? (
+                              <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
+                            ) : collection.collectionType === 'Album' || collection.collectionType === 'Artist' ? (
+                              <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
+                            ) : (
+                              <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
+                            )}
+                          </Box>
+                        )}
+                        {/* Selection checkbox */}
+                        {isSelectionMode && (
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              bottom: 8,
+                              left: 8,
+                              bgcolor: 'rgba(0, 0, 0, 0.6)',
+                              borderRadius: '50%',
+                              width: 28,
+                              height: 28,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            {selectedCollectionIds.has(collection.id) ? (
+                              <CheckBox sx={{ color: 'primary.main', fontSize: 24 }} />
+                            ) : (
+                              <CheckBoxOutlineBlank sx={{ color: 'white', fontSize: 24 }} />
+                            )}
+                          </Box>
+                        )}
+                      </Box>
                       <CardContent sx={{ textAlign: 'center', py: 1 }}>
                         <Typography variant="body2" noWrap title={collection.name}>
                           {collection.name}
@@ -432,38 +538,74 @@ export function SearchPage() {
 
               return (
                 <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={item.id}>
-                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Card
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      ...(isSelectionMode && selectedMediaIds.has(item.id) && {
+                        outline: '3px solid',
+                        outlineColor: 'primary.main',
+                        outlineOffset: -3,
+                      }),
+                    }}
+                  >
                     <CardActionArea
-                      onClick={() => handleMediaClick(item.id)}
+                      onClick={() => handleMediaItemClick(item.id)}
                       sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                     >
-                      {hasImage ? (
-                        <CardMedia
-                          component="img"
-                          image={apiClient.getImageUrl(primaryImage.id)}
-                          alt={item.name}
-                          sx={{
-                            aspectRatio: '16/9',
-                            objectFit: 'cover',
-                          }}
-                        />
-                      ) : (
-                        <Box
-                          sx={{
-                            aspectRatio: '16/9',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            bgcolor: 'action.hover',
-                          }}
-                        >
-                          {item.type === 'Video' ? (
-                            <VideoFile sx={{ fontSize: 48, color: 'text.secondary' }} />
-                          ) : (
-                            <AudioFile sx={{ fontSize: 48, color: 'text.secondary' }} />
-                          )}
-                        </Box>
-                      )}
+                      <Box sx={{ position: 'relative' }}>
+                        {hasImage ? (
+                          <CardMedia
+                            component="img"
+                            image={apiClient.getImageUrl(primaryImage.id)}
+                            alt={item.name}
+                            sx={{
+                              aspectRatio: '16/9',
+                              objectFit: 'cover',
+                            }}
+                          />
+                        ) : (
+                          <Box
+                            sx={{
+                              aspectRatio: '16/9',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              bgcolor: 'action.hover',
+                            }}
+                          >
+                            {item.type === 'Video' ? (
+                              <VideoFile sx={{ fontSize: 48, color: 'text.secondary' }} />
+                            ) : (
+                              <AudioFile sx={{ fontSize: 48, color: 'text.secondary' }} />
+                            )}
+                          </Box>
+                        )}
+                        {/* Selection checkbox */}
+                        {isSelectionMode && (
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              bottom: 8,
+                              left: 8,
+                              bgcolor: 'rgba(0, 0, 0, 0.6)',
+                              borderRadius: '50%',
+                              width: 28,
+                              height: 28,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            {selectedMediaIds.has(item.id) ? (
+                              <CheckBox sx={{ color: 'primary.main', fontSize: 24 }} />
+                            ) : (
+                              <CheckBoxOutlineBlank sx={{ color: 'white', fontSize: 24 }} />
+                            )}
+                          </Box>
+                        )}
+                      </Box>
                       <CardContent sx={{ textAlign: 'center', py: 1 }}>
                         <Typography variant="body2" noWrap title={item.name}>
                           {item.name}
@@ -489,6 +631,15 @@ export function SearchPage() {
           {isLoadingMore && <CircularProgress />}
         </Box>
       )}
+
+      {/* Selection Action Bar */}
+      <SelectionActionBar
+        selectedCount={selectedCount}
+        selectedCollectionIds={Array.from(selectedCollectionIds)}
+        selectedMediaIds={Array.from(selectedMediaIds)}
+        onClear={clearSelection}
+        onSelectAll={selectAll}
+      />
     </Container>
   );
 }
