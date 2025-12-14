@@ -100,11 +100,12 @@ export const libraryScanWorker = new Worker(
       });
 
       // Queue metadata scraping for newly discovered media
-      if (result.newMediaIds.length > 0) {
+      // Skip for Film libraries - the collection scraper handles film metadata
+      if (result.newMediaIds.length > 0 && library.libraryType !== 'Film') {
         console.log(`📋 Queueing metadata scrape for ${result.newMediaIds.length} new media items`);
         const scrapeJobs: MetadataScrapeJobData[] = result.newMediaIds.map((media) => ({
           mediaId: media.id,
-          mediaName: media.collectionName || media.name, // Use collection name for Films
+          mediaName: media.collectionName || media.name,
           mediaType: media.type,
           showName: media.showName,
           season: media.season,
@@ -301,6 +302,7 @@ async function scanDirectory(
         // Check if media already exists by path
         const existing = await prisma.media.findFirst({
           where: { path: filePath },
+          include: { collection: true },
         });
 
         if (!existing) {
@@ -376,6 +378,36 @@ async function scanDirectory(
           }
 
           result.newMediaIds.push(newMediaInfo);
+        } else if (job.data.fullScan) {
+          // In full scan mode, re-queue existing media for metadata scraping
+          const existingMediaInfo: NewMediaInfo = {
+            id: existing.id,
+            name: mediaName,
+            type: mediaType as 'Video' | 'Audio',
+          };
+
+          if (mediaType === 'Video') {
+            // Try to parse as TV episode
+            const episodeInfo = parseEpisodeFromFilename(mediaName);
+            if (episodeInfo) {
+              existingMediaInfo.season = episodeInfo.season;
+              existingMediaInfo.episode = episodeInfo.episode;
+              existingMediaInfo.showName =
+                episodeInfo.showName || getShowNameFromCollectionPath(collectionPath);
+            } else {
+              // Try to parse as movie
+              const searchName = collectionPath.length > 0 ? collectionPath[collectionPath.length - 1] : mediaName;
+              const movieInfo = parseMovieFromFilename(searchName);
+              if (movieInfo.year) {
+                existingMediaInfo.year = movieInfo.year;
+              }
+              if (libraryType === 'Film' && collectionPath.length > 0) {
+                existingMediaInfo.collectionName = collectionPath[collectionPath.length - 1];
+              }
+            }
+          }
+
+          result.newMediaIds.push(existingMediaInfo);
         }
         result.filesProcessed++;
       } catch (error) {
@@ -444,12 +476,40 @@ async function scanDirectory(
         }
 
         result.newCollections.push(newCollectionInfo);
-      } else if (collection.collectionType !== collectionType) {
+      } else {
         // Update collection type if it changed
-        collection = await prisma.collection.update({
-          where: { id: collection.id },
-          data: { collectionType },
-        });
+        if (collection.collectionType !== collectionType) {
+          collection = await prisma.collection.update({
+            where: { id: collection.id },
+            data: { collectionType },
+          });
+        }
+
+        // In full scan mode, re-queue existing collections for metadata scraping
+        if (job.data.fullScan) {
+          const existingCollectionInfo: NewCollectionInfo = {
+            id: collection.id,
+            name: dir.name,
+            collectionType,
+            parentId: parentCollectionId,
+          };
+
+          if (collectionType === 'Season') {
+            const seasonMatch = dir.name.match(/season\s*(\d+)/i);
+            if (seasonMatch) {
+              existingCollectionInfo.seasonNumber = parseInt(seasonMatch[1], 10);
+            }
+          }
+
+          if (collectionType === 'Film') {
+            const movieInfo = parseMovieFromFilename(dir.name);
+            if (movieInfo.year) {
+              existingCollectionInfo.year = movieInfo.year;
+            }
+          }
+
+          result.newCollections.push(existingCollectionInfo);
+        }
       }
 
       // Recursively scan subdirectory with updated collection path

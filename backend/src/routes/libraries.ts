@@ -301,7 +301,7 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
  *     tags:
  *       - Libraries
  *     summary: Start library scan
- *     description: Start scanning a library for media files (Admin only)
+ *     description: Start scanning a library for media files (Admin only). Use fullScan to re-scrape metadata for all existing items.
  *     parameters:
  *       - in: path
  *         name: id
@@ -309,6 +309,15 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
  *         schema:
  *           type: string
  *           format: uuid
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fullScan:
+ *                 type: boolean
+ *                 description: If true, re-scrape metadata for all existing items
  *     responses:
  *       202:
  *         description: Scan started
@@ -339,6 +348,7 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
  */
 router.post('/:id/scan', requireRole('Admin'), async (req, res) => {
   try {
+    const { fullScan } = req.body || {};
     const library = await libraryService.getLibraryById(req.params.id);
     if (!library) {
       return res.status(404).json({ error: 'Library not found' });
@@ -361,10 +371,11 @@ router.post('/:id/scan', requireRole('Admin'), async (req, res) => {
       libraryId: library.id,
       libraryPath: library.path,
       libraryName: library.name,
+      fullScan: !!fullScan,
     });
 
     res.status(202).json({
-      message: 'Scan started',
+      message: fullScan ? 'Full scan started' : 'Scan started',
       jobId: job.id,
     });
   } catch (error) {
