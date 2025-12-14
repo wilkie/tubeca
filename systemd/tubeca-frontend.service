@@ -1,0 +1,28 @@
+[Unit]
+Description=Tubeca Frontend Web Server
+Documentation=https://github.com/wilkie/tubeca
+After=network.target tubeca-backend.service
+Wants=tubeca-backend.service
+
+[Service]
+Type=simple
+User=tubeca
+Group=tubeca
+WorkingDirectory=/opt/tubeca/frontend/ui
+ExecStart=/usr/bin/npx serve -s dist -l 8080
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+# Environment
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
