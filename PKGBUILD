@@ -155,6 +155,7 @@ ReadWritePaths=/var/lib/tubeca
 
 # Environment
 Environment=NODE_ENV=production
+Environment=TUBECA_CONFIG_PATH=/etc/tubeca/tubeca.config.json
 
 [Install]
 WantedBy=multi-user.target
