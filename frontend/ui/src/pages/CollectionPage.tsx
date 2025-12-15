@@ -10,6 +10,7 @@ import { CollectionBreadcrumbs, type BreadcrumbItem } from '../components/Collec
 import { StickyHeroBreadcrumbs } from '../components/StickyHeroBreadcrumbs';
 import { CollectionOptionsMenu } from '../components/CollectionOptionsMenu';
 import { DeleteCollectionDialog } from '../components/DeleteCollectionDialog';
+import { IdentifyDialog } from '../components/IdentifyDialog';
 import { FilmHeroView } from '../components/FilmHeroView';
 import { ShowHeroView } from '../components/ShowHeroView';
 import { StandardCollectionView } from '../components/StandardCollectionView';
@@ -86,6 +87,9 @@ export function CollectionPage() {
   // Add to collection dialog state
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
   const [selectedChildForAdd, setSelectedChildForAdd] = useState<{ id: string; name: string } | null>(null);
+
+  // Identify dialog state
+  const [identifyDialogOpen, setIdentifyDialogOpen] = useState(false);
 
   // Quick search for filtering visible items
   const { query: quickSearchQuery, isActive: isQuickSearchActive } = useQuickSearch();
@@ -187,6 +191,20 @@ export function CollectionPage() {
   const handleDeleteClick = () => {
     handleMenuClose();
     setDeleteDialogOpen(true);
+  };
+
+  const handleIdentifyClick = () => {
+    handleMenuClose();
+    setIdentifyDialogOpen(true);
+  };
+
+  const handleIdentified = async () => {
+    // Refresh collection data after identification
+    if (!collectionId) return;
+    const result = await apiClient.getCollection(collectionId);
+    if (result.data) {
+      setCollection(result.data.collection);
+    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -405,10 +423,12 @@ export function CollectionPage() {
         open={menuOpen}
         onClose={handleMenuClose}
         onImagesClick={handleImagesClick}
+        onIdentifyClick={handleIdentifyClick}
         onRefreshMetadata={handleRefreshMetadata}
         onRefreshImages={handleRefreshImages}
         onDeleteClick={handleDeleteClick}
         canEdit={canEdit}
+        canIdentify={collection.collectionType === 'Show' || collection.collectionType === 'Film'}
         isRefreshing={isRefreshing}
         isRefreshingImages={isRefreshingImages}
       />
@@ -437,6 +457,24 @@ export function CollectionPage() {
         collectionId={selectedChildForAdd?.id ?? collection.id}
         itemName={selectedChildForAdd?.name ?? collection.name}
       />
+
+      {(collection.collectionType === 'Show' || collection.collectionType === 'Film') && (
+        <IdentifyDialog
+          open={identifyDialogOpen}
+          onClose={() => setIdentifyDialogOpen(false)}
+          collectionId={collection.id}
+          collectionName={collection.name}
+          collectionType={collection.collectionType as 'Show' | 'Film'}
+          year={
+            collection.collectionType === 'Film' && collection.filmDetails?.releaseDate
+              ? new Date(collection.filmDetails.releaseDate).getFullYear()
+              : collection.collectionType === 'Show' && collection.showDetails?.releaseDate
+                ? new Date(collection.showDetails.releaseDate).getFullYear()
+                : undefined
+          }
+          onIdentified={handleIdentified}
+        />
+      )}
 
       {/* Quick Search Overlay */}
       {totalItems > 0 && (

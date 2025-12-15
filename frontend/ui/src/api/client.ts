@@ -444,6 +444,39 @@ class ApiClient {
     });
   }
 
+  // Search for shows/films to identify a collection
+  async searchForIdentification(
+    query: string,
+    type: 'Show' | 'Film',
+    year?: number
+  ): Promise<ApiResponse<{
+    results: Array<{
+      externalId: string;
+      scraperId: string;
+      title: string;
+      year?: number;
+      posterUrl?: string;
+      overview?: string;
+    }>;
+  }>> {
+    return this.request('/collections/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, type, year }),
+    });
+  }
+
+  // Identify a collection with a specific external ID
+  async identifyCollection(
+    collectionId: string,
+    externalId: string,
+    scraperId: string
+  ): Promise<ApiResponse<{ message: string; jobId: string }>> {
+    return this.request<{ message: string; jobId: string }>(`/collections/${collectionId}/identify`, {
+      method: 'POST',
+      body: JSON.stringify({ externalId, scraperId }),
+    });
+  }
+
   // Media methods
   async getMedia(id: string): Promise<ApiResponse<MediaResponse>> {
     return this.request<MediaResponse>(`/media/${id}`);

@@ -34,6 +34,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -55,6 +56,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -74,6 +76,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -95,6 +98,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={false}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -121,6 +125,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -144,6 +149,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -167,6 +173,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -190,6 +197,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={false}
         />
@@ -213,6 +221,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={true}
           isRefreshingImages={false}
         />
@@ -234,6 +243,7 @@ describe('CollectionOptionsMenu', () => {
           onRefreshImages={mockOnRefreshImages}
           onDeleteClick={mockOnDeleteClick}
           canEdit={true}
+          canIdentify={false}
           isRefreshing={false}
           isRefreshingImages={true}
         />

@@ -114,7 +114,16 @@
   },
   "collection": {
     "notFound": "Collection not found",
-    "empty": "This collection is empty"
+    "empty": "This collection is empty",
+    "identify": "Identify",
+    "identifyTitle": "Identify {{type}}",
+    "identifyDescription": "Search for the correct {{type}} to match this item",
+    "identifyTypeShow": "show",
+    "identifyTypeFilm": "film",
+    "searchPlaceholder": "Search by title...",
+    "yearPlaceholder": "Year",
+    "noResults": "No results found",
+    "identifying": "Identifying..."
   },
   "media": {
     "notFound": "Media not found",

@@ -11,6 +11,7 @@ import {
   Refresh,
   Image as ImageIcon,
   Delete,
+  Search,
 } from '@mui/icons-material';
 
 interface CollectionOptionsMenuProps {
@@ -18,10 +19,12 @@ interface CollectionOptionsMenuProps {
   open: boolean;
   onClose: () => void;
   onImagesClick: () => void;
+  onIdentifyClick?: () => void;
   onRefreshMetadata: () => void;
   onRefreshImages: () => void;
   onDeleteClick: () => void;
   canEdit: boolean;
+  canIdentify: boolean;
   isRefreshing: boolean;
   isRefreshingImages: boolean;
 }
@@ -31,10 +34,12 @@ export function CollectionOptionsMenu({
   open,
   onClose,
   onImagesClick,
+  onIdentifyClick,
   onRefreshMetadata,
   onRefreshImages,
   onDeleteClick,
   canEdit,
+  canIdentify,
   isRefreshing,
   isRefreshingImages,
 }: CollectionOptionsMenuProps) {
@@ -61,6 +66,14 @@ export function CollectionOptionsMenu({
         </ListItemIcon>
         <ListItemText>{t('collection.images', 'Images')}</ListItemText>
       </MenuItem>
+      {canEdit && canIdentify && (
+        <MenuItem onClick={onIdentifyClick}>
+          <ListItemIcon>
+            <Search fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t('collection.identify', 'Identify')}</ListItemText>
+        </MenuItem>
+      )}
       {canEdit && <Divider />}
       {canEdit && (
         <MenuItem onClick={onRefreshMetadata} disabled={isRefreshing}>
