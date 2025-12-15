@@ -48,8 +48,10 @@ pkgver() {
 build() {
     cd "${srcdir}/${pkgname}"
 
-    # Set required environment variables for Prisma generate
-    export DATABASE_URL="file:./prisma/build.db"
+    # Create .env file for Prisma (required by prisma.config.ts)
+    cat > backend/.env << 'ENVEOF'
+DATABASE_URL="file:./prisma/build.db"
+ENVEOF
 
     # Install dependencies
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
