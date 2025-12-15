@@ -28,7 +28,7 @@ source=(
     "tubeca::git+file://${startdir}"
 )
 sha256sums=('SKIP')
-options=('!strip')  # Skip stripping - node_modules has thousands of JS files
+options=('!strip' '!debug')  # Skip stripping/debug - node_modules has thousands of JS files
 
 # For release builds, use:
 # source=("${pkgname}-${pkgver}.tar.gz::https://github.com/wilkie/tubeca/archive/v${pkgver}.tar.gz")
