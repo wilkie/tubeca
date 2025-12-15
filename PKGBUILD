@@ -103,15 +103,22 @@ package() {
         install -Dm644 turbo.json "${pkgdir}/opt/tubeca/turbo.json"
     fi
 
-    # Install configuration files
-    install -Dm640 backend/.env.example "${pkgdir}/etc/tubeca/tubeca.env"
+    # Install configuration files (644 so tubeca user can read)
+    install -Dm644 backend/.env.example "${pkgdir}/etc/tubeca/tubeca.env"
 
     if [ -f "tubeca.config.json" ]; then
-        install -Dm640 tubeca.config.json "${pkgdir}/etc/tubeca/tubeca.config.json"
+        install -Dm644 tubeca.config.json "${pkgdir}/etc/tubeca/tubeca.config.json"
     else
-        # Create default config
-        echo '{"scrapers":{}}' > "${pkgdir}/etc/tubeca/tubeca.config.json"
-        chmod 640 "${pkgdir}/etc/tubeca/tubeca.config.json"
+        # Create default config with production paths
+        cat > "${pkgdir}/etc/tubeca/tubeca.config.json" << 'CONFIGEOF'
+{
+  "scrapers": {},
+  "hlsCache": {
+    "path": "/var/lib/tubeca/hls-cache"
+  }
+}
+CONFIGEOF
+        chmod 644 "${pkgdir}/etc/tubeca/tubeca.config.json"
     fi
 
     # Create symlinks for config files
@@ -192,6 +199,7 @@ EOF
     # Install tmpfiles.d configuration
     install -Dm644 /dev/stdin "${pkgdir}/usr/lib/tmpfiles.d/tubeca.conf" << 'EOF'
 d /var/lib/tubeca 0750 tubeca tubeca -
+d /var/lib/tubeca/hls-cache 0750 tubeca tubeca -
 EOF
 
     # Install license
