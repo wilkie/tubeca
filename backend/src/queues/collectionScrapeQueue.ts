@@ -61,17 +61,57 @@ export async function addCollectionScrapeJob(data: CollectionScrapeJobData) {
 
 /**
  * Add multiple collection scrape jobs (bulk operation after library scan)
+ * Shows are queued first, then seasons with a delay to ensure parent shows are scraped first
  */
 export async function addBulkCollectionScrapeJobs(jobs: CollectionScrapeJobData[]) {
-  const bulkJobs = jobs.map((data) => ({
-    name: 'scrape',
-    data,
-    opts: {
-      jobId: `collection-scrape-${data.collectionId}`,
-    },
-  }));
+  // Separate shows from seasons/other types
+  const shows = jobs.filter((j) => j.collectionType === 'Show');
+  const seasons = jobs.filter((j) => j.collectionType === 'Season');
+  const others = jobs.filter((j) => j.collectionType !== 'Show' && j.collectionType !== 'Season');
 
-  return await collectionScrapeQueue.addBulk(bulkJobs);
+  const timestamp = Date.now();
+  const results = [];
+
+  // Queue shows first (no delay)
+  if (shows.length > 0) {
+    const showJobs = shows.map((data) => ({
+      name: 'scrape',
+      data,
+      opts: {
+        jobId: `collection-scrape-${data.collectionId}-${timestamp}`,
+      },
+    }));
+    results.push(...(await collectionScrapeQueue.addBulk(showJobs)));
+  }
+
+  // Queue seasons with a delay to allow parent shows to be scraped first
+  // The delay is proportional to the number of shows to account for rate limiting
+  if (seasons.length > 0) {
+    const seasonDelay = Math.max(5000, shows.length * 2000); // At least 5s, plus 2s per show
+    const seasonJobs = seasons.map((data) => ({
+      name: 'scrape',
+      data,
+      opts: {
+        jobId: `collection-scrape-${data.collectionId}-${timestamp}`,
+        delay: seasonDelay,
+      },
+    }));
+    results.push(...(await collectionScrapeQueue.addBulk(seasonJobs)));
+  }
+
+  // Queue other types (films, artists, albums) without delay
+  if (others.length > 0) {
+    const otherJobs = others.map((data) => ({
+      name: 'scrape',
+      data,
+      opts: {
+        jobId: `collection-scrape-${data.collectionId}-${timestamp}`,
+      },
+    }));
+    results.push(...(await collectionScrapeQueue.addBulk(otherJobs)));
+  }
+
+  return results;
 }
 
 /**
