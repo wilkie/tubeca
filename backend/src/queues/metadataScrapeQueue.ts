@@ -60,11 +60,12 @@ export async function addMetadataScrapeJob(data: MetadataScrapeJobData) {
  * Add multiple metadata scrape jobs (bulk operation after library scan)
  */
 export async function addBulkMetadataScrapeJobs(jobs: MetadataScrapeJobData[]) {
+  const timestamp = Date.now();
   const bulkJobs = jobs.map((data) => ({
     name: 'scrape',
     data,
     opts: {
-      jobId: `scrape-${data.mediaId}`,
+      jobId: `scrape-${data.mediaId}-${timestamp}`,
     },
   }));
 
