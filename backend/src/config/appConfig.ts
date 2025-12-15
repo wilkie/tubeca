@@ -135,8 +135,11 @@ export function getImageStoragePath(appConfig?: AppConfig): string {
     return imageStoragePath;
   }
 
+  // Load config if not provided
+  const config = appConfig ?? loadAppConfig();
+
   // Use configured path or default
-  const configuredPath = appConfig?.imagePath;
+  const configuredPath = config?.imagePath;
   if (configuredPath) {
     // Use absolute path if provided, otherwise resolve relative to repo root
     if (path.isAbsolute(configuredPath)) {
@@ -168,8 +171,11 @@ export function getHlsCachePath(appConfig?: AppConfig): string {
     return hlsCachePath;
   }
 
+  // Load config if not provided
+  const config = appConfig ?? loadAppConfig();
+
   // Use configured path or default
-  const configuredPath = appConfig?.hlsCache?.path;
+  const configuredPath = config?.hlsCache?.path;
   if (configuredPath) {
     // Use absolute path if provided, otherwise resolve relative to repo root
     if (path.isAbsolute(configuredPath)) {
