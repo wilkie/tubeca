@@ -61,8 +61,11 @@ post_install() {
 post_upgrade() {
     echo ":: Updating permissions..."
     chown -R tubeca:tubeca /opt/tubeca
+    chown -R tubeca:tubeca /var/lib/tubeca
     chmod 640 /etc/tubeca/tubeca.env
     chmod 640 /etc/tubeca/tubeca.config.json
+    chown root:tubeca /etc/tubeca/tubeca.env
+    chown root:tubeca /etc/tubeca/tubeca.config.json
 
     echo ":: Running database migrations..."
     cd /opt/tubeca/backend
