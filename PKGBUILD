@@ -57,6 +57,11 @@ ENVEOF
     # Install dependencies
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
+    # Install serve for frontend static file serving
+    cd frontend/ui
+    pnpm add serve
+    cd ../..
+
     # Build all packages
     pnpm build
 }
@@ -155,7 +160,7 @@ Type=simple
 User=tubeca
 Group=tubeca
 WorkingDirectory=/opt/tubeca/frontend/ui
-ExecStart=/usr/bin/npx serve -s dist -l 8080
+ExecStart=/opt/tubeca/frontend/ui/node_modules/.bin/serve -s dist -l 8080
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
