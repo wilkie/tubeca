@@ -62,6 +62,11 @@ ENVEOF
     pnpm add serve
     cd ../..
 
+    # Install tsx for backend ESM support in production
+    cd backend
+    pnpm add tsx
+    cd ..
+
     # Build all packages
     pnpm build
 }
@@ -127,7 +132,7 @@ User=tubeca
 Group=tubeca
 WorkingDirectory=/opt/tubeca/backend
 EnvironmentFile=/etc/tubeca/tubeca.env
-ExecStart=/usr/bin/node dist/index.js
+ExecStart=/opt/tubeca/backend/node_modules/.bin/tsx dist/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
