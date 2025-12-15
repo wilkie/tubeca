@@ -113,6 +113,7 @@ package() {
         cat > "${pkgdir}/etc/tubeca/tubeca.config.json" << 'CONFIGEOF'
 {
   "scrapers": {},
+  "imagePath": "/var/lib/tubeca/images",
   "hlsCache": {
     "path": "/var/lib/tubeca/hls-cache"
   }
@@ -200,6 +201,7 @@ EOF
     # Install tmpfiles.d configuration
     install -Dm644 /dev/stdin "${pkgdir}/usr/lib/tmpfiles.d/tubeca.conf" << 'EOF'
 d /var/lib/tubeca 0750 tubeca tubeca -
+d /var/lib/tubeca/images 0750 tubeca tubeca -
 d /var/lib/tubeca/hls-cache 0750 tubeca tubeca -
 EOF
 
