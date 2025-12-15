@@ -48,6 +48,9 @@ pkgver() {
 build() {
     cd "${srcdir}/${pkgname}"
 
+    # Set required environment variables for Prisma generate
+    export DATABASE_URL="file:./prisma/build.db"
+
     # Install dependencies
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
