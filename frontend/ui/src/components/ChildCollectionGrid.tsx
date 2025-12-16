@@ -22,6 +22,7 @@ interface ChildCollectionGridProps {
   parentCollectionType?: CollectionType;
   onCollectionClick: (collectionId: string) => void;
   title?: string;
+  fallbackImages?: Image[];
 }
 
 function getCollectionIcon(collectionType?: CollectionType) {
@@ -44,6 +45,7 @@ export function ChildCollectionGrid({
   parentCollectionType,
   onCollectionClick,
   title,
+  fallbackImages,
 }: ChildCollectionGridProps) {
   const { t } = useTranslation();
 
@@ -67,7 +69,10 @@ export function ChildCollectionGrid({
       </Typography>
       <Grid container spacing={2} sx={{ mb: 4 }}>
         {collections.map((child) => {
-          const primaryImage = child.images?.[0];
+          // Use child's own image, or fall back to parent's images (e.g., show images for seasons)
+          const childImage = child.images?.[0];
+          const fallbackImage = fallbackImages?.find((img) => img.imageType === 'Poster') || fallbackImages?.[0];
+          const primaryImage = childImage || fallbackImage;
           const hasImage = primaryImage && child.collectionType === 'Season';
 
           return (

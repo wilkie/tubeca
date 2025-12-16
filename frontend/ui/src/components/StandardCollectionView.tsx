@@ -521,6 +521,7 @@ export function StandardCollectionView({
               collections={childCollections}
               parentCollectionType={collection.collectionType}
               onCollectionClick={onCollectionClick}
+              fallbackImages={collection.images}
             />
           )}
 
