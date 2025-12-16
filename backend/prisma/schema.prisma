@@ -541,6 +541,33 @@ model Settings {
   updatedAt    DateTime @updatedAt
 }
 
+// Transcoding settings - singleton table
+model TranscodingSettings {
+  id                    String   @id @default(uuid())
+
+  // Hardware acceleration
+  enableHardwareAccel   Boolean  @default(true)  // Use hardware encoding when available
+  preferredEncoder      String?  // Force specific encoder (null = auto-detect)
+
+  // Performance tuning
+  preset                String   @default("veryfast") // FFmpeg preset: ultrafast, veryfast, fast, medium
+  enableLowLatency      Boolean  @default(true)  // Use -tune zerolatency for streaming
+  threadCount           Int      @default(0)     // FFmpeg threads (0 = auto)
+
+  // Segment settings
+  segmentDuration       Int      @default(6)     // HLS segment duration in seconds
+  prefetchSegments      Int      @default(2)     // Number of segments to generate ahead
+
+  // Quality settings (bitrates in kbps)
+  bitrate1080p          Int      @default(8000)
+  bitrate720p           Int      @default(5000)
+  bitrate480p           Int      @default(2500)
+  bitrate360p           Int      @default(1000)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
 // ============================================
 // Image Storage
 // ============================================

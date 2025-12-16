@@ -3,8 +3,11 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { loadAppConfig, getHlsCacheConfig } from '../config/appConfig';
 import { MediaService } from './mediaService';
+import { detectBestEncoder, getEncoderArgs, type HardwareEncoder } from '../utils/hwaccel';
+import { getTranscodingSettings } from './transcodingSettingsService';
+import type { TranscodingSettings } from '@prisma/client';
 
-// Quality presets for transcoding
+// Quality presets for transcoding (default values, overridden by settings)
 export interface QualityPreset {
   name: string;
   width: number;
@@ -14,12 +17,16 @@ export interface QualityPreset {
   label: string;         // Human-readable label
 }
 
-export const QUALITY_PRESETS: Record<string, QualityPreset> = {
-  '1080p': { name: '1080p', width: 1920, height: 1080, videoBitrate: 8000, audioBitrate: 192, label: '1080p (8 Mbps)' },
-  '720p': { name: '720p', width: 1280, height: 720, videoBitrate: 5000, audioBitrate: 128, label: '720p (5 Mbps)' },
-  '480p': { name: '480p', width: 854, height: 480, videoBitrate: 2500, audioBitrate: 128, label: '480p (2.5 Mbps)' },
-  '360p': { name: '360p', width: 640, height: 360, videoBitrate: 1000, audioBitrate: 96, label: '360p (1 Mbps)' },
+// Default quality presets (bitrates will be overridden by settings)
+export const DEFAULT_QUALITY_PRESETS: Record<string, QualityPreset> = {
+  '1080p': { name: '1080p', width: 1920, height: 1080, videoBitrate: 8000, audioBitrate: 192, label: '1080p' },
+  '720p': { name: '720p', width: 1280, height: 720, videoBitrate: 5000, audioBitrate: 128, label: '720p' },
+  '480p': { name: '480p', width: 854, height: 480, videoBitrate: 2500, audioBitrate: 128, label: '480p' },
+  '360p': { name: '360p', width: 640, height: 360, videoBitrate: 1000, audioBitrate: 96, label: '360p' },
 };
+
+// For backwards compatibility
+export const QUALITY_PRESETS = DEFAULT_QUALITY_PRESETS;
 
 // Original quality uses stream copy (no transcoding)
 export const ORIGINAL_QUALITY = 'original';
@@ -41,16 +48,77 @@ export interface PlaylistInfo {
 export class HlsService {
   private mediaService: MediaService;
   private cachePath: string;
-  private segmentDuration: number;
+  private defaultSegmentDuration: number;
   // Track in-progress segment generations to prevent concurrent generation of same segment
   private generatingSegments: Map<string, Promise<void>> = new Map();
+  // Detected video encoder (detected once at startup)
+  private detectedEncoder: HardwareEncoder;
+  // Settings cache
+  private settingsCache: TranscodingSettings | null = null;
+  private settingsCacheTime: number = 0;
+  private readonly SETTINGS_CACHE_TTL = 30000; // 30 seconds
 
   constructor() {
     this.mediaService = new MediaService();
     const appConfig = loadAppConfig();
     const hlsConfig = getHlsCacheConfig(appConfig);
     this.cachePath = hlsConfig.path;
-    this.segmentDuration = hlsConfig.segmentDuration;
+    this.defaultSegmentDuration = hlsConfig.segmentDuration;
+    // Detect best encoder at startup
+    this.detectedEncoder = detectBestEncoder();
+  }
+
+  /**
+   * Get transcoding settings (with caching)
+   */
+  private async getSettings(): Promise<TranscodingSettings> {
+    if (this.settingsCache && Date.now() - this.settingsCacheTime < this.SETTINGS_CACHE_TTL) {
+      return this.settingsCache;
+    }
+    this.settingsCache = await getTranscodingSettings();
+    this.settingsCacheTime = Date.now();
+    return this.settingsCache;
+  }
+
+  /**
+   * Get the active encoder based on settings
+   */
+  private async getActiveEncoder(): Promise<HardwareEncoder> {
+    const settings = await this.getSettings();
+
+    // If hardware accel is disabled and detected encoder is hardware, fall back to software
+    if (!settings.enableHardwareAccel && this.detectedEncoder.type === 'hardware') {
+      return {
+        name: 'x264 (Software)',
+        encoder: 'libx264',
+        type: 'software',
+        priority: 100,
+      };
+    }
+
+    return this.detectedEncoder;
+  }
+
+  /**
+   * Get quality presets with bitrates from settings
+   */
+  private async getQualityPresets(): Promise<Record<string, QualityPreset>> {
+    const settings = await this.getSettings();
+
+    return {
+      '1080p': { ...DEFAULT_QUALITY_PRESETS['1080p'], videoBitrate: settings.bitrate1080p, label: `1080p (${Math.round(settings.bitrate1080p / 1000)} Mbps)` },
+      '720p': { ...DEFAULT_QUALITY_PRESETS['720p'], videoBitrate: settings.bitrate720p, label: `720p (${Math.round(settings.bitrate720p / 1000)} Mbps)` },
+      '480p': { ...DEFAULT_QUALITY_PRESETS['480p'], videoBitrate: settings.bitrate480p, label: `480p (${settings.bitrate480p / 1000} Mbps)` },
+      '360p': { ...DEFAULT_QUALITY_PRESETS['360p'], videoBitrate: settings.bitrate360p, label: `360p (${settings.bitrate360p / 1000} Mbps)` },
+    };
+  }
+
+  /**
+   * Get segment duration from settings
+   */
+  private async getSegmentDuration(): Promise<number> {
+    const settings = await this.getSettings();
+    return settings.segmentDuration || this.defaultSegmentDuration;
   }
 
   /**
@@ -69,6 +137,7 @@ export class HlsService {
       throw new Error('Media not found');
     }
 
+    const presets = await this.getQualityPresets();
     const audioTrackStr = audioTrack !== undefined ? audioTrack.toString() : 'default';
     const lines: string[] = ['#EXTM3U', '#EXT-X-VERSION:3'];
 
@@ -85,7 +154,7 @@ export class HlsService {
     // Add transcoded quality options (highest to lowest)
     const qualities = ['1080p', '720p', '480p', '360p'];
     for (const quality of qualities) {
-      const preset = QUALITY_PRESETS[quality];
+      const preset = presets[quality];
       const bandwidth = (preset.videoBitrate + preset.audioBitrate) * 1000; // Convert to bps
       lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${preset.label}"`);
       lines.push(`${quality}.m3u8?audioTrack=${audioTrackStr}`);
@@ -103,19 +172,20 @@ export class HlsService {
       throw new Error('Media not found');
     }
 
+    const segmentDuration = await this.getSegmentDuration();
     const duration = media.duration || 0;
-    const segmentCount = Math.ceil(duration / this.segmentDuration);
+    const segmentCount = Math.ceil(duration / segmentDuration);
 
     const lines: string[] = [
       '#EXTM3U',
       '#EXT-X-VERSION:3',
-      `#EXT-X-TARGETDURATION:${this.segmentDuration + 1}`,
+      `#EXT-X-TARGETDURATION:${segmentDuration + 1}`,
       '#EXT-X-MEDIA-SEQUENCE:0',
       '#EXT-X-PLAYLIST-TYPE:VOD',
     ];
 
     for (let i = 0; i < segmentCount; i++) {
-      const segmentDur = Math.min(this.segmentDuration, duration - (i * this.segmentDuration));
+      const segmentDur = Math.min(segmentDuration, duration - (i * segmentDuration));
       lines.push(`#EXTINF:${segmentDur.toFixed(3)},`);
       // Include quality in segment URL path so it resolves correctly
       lines.push(`${quality}/${i}.ts?audioTrack=${audioTrack}`);
@@ -128,6 +198,7 @@ export class HlsService {
   /**
    * Get or generate a segment file
    * Returns the path to the segment file, generating it if needed
+   * Also triggers prefetching of upcoming segments
    */
   async getSegment(
     mediaId: string,
@@ -149,6 +220,10 @@ export class HlsService {
       if (stat.size > 0) {
         // Update access time for cache management
         this.touchFile(segmentPath);
+
+        // Trigger prefetch for upcoming segments (non-blocking)
+        this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
+
         return segmentPath;
       }
       // Empty file - delete and regenerate
@@ -164,6 +239,8 @@ export class HlsService {
       // Wait for the existing generation to complete
       await existingGeneration;
       if (fs.existsSync(segmentPath)) {
+        // Trigger prefetch for upcoming segments
+        this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
         return segmentPath;
       }
       return null;
@@ -189,10 +266,65 @@ export class HlsService {
     }
 
     if (fs.existsSync(segmentPath)) {
+      // Trigger prefetch for upcoming segments
+      this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
       return segmentPath;
     }
 
     return null;
+  }
+
+  /**
+   * Prefetch upcoming segments in the background
+   */
+  private async prefetchSegments(
+    videoPath: string,
+    totalDuration: number,
+    quality: string,
+    currentIndex: number,
+    audioTrack: string,
+    variantPath: string
+  ): Promise<void> {
+    const settings = await this.getSettings();
+    const prefetchCount = settings.prefetchSegments || 2;
+    const segmentDuration = settings.segmentDuration || this.defaultSegmentDuration;
+    const maxSegment = Math.ceil(totalDuration / segmentDuration) - 1;
+
+    // Prefetch next N segments
+    for (let i = 1; i <= prefetchCount; i++) {
+      const nextIndex = currentIndex + i;
+      if (nextIndex > maxSegment) break;
+
+      const segmentPath = path.join(variantPath, `${nextIndex}.ts`);
+
+      // Skip if already exists
+      if (fs.existsSync(segmentPath)) {
+        const stat = fs.statSync(segmentPath);
+        if (stat.size > 0) continue;
+      }
+
+      const segmentKey = `prefetch:${variantPath}:${nextIndex}`;
+
+      // Skip if already being generated
+      if (this.generatingSegments.has(segmentKey)) continue;
+
+      // Generate in background (don't await)
+      const generationPromise = this.generateSegment(
+        videoPath,
+        totalDuration,
+        quality,
+        nextIndex,
+        audioTrack,
+        variantPath
+      ).catch((err) => {
+        console.error(`Prefetch failed for segment ${nextIndex}:`, err);
+      });
+
+      this.generatingSegments.set(segmentKey, generationPromise);
+      generationPromise.finally(() => {
+        this.generatingSegments.delete(segmentKey);
+      });
+    }
   }
 
   /**
@@ -211,8 +343,14 @@ export class HlsService {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    const startTime = segmentIndex * this.segmentDuration;
-    const segmentDuration = Math.min(this.segmentDuration, totalDuration - startTime);
+    // Get settings and encoder
+    const settings = await this.getSettings();
+    const encoder = await this.getActiveEncoder();
+    const presets = await this.getQualityPresets();
+    const configuredSegmentDuration = settings.segmentDuration || this.defaultSegmentDuration;
+
+    const startTime = segmentIndex * configuredSegmentDuration;
+    const segmentDuration = Math.min(configuredSegmentDuration, totalDuration - startTime);
 
     if (segmentDuration <= 0) {
       throw new Error(`Invalid segment index: ${segmentIndex}`);
@@ -220,7 +358,7 @@ export class HlsService {
 
     const outputPath = path.join(outputDir, `${segmentIndex}.ts`);
     const isOriginal = quality === ORIGINAL_QUALITY;
-    const preset = isOriginal ? null : QUALITY_PRESETS[quality];
+    const qualityPreset = isOriginal ? null : presets[quality];
 
     const ffmpegArgs: string[] = [];
 
@@ -259,21 +397,54 @@ export class HlsService {
       ffmpegArgs.push('-copyts');
       // Set the output timestamp offset to match expected segment position
       ffmpegArgs.push('-output_ts_offset', startTime.toString());
-    } else if (preset) {
-      // Transcode to specified quality
-      ffmpegArgs.push(
-        '-c:v', 'libx264',
-        '-preset', 'fast',
-        '-b:v', `${preset.videoBitrate}k`,
-        '-maxrate', `${preset.videoBitrate * 1.5}k`,
-        '-bufsize', `${preset.videoBitrate * 2}k`,
-        '-vf', `scale=${preset.width}:${preset.height}:force_original_aspect_ratio=decrease,pad=${preset.width}:${preset.height}:(ow-iw)/2:(oh-ih)/2`,
-        '-c:a', 'aac',
-        '-b:a', `${preset.audioBitrate}k`,
-        '-ac', '2',
-        // Force keyframe at segment start for clean switching
-        '-force_key_frames', 'expr:gte(t,0)'
+    } else if (qualityPreset) {
+      // Add encoder-specific arguments
+      const encoderArgs = getEncoderArgs(
+        encoder,
+        qualityPreset.videoBitrate,
+        qualityPreset.width,
+        qualityPreset.height
       );
+
+      // For software encoder, apply additional settings
+      if (encoder.encoder === 'libx264') {
+        // Override preset from settings
+        const presetIndex = encoderArgs.indexOf('-preset');
+        if (presetIndex !== -1) {
+          encoderArgs[presetIndex + 1] = settings.preset || 'veryfast';
+        }
+
+        // Add low latency tuning if enabled
+        if (settings.enableLowLatency) {
+          const tuneIndex = encoderArgs.indexOf('-tune');
+          if (tuneIndex === -1) {
+            encoderArgs.push('-tune', 'zerolatency');
+          }
+        }
+
+        // Thread configuration
+        if (settings.threadCount > 0) {
+          const threadIndex = encoderArgs.indexOf('-threads');
+          if (threadIndex !== -1) {
+            encoderArgs[threadIndex + 1] = settings.threadCount.toString();
+          } else {
+            encoderArgs.push('-threads', settings.threadCount.toString());
+          }
+        }
+      }
+
+      ffmpegArgs.push(...encoderArgs);
+
+      // Audio encoding
+      ffmpegArgs.push(
+        '-c:a', 'aac',
+        '-b:a', `${qualityPreset.audioBitrate}k`,
+        '-ac', '2'
+      );
+
+      // Force keyframe at segment boundaries for clean switching
+      ffmpegArgs.push('-force_key_frames', `expr:gte(t,n_forced*${configuredSegmentDuration})`);
+
       // For transcoding, reset timestamps and offset to expected position
       ffmpegArgs.push('-output_ts_offset', startTime.toString());
     }

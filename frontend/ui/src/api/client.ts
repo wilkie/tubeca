@@ -167,6 +167,50 @@ export type {
 
 const API_BASE = '/api';
 
+// Transcoding settings types
+export interface HardwareEncoder {
+  name: string;
+  encoder: string;
+  type: 'hardware' | 'software';
+  priority: number;
+}
+
+export interface TranscodingSettings {
+  id: string;
+  enableHardwareAccel: boolean;
+  preferredEncoder: string | null;
+  preset: string;
+  enableLowLatency: boolean;
+  threadCount: number;
+  segmentDuration: number;
+  prefetchSegments: number;
+  bitrate1080p: number;
+  bitrate720p: number;
+  bitrate480p: number;
+  bitrate360p: number;
+  detectedEncoder: HardwareEncoder;
+  activeEncoder: HardwareEncoder;
+  availablePresets: string[];
+}
+
+export interface TranscodingSettingsResponse {
+  settings: TranscodingSettings;
+}
+
+export interface TranscodingSettingsInput {
+  enableHardwareAccel: boolean;
+  preferredEncoder: string | null;
+  preset: string;
+  enableLowLatency: boolean;
+  threadCount: number;
+  segmentDuration: number;
+  prefetchSegments: number;
+  bitrate1080p: number;
+  bitrate720p: number;
+  bitrate480p: number;
+  bitrate360p: number;
+}
+
 interface ApiResponse<T> {
   data?: T;
   error?: string;
@@ -327,6 +371,19 @@ class ApiClient {
   async updateSettings(settings: { instanceName?: string }): Promise<ApiResponse<SettingsResponse>> {
     return this.request<SettingsResponse>('/settings', {
       method: 'PATCH',
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async getTranscodingSettings(): Promise<ApiResponse<TranscodingSettingsResponse>> {
+    return this.request<TranscodingSettingsResponse>('/settings/transcoding');
+  }
+
+  async updateTranscodingSettings(
+    settings: Partial<TranscodingSettingsInput>
+  ): Promise<ApiResponse<TranscodingSettingsResponse>> {
+    return this.request<TranscodingSettingsResponse>('/settings/transcoding', {
+      method: 'PUT',
       body: JSON.stringify(settings),
     });
   }
