@@ -26,6 +26,7 @@ import imageRoutes from './routes/images';
 import personRoutes from './routes/persons';
 import searchRoutes from './routes/search';
 import userCollectionRoutes from './routes/userCollections';
+import settingsRoutes from './routes/settings';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -53,6 +54,7 @@ app.use('/api/images', imageRoutes);
 app.use('/api/persons', personRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/user-collections', userCollectionRoutes);
+app.use('/api/settings', settingsRoutes);
 
 /**
  * @openapi
