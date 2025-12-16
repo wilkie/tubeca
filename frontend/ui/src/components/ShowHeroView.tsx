@@ -497,7 +497,10 @@ export function ShowHeroView({
           </Typography>
           <Grid container spacing={2}>
             {sortedSeasons.map((season) => {
-              const primaryImage = season.images?.[0];
+              // Use season's own image, or fall back to show's poster
+              const seasonImage = season.images?.[0];
+              const fallbackImage = posterImage || collection.images?.[0];
+              const primaryImage = seasonImage || fallbackImage;
 
               return (
                 <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={season.id}>
