@@ -489,12 +489,14 @@ export function ShowHeroView({
         </Box>
       </HeroSection>
 
-      {/* Seasons Grid */}
-      {sortedSeasons.length > 0 && (
-        <Box sx={{ mt: 4 }}>
-          <Typography variant="h5" sx={{ mb: 2 }}>
-            {t('collection.seasons', 'Seasons')} ({sortedSeasons.length})
-          </Typography>
+      {/* Content below hero with opaque background to scroll over fixed backdrop */}
+      <Box sx={{ position: 'relative', zIndex: 3, bgcolor: 'background.default', mx: -3, px: 3, pt: 3, pb: 3 }}>
+        {/* Seasons Grid */}
+        {sortedSeasons.length > 0 && (
+          <Box>
+            <Typography variant="h5" sx={{ mb: 2 }}>
+              {t('collection.seasons', 'Seasons')} ({sortedSeasons.length})
+            </Typography>
           <Grid container spacing={2}>
             {sortedSeasons.map((season) => {
               // Use season's own image, or fall back to show's poster
@@ -555,13 +557,13 @@ export function ShowHeroView({
                 </Grid>
               );
             })}
-          </Grid>
-        </Box>
-      )}
+            </Grid>
+          </Box>
+        )}
 
-      {/* Cast Grid */}
-      {castCredits.length > 0 && (
-        <Box sx={{ mt: 4 }}>
+        {/* Cast Grid */}
+        {castCredits.length > 0 && (
+          <Box sx={{ mt: 4 }}>
           <Typography variant="h5" sx={{ mb: 2 }}>
             {t('media.cast', 'Cast')}
           </Typography>
@@ -635,9 +637,10 @@ export function ShowHeroView({
                 </Grid>
               );
             })}
-          </Grid>
-        </Box>
-      )}
+            </Grid>
+          </Box>
+        )}
+      </Box>
     </>
   );
 }
