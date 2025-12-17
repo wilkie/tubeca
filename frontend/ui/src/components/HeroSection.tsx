@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Box } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { apiClient } from '../api/client';
 
 interface HeroSectionProps {
@@ -8,63 +9,85 @@ interface HeroSectionProps {
 }
 
 export function HeroSection({ backdropImageId, children }: HeroSectionProps) {
+  const theme = useTheme();
+
   return (
     <Box
       sx={{
         position: 'relative',
         mx: -3,
         mt: -4,
-        mb: 3,
+        mb: 0,
         minHeight: 'calc(100vh - 48px)',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      {/* Backdrop Image */}
+      {/* Fixed Backdrop Image - stays in place as content scrolls */}
       {backdropImageId ? (
         <Box
           component="img"
           src={apiClient.getImageUrl(backdropImageId)}
           alt=""
           sx={{
-            position: 'absolute',
+            position: 'fixed',
             top: 0,
             left: 0,
-            width: '100%',
-            height: '100%',
+            width: '100vw',
+            height: '100vh',
             objectFit: 'cover',
             zIndex: 0,
+            pointerEvents: 'none',
           }}
         />
       ) : (
         <Box
           sx={{
-            position: 'absolute',
+            position: 'fixed',
             top: 0,
             left: 0,
-            width: '100%',
-            height: '100%',
+            width: '100vw',
+            height: '100vh',
             bgcolor: 'grey.900',
             zIndex: 0,
+            pointerEvents: 'none',
           }}
         />
       )}
 
-      {/* Gradient Overlay */}
+      {/* Fixed Gradient Overlay */}
       <Box
         sx={{
-          position: 'absolute',
+          position: 'fixed',
           top: 0,
           left: 0,
-          width: '100%',
-          height: '100%',
+          width: '100vw',
+          height: '100vh',
           background:
             'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, rgba(0,0,0,0.3) 100%)',
           zIndex: 1,
+          pointerEvents: 'none',
         }}
       />
 
-      {children}
+      {/* Content wrapper */}
+      <Box sx={{ position: 'relative', zIndex: 2, flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {children}
+      </Box>
+
+      {/* Solid background that content below will scroll over the fixed backdrop */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 32,
+          background: `linear-gradient(to bottom, transparent, ${theme.palette.background.default})`,
+          zIndex: 2,
+          pointerEvents: 'none',
+        }}
+      />
     </Box>
   );
 }

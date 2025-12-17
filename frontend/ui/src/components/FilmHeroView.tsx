@@ -489,13 +489,15 @@ export function FilmHeroView({
         </Box>
       </HeroSection>
 
-      {/* Special Features */}
-      {additionalMedia.length > 0 && (
-        <>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            {t('collection.specialFeatures', 'Special Features')} ({additionalMedia.length})
-          </Typography>
-          <Grid container spacing={2} sx={{ mb: 4 }}>
+      {/* Content below hero with opaque background to scroll over fixed backdrop */}
+      <Box sx={{ position: 'relative', zIndex: 3, bgcolor: 'background.default', mx: -3, px: 3, pt: 3, pb: 3 }}>
+        {/* Special Features */}
+        {additionalMedia.length > 0 && (
+          <>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              {t('collection.specialFeatures', 'Special Features')} ({additionalMedia.length})
+            </Typography>
+            <Grid container spacing={2} sx={{ mb: 4 }}>
             {additionalMedia.map((item) => {
               const primaryImage = item.images?.[0];
 
@@ -550,10 +552,11 @@ export function FilmHeroView({
         </>
       )}
 
-      {/* Cast & Crew Grid */}
-      {credits.length > 0 && (
-        <CastCrewGrid credits={credits} onPersonClick={onPersonClick} />
-      )}
+        {/* Cast & Crew Grid */}
+        {credits.length > 0 && (
+          <CastCrewGrid credits={credits} onPersonClick={onPersonClick} />
+        )}
+      </Box>
     </>
   );
 }
