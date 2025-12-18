@@ -186,35 +186,47 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const hls = new Hls({
         startPosition: 0,
         debug: false,
-        // Start at auto (-1) to let ABR choose based on bandwidth estimate
-        startLevel: -1,
-        // Higher initial bandwidth estimate (5 Mbps) for faster quality ramp-up
-        abrEwmaDefaultEstimate: 5000000,
-        // ABR tuning for faster switching
-        abrEwmaFastLive: 3.0,        // Fast EWMA half-life for live (seconds)
-        abrEwmaSlowLive: 9.0,        // Slow EWMA half-life for live
-        abrEwmaFastVoD: 3.0,         // Fast EWMA half-life for VOD
-        abrEwmaSlowVoD: 9.0,         // Slow EWMA half-life for VOD
-        abrBandWidthFactor: 0.95,    // Use 95% of estimated bandwidth
-        abrBandWidthUpFactor: 0.7,   // Be more aggressive switching up (70%)
+        // Start at LOWEST quality to ensure initial buffering succeeds
+        // Software transcoding may not keep up with higher qualities initially
+        startLevel: 0,
+        // Set to highest level index (will be adjusted to actual lowest after manifest)
+        // After manifest loads, we'll start from lowest and let ABR ramp up
+        autoStartLoad: true,
+        // Conservative initial bandwidth estimate for transcoding scenarios
+        abrEwmaDefaultEstimate: 1000000, // 1 Mbps - assume slow start
+        // ABR tuning - be conservative, ramp up slowly
+        abrEwmaFastLive: 5.0,        // Slower adaptation
+        abrEwmaSlowLive: 15.0,       // Much slower for stability
+        abrEwmaFastVoD: 5.0,
+        abrEwmaSlowVoD: 15.0,
+        abrBandWidthFactor: 0.7,     // Only use 70% of estimated bandwidth
+        abrBandWidthUpFactor: 0.5,   // Be cautious switching up (50%)
         // Buffer settings for smoother playback
         maxBufferLength: 60,         // Max buffer ahead (seconds)
         maxMaxBufferLength: 120,     // Absolute max buffer
         maxBufferSize: 60 * 1000 * 1000, // 60MB max buffer size
         maxBufferHole: 0.5,          // Tolerate 0.5s gaps in buffer
-        // Faster loading
-        fragLoadingTimeOut: 20000,   // Fragment load timeout (20s)
-        fragLoadingMaxRetry: 6,      // Retry up to 6 times
-        fragLoadingRetryDelay: 500,  // Start with 500ms retry delay
-        fragLoadingMaxRetryTimeout: 30000, // Max 30s total retry time
+        // Longer loading timeouts for transcoding
+        fragLoadingTimeOut: 30000,   // 30s timeout for segment loading
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000, // 1s retry delay
+        fragLoadingMaxRetryTimeout: 60000, // 60s total retry time
         // Level loading (playlists)
-        levelLoadingTimeOut: 10000,
+        levelLoadingTimeOut: 15000,
         levelLoadingMaxRetry: 4,
-        levelLoadingRetryDelay: 500,
+        levelLoadingRetryDelay: 1000,
         // Back buffer to allow smooth rewind
         backBufferLength: 30,
-        // Low latency mode for on-demand transcoding
+        // Disable low latency mode - we need full segments
         lowLatencyMode: false,
+        // CRITICAL: Stall recovery settings for on-demand transcoding
+        // Disable seeking forward on stalls - transcoding needs time to catch up
+        nudgeOffset: 0.1,            // Minimal nudge (0.1s)
+        nudgeMaxRetry: 3,            // Only try 3 times before giving up
+        maxStarvationDelay: 10,      // Wait up to 10s for data before stalling
+        maxLoadingDelay: 10,         // Wait up to 10s for loading
+        // Start fragment prefetch threshold - start loading next when 50% done
+        startFragPrefetch: true,
         // Add Authorization header to all HLS requests
         xhrSetup: (xhr) => {
           if (token) {
@@ -591,28 +603,36 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const hls = new Hls({
           startPosition: seekPosition,
           debug: false,
-          // Use same level as before the switch
-          startLevel: currentLevel >= 0 ? currentLevel : -1,
-          abrEwmaDefaultEstimate: 5000000,
-          abrEwmaFastLive: 3.0,
-          abrEwmaSlowLive: 9.0,
-          abrEwmaFastVoD: 3.0,
-          abrEwmaSlowVoD: 9.0,
-          abrBandWidthFactor: 0.95,
-          abrBandWidthUpFactor: 0.7,
+          // Use same level as before the switch (segments may be cached)
+          startLevel: currentLevel >= 0 ? currentLevel : 0,
+          autoStartLoad: true,
+          // Conservative settings for transcoding
+          abrEwmaDefaultEstimate: 1000000,
+          abrEwmaFastLive: 5.0,
+          abrEwmaSlowLive: 15.0,
+          abrEwmaFastVoD: 5.0,
+          abrEwmaSlowVoD: 15.0,
+          abrBandWidthFactor: 0.7,
+          abrBandWidthUpFactor: 0.5,
           maxBufferLength: 60,
           maxMaxBufferLength: 120,
           maxBufferSize: 60 * 1000 * 1000,
           maxBufferHole: 0.5,
-          fragLoadingTimeOut: 20000,
+          fragLoadingTimeOut: 30000,
           fragLoadingMaxRetry: 6,
-          fragLoadingRetryDelay: 500,
-          fragLoadingMaxRetryTimeout: 30000,
-          levelLoadingTimeOut: 10000,
+          fragLoadingRetryDelay: 1000,
+          fragLoadingMaxRetryTimeout: 60000,
+          levelLoadingTimeOut: 15000,
           levelLoadingMaxRetry: 4,
-          levelLoadingRetryDelay: 500,
+          levelLoadingRetryDelay: 1000,
           backBufferLength: 30,
           lowLatencyMode: false,
+          // Stall recovery for transcoding
+          nudgeOffset: 0.1,
+          nudgeMaxRetry: 3,
+          maxStarvationDelay: 10,
+          maxLoadingDelay: 10,
+          startFragPrefetch: true,
           // Add Authorization header to all HLS requests
           xhrSetup: (xhr) => {
             if (token) {
