@@ -165,6 +165,7 @@ export class HlsService {
 
   /**
    * Generate or get variant playlist for a specific quality
+   * Also triggers initial segment prefetching for smoother playback start
    */
   async generateVariantPlaylist(mediaId: string, quality: string, audioTrack: string = 'default'): Promise<string> {
     const media = await this.mediaService.getVideoById(mediaId);
@@ -192,7 +193,61 @@ export class HlsService {
     }
 
     lines.push('#EXT-X-ENDLIST');
+
+    // Trigger initial segment prefetch (non-blocking)
+    // This ensures the first few segments are ready when the player requests them
+    this.prefetchInitialSegments(media.path, duration, quality, audioTrack, mediaId);
+
     return lines.join('\n');
+  }
+
+  /**
+   * Prefetch the initial segments when a playlist is first requested
+   * This significantly reduces initial buffering time
+   */
+  private async prefetchInitialSegments(
+    videoPath: string,
+    totalDuration: number,
+    quality: string,
+    audioTrack: string,
+    mediaId: string
+  ): Promise<void> {
+    const settings = await this.getSettings();
+    const prefetchCount = Math.max(settings.prefetchSegments || 2, 3); // At least 3 for initial
+    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
+
+    // Generate initial segments (0, 1, 2, ...) in parallel
+    for (let i = 0; i < prefetchCount; i++) {
+      const segmentPath = path.join(variantPath, `${i}.ts`);
+
+      // Skip if already exists
+      if (fs.existsSync(segmentPath)) {
+        const stat = fs.statSync(segmentPath);
+        if (stat.size > 0) continue;
+      }
+
+      const segmentKey = `initial:${variantPath}:${i}`;
+
+      // Skip if already being generated
+      if (this.generatingSegments.has(segmentKey)) continue;
+
+      // Generate in background (don't await)
+      const generationPromise = this.generateSegment(
+        videoPath,
+        totalDuration,
+        quality,
+        i,
+        audioTrack,
+        variantPath
+      ).catch((err) => {
+        console.error(`Initial prefetch failed for segment ${i}:`, err);
+      });
+
+      this.generatingSegments.set(segmentKey, generationPromise);
+      generationPromise.finally(() => {
+        this.generatingSegments.delete(segmentKey);
+      });
+    }
   }
 
   /**
