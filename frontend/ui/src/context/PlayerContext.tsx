@@ -4,6 +4,11 @@ import { apiClient, type Media, type TrickplayResolution, type UserCollectionIte
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../components/VideoControls';
 import { MiniPlayer } from '../components/MiniPlayer';
 
+// localStorage key for remembering the last successful quality level
+const QUALITY_LEVEL_KEY = 'tubeca_last_quality_level';
+// Number of successful fragments before considering a quality level "stable"
+const STABLE_FRAGMENT_COUNT = 5;
+
 // Types
 export type MiniPlayerPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
@@ -183,14 +188,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // Get auth token for HLS requests
       const token = localStorage.getItem('token');
 
+      // Get saved quality level from previous playback sessions
+      // This allows us to start at a quality that's known to work
+      const savedLevel = localStorage.getItem(QUALITY_LEVEL_KEY);
+      const initialLevel = savedLevel !== null ? parseInt(savedLevel, 10) : 0;
+
+      // Track successful fragment count at current level for stability detection
+      let stableFragmentCount = 0;
+      let lastStableLevel = -1;
+
       const hls = new Hls({
         startPosition: 0,
         debug: false,
-        // Start at LOWEST quality to ensure initial buffering succeeds
-        // Software transcoding may not keep up with higher qualities initially
-        startLevel: 0,
-        // Set to highest level index (will be adjusted to actual lowest after manifest)
-        // After manifest loads, we'll start from lowest and let ABR ramp up
+        // Start at saved quality level, or lowest (0) if no saved preference
+        // This remembers what worked last time for smoother startup
+        startLevel: initialLevel,
         autoStartLoad: true,
         // Conservative initial bandwidth estimate for transcoding scenarios
         abrEwmaDefaultEstimate: 1000000, // 1 Mbps - assume slow start
@@ -272,17 +284,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         console.log(`[HLS] Switched to level ${data.level}: ${level?.height}p`);
       });
 
-      // Log buffer and bandwidth stats periodically
+      // Log buffer and bandwidth stats, track quality stability
       hls.on(Hls.Events.FRAG_BUFFERED, (_event, data) => {
         const stats = data.stats;
         const bwEstimate = hls.bandwidthEstimate;
         const level = hls.levels[data.frag.level];
+        const currentLevel = data.frag.level;
+
         console.log(
           `[HLS] Fragment ${data.frag.sn} buffered (${level?.height}p) - ` +
           `BW estimate: ${Math.round(bwEstimate / 1000)} kbps, ` +
           `Load: ${Math.round(stats.loading.end - stats.loading.start)}ms, ` +
           `Parse: ${Math.round(stats.parsing.end - stats.parsing.start)}ms`
         );
+
+        // Track quality stability - if we've buffered multiple fragments at the same level
+        // without issues, save it as the preferred starting level for next time
+        if (currentLevel === lastStableLevel) {
+          stableFragmentCount++;
+        } else {
+          stableFragmentCount = 1;
+          lastStableLevel = currentLevel;
+        }
+
+        // After STABLE_FRAGMENT_COUNT successful fragments at this level, save it
+        if (stableFragmentCount >= STABLE_FRAGMENT_COUNT) {
+          const savedLevel = localStorage.getItem(QUALITY_LEVEL_KEY);
+          const previousLevel = savedLevel !== null ? parseInt(savedLevel, 10) : -1;
+
+          // Only save if this level is higher than what we had saved
+          // (we want to remember the best quality that worked)
+          if (currentLevel > previousLevel) {
+            localStorage.setItem(QUALITY_LEVEL_KEY, currentLevel.toString());
+            console.log(`[HLS] Saved quality level ${currentLevel} (${level?.height}p) as preferred starting level`);
+          }
+        }
       });
 
       // Log when fragment loading starts
@@ -300,8 +336,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         // Log buffer stalls and other non-fatal errors that affect playback
         if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
           console.warn('[HLS] Buffer stalled - playback may pause');
+
+          // If we stalled at our saved quality level, it might be too aggressive
+          // Lower the saved level so next video starts at a more conservative quality
+          const savedLevel = localStorage.getItem(QUALITY_LEVEL_KEY);
+          const currentLevel = hls.currentLevel;
+          if (savedLevel !== null && currentLevel <= parseInt(savedLevel, 10) && currentLevel > 0) {
+            const newLevel = currentLevel - 1;
+            localStorage.setItem(QUALITY_LEVEL_KEY, newLevel.toString());
+            console.log(`[HLS] Lowered saved quality level to ${newLevel} due to stall`);
+          }
+          // Reset stability tracking
+          stableFragmentCount = 0;
         } else if (data.details === Hls.ErrorDetails.BUFFER_NUDGE_ON_STALL) {
           console.warn('[HLS] Buffer nudge on stall - attempting recovery');
+          // Reset stability tracking
+          stableFragmentCount = 0;
         }
 
         if (data.fatal) {
