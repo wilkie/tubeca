@@ -182,6 +182,7 @@ export interface TranscodingSettings {
   preset: string;
   enableLowLatency: boolean;
   threadCount: number;
+  maxConcurrentTranscodes: number;
   segmentDuration: number;
   prefetchSegments: number;
   bitrate1080p: number;
@@ -203,6 +204,7 @@ export interface TranscodingSettingsInput {
   preset: string;
   enableLowLatency: boolean;
   threadCount: number;
+  maxConcurrentTranscodes: number;
   segmentDuration: number;
   prefetchSegments: number;
   bitrate1080p: number;

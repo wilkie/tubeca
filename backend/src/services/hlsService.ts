@@ -57,6 +57,9 @@ export class HlsService {
   private settingsCache: TranscodingSettings | null = null;
   private settingsCacheTime: number = 0;
   private readonly SETTINGS_CACHE_TTL = 30000; // 30 seconds
+  // Concurrency control for FFmpeg processes
+  private activeTranscodes: number = 0;
+  private waitingQueue: Array<() => void> = [];
 
   constructor() {
     this.mediaService = new MediaService();
@@ -66,6 +69,40 @@ export class HlsService {
     this.defaultSegmentDuration = hlsConfig.segmentDuration;
     // Detect best encoder at startup
     this.detectedEncoder = detectBestEncoder();
+  }
+
+  /**
+   * Acquire a slot for transcoding, waiting if necessary
+   * Returns a release function to call when done
+   */
+  private async acquireTranscodeSlot(): Promise<() => void> {
+    const settings = await this.getSettings();
+    const maxConcurrent = settings.maxConcurrentTranscodes || 2;
+
+    // If we have capacity, acquire immediately
+    if (this.activeTranscodes < maxConcurrent) {
+      this.activeTranscodes++;
+      return () => this.releaseTranscodeSlot();
+    }
+
+    // Otherwise, wait in queue
+    return new Promise((resolve) => {
+      this.waitingQueue.push(() => {
+        this.activeTranscodes++;
+        resolve(() => this.releaseTranscodeSlot());
+      });
+    });
+  }
+
+  /**
+   * Release a transcoding slot and wake up next waiter if any
+   */
+  private releaseTranscodeSlot(): void {
+    this.activeTranscodes--;
+    const next = this.waitingQueue.shift();
+    if (next) {
+      next();
+    }
   }
 
   /**
@@ -213,7 +250,7 @@ export class HlsService {
     mediaId: string
   ): Promise<void> {
     const settings = await this.getSettings();
-    const prefetchCount = Math.max(settings.prefetchSegments || 2, 3); // At least 3 for initial
+    const prefetchCount = settings.prefetchSegments || 2;
     const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
 
     // Generate initial segments (0, 1, 2, ...) in parallel
@@ -513,6 +550,9 @@ export class HlsService {
       outputPath
     );
 
+    // Acquire a transcode slot (waits if at max concurrency)
+    const releaseSlot = await this.acquireTranscodeSlot();
+
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
 
@@ -522,6 +562,7 @@ export class HlsService {
       });
 
       ffmpeg.on('close', (code) => {
+        releaseSlot(); // Release the slot when FFmpeg finishes
         if (code === 0) {
           resolve();
         } else {
@@ -531,6 +572,7 @@ export class HlsService {
       });
 
       ffmpeg.on('error', (err) => {
+        releaseSlot(); // Release the slot on error too
         reject(err);
       });
     });

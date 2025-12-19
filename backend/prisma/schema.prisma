@@ -552,7 +552,8 @@ model TranscodingSettings {
   // Performance tuning
   preset                String   @default("veryfast") // FFmpeg preset: ultrafast, veryfast, fast, medium
   enableLowLatency      Boolean  @default(true)  // Use -tune zerolatency for streaming
-  threadCount           Int      @default(0)     // FFmpeg threads (0 = auto)
+  threadCount           Int      @default(0)     // FFmpeg threads per process (0 = auto)
+  maxConcurrentTranscodes Int    @default(2)     // Max concurrent FFmpeg processes
 
   // Segment settings
   segmentDuration       Int      @default(6)     // HLS segment duration in seconds
