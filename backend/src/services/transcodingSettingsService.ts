@@ -8,6 +8,7 @@ export interface TranscodingSettingsData {
   preset: string;
   enableLowLatency: boolean;
   threadCount: number;
+  maxConcurrentTranscodes: number;
   segmentDuration: number;
   prefetchSegments: number;
   bitrate1080p: number;
@@ -83,6 +84,7 @@ export async function getTranscodingSettingsWithInfo(): Promise<TranscodingSetti
     preset: settings.preset,
     enableLowLatency: settings.enableLowLatency,
     threadCount: settings.threadCount,
+    maxConcurrentTranscodes: settings.maxConcurrentTranscodes,
     segmentDuration: settings.segmentDuration,
     prefetchSegments: settings.prefetchSegments,
     bitrate1080p: settings.bitrate1080p,
@@ -111,6 +113,7 @@ export async function updateTranscodingSettings(
       ...(data.preset !== undefined && { preset: data.preset }),
       ...(data.enableLowLatency !== undefined && { enableLowLatency: data.enableLowLatency }),
       ...(data.threadCount !== undefined && { threadCount: data.threadCount }),
+      ...(data.maxConcurrentTranscodes !== undefined && { maxConcurrentTranscodes: data.maxConcurrentTranscodes }),
       ...(data.segmentDuration !== undefined && { segmentDuration: data.segmentDuration }),
       ...(data.prefetchSegments !== undefined && { prefetchSegments: data.prefetchSegments }),
       ...(data.bitrate1080p !== undefined && { bitrate1080p: data.bitrate1080p }),

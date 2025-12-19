@@ -64,6 +64,7 @@ export function SettingsPage() {
   const [preset, setPreset] = useState('veryfast');
   const [enableLowLatency, setEnableLowLatency] = useState(true);
   const [threadCount, setThreadCount] = useState(0);
+  const [maxConcurrentTranscodes, setMaxConcurrentTranscodes] = useState(2);
   const [segmentDuration, setSegmentDuration] = useState(6);
   const [prefetchSegments, setPrefetchSegments] = useState(2);
   const [bitrate1080p, setBitrate1080p] = useState(8000);
@@ -114,6 +115,7 @@ export function SettingsPage() {
         setPreset(s.preset);
         setEnableLowLatency(s.enableLowLatency);
         setThreadCount(s.threadCount);
+        setMaxConcurrentTranscodes(s.maxConcurrentTranscodes);
         setSegmentDuration(s.segmentDuration);
         setPrefetchSegments(s.prefetchSegments);
         setBitrate1080p(s.bitrate1080p);
@@ -156,9 +158,11 @@ export function SettingsPage() {
 
     const result = await apiClient.updateTranscodingSettings({
       enableHardwareAccel,
+      preferredEncoder: null,
       preset,
       enableLowLatency,
       threadCount,
+      maxConcurrentTranscodes,
       segmentDuration,
       prefetchSegments,
       bitrate1080p,
@@ -182,6 +186,7 @@ export function SettingsPage() {
     preset !== transcodingSettings.preset ||
     enableLowLatency !== transcodingSettings.enableLowLatency ||
     threadCount !== transcodingSettings.threadCount ||
+    maxConcurrentTranscodes !== transcodingSettings.maxConcurrentTranscodes ||
     segmentDuration !== transcodingSettings.segmentDuration ||
     prefetchSegments !== transcodingSettings.prefetchSegments ||
     bitrate1080p !== transcodingSettings.bitrate1080p ||
@@ -371,7 +376,7 @@ export function SettingsPage() {
 
               <Box sx={{ mt: 2 }}>
                 <Typography gutterBottom>
-                  {t('settings.threadCount', 'Thread Count')}: {threadCount === 0 ? t('settings.auto', 'Auto') : threadCount}
+                  {t('settings.threadCount', 'Threads Per Process')}: {threadCount === 0 ? t('settings.auto', 'Auto') : threadCount}
                 </Typography>
                 <Slider
                   value={threadCount}
@@ -386,7 +391,28 @@ export function SettingsPage() {
                   ]}
                 />
                 <FormHelperText>
-                  {t('settings.threadCountHelp', 'Number of CPU threads for encoding (0 = auto-detect)')}
+                  {t('settings.threadCountHelp', 'Number of CPU threads each FFmpeg process uses (0 = auto-detect)')}
+                </FormHelperText>
+              </Box>
+
+              <Box sx={{ mt: 3 }}>
+                <Typography gutterBottom>
+                  {t('settings.maxConcurrentTranscodes', 'Max Concurrent Transcodes')}: {maxConcurrentTranscodes}
+                </Typography>
+                <Slider
+                  value={maxConcurrentTranscodes}
+                  onChange={(_, v) => setMaxConcurrentTranscodes(v as number)}
+                  min={1}
+                  max={8}
+                  marks={[
+                    { value: 1, label: '1' },
+                    { value: 2, label: '2' },
+                    { value: 4, label: '4' },
+                    { value: 8, label: '8' },
+                  ]}
+                />
+                <FormHelperText>
+                  {t('settings.maxConcurrentTranscodesHelp', 'Maximum FFmpeg processes that can run simultaneously. Lower values reduce CPU load but may increase buffering.')}
                 </FormHelperText>
               </Box>
             </Paper>
