@@ -80,16 +80,17 @@ router.get('/:id/file', imageAuth, async (req, res) => {
       return res.status(404).json({ error: 'Image file not found' });
     }
 
-    // Set content type based on format
+    // Set content type based on format from database (preferred) or file extension (fallback)
     const contentTypes: Record<string, string> = {
       jpg: 'image/jpeg',
       jpeg: 'image/jpeg',
       png: 'image/png',
       webp: 'image/webp',
       gif: 'image/gif',
+      svg: 'image/svg+xml',
     };
-    const ext = path.extname(fullPath).toLowerCase().slice(1);
-    const contentType = contentTypes[ext] || 'application/octet-stream';
+    const format = image.format || path.extname(fullPath).toLowerCase().slice(1);
+    const contentType = contentTypes[format] || 'application/octet-stream';
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
