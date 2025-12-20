@@ -138,10 +138,12 @@ export class ImageService {
         format = 'webp';
       } else if (contentType.includes('gif')) {
         format = 'gif';
+      } else if (contentType.includes('svg')) {
+        format = 'svg';
       } else {
         // Try to get from URL
         const urlExt = path.extname(new URL(url).pathname).toLowerCase().slice(1);
-        if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(urlExt)) {
+        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(urlExt)) {
           format = urlExt === 'jpeg' ? 'jpg' : urlExt;
         }
       }
