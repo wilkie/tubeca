@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useCachedState, useScrollRestoration } from '../context/ScrollRestorationContext';
 import {
   Box,
   Container,
@@ -29,16 +30,33 @@ import { SelectionActionBar } from '../components/SelectionActionBar';
 
 const ITEMS_PER_PAGE = 50;
 
+// State that gets cached for scroll restoration
+interface CachedSearchState {
+  collections: Collection[];
+  media: Media[];
+  page: number;
+  hasMore: boolean;
+  totalCollections: number;
+  totalMedia: number;
+  allContentRatings: string[];
+  allKeywords: Keyword[];
+  query: string;
+}
+
 export function SearchPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
 
-  const [query, setQuery] = useState(initialQuery);
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [media, setMedia] = useState<Media[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // Check for cached state to restore on back navigation
+  const cacheKey = `search-${initialQuery}`;
+  const { cachedState } = useCachedState<CachedSearchState>(cacheKey);
+
+  const [query, setQuery] = useState(cachedState?.query ?? initialQuery);
+  const [collections, setCollections] = useState<Collection[]>(cachedState?.collections ?? []);
+  const [media, setMedia] = useState<Media[]>(cachedState?.media ?? []);
+  const [isLoading, setIsLoading] = useState(!cachedState);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
@@ -50,24 +68,56 @@ export function SearchPage() {
   const [selectedMediaIds, setSelectedMediaIds] = useState<Set<string>>(new Set());
 
   // Pagination state
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [totalCollections, setTotalCollections] = useState(0);
-  const [totalMedia, setTotalMedia] = useState(0);
+  const [page, setPage] = useState(cachedState?.page ?? 1);
+  const [hasMore, setHasMore] = useState(cachedState?.hasMore ?? true);
+  const [totalCollections, setTotalCollections] = useState(cachedState?.totalCollections ?? 0);
+  const [totalMedia, setTotalMedia] = useState(cachedState?.totalMedia ?? 0);
 
   // Available filters (populated from first unfiltered load, persists for the session)
-  const [allContentRatings, setAllContentRatings] = useState<string[]>([]);
-  const [allKeywords, setAllKeywords] = useState<Keyword[]>([]);
+  const [allContentRatings, setAllContentRatings] = useState<string[]>(cachedState?.allContentRatings ?? []);
+  const [allKeywords, setAllKeywords] = useState<Keyword[]>(cachedState?.allKeywords ?? []);
 
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
+  // Track if we restored from cache - used to skip initial fetch and block infinite scroll
+  // Check both cachedState AND results length because in StrictMode, cachedState might be
+  // null on the second mount (if isBackNavigation changed), but state persists
+  const restoredFromCacheRef = useRef(cachedState !== null || collections.length > 0 || media.length > 0);
+
+  // Build current state for caching
+  const getCurrentState = useCallback((): CachedSearchState => ({
+    collections,
+    media,
+    page,
+    hasMore,
+    totalCollections,
+    totalMedia,
+    allContentRatings,
+    allKeywords,
+    query,
+  }), [collections, media, page, hasMore, totalCollections, totalMedia, allContentRatings, allKeywords, query]);
+
+  // Scroll restoration - handles saving state and restoring scroll position
+  useScrollRestoration(cacheKey, getCurrentState);
+
+  // Unblock infinite scroll after restoration is complete
+  useEffect(() => {
+    if (restoredFromCacheRef.current) {
+      const timeout = setTimeout(() => {
+        restoredFromCacheRef.current = false;
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+  }, []);
+
   // Track current search params to detect changes
-  const searchParamsRef = useRef({
-    query: '',
-    keywordIds: [] as string[],
-    excludedRatings: [] as string[],
-  });
+  // Initialize with current values if restored from cache to prevent unwanted refetch
+  const searchParamsRef = useRef(
+    cachedState
+      ? { query: initialQuery.trim(), keywordIds: [] as string[], excludedRatings: [] as string[] }
+      : { query: '', keywordIds: [] as string[], excludedRatings: [] as string[] }
+  );
 
   // Build search params object
   const currentSearchParams = useMemo(() => ({
@@ -166,8 +216,9 @@ export function SearchPage() {
     }
   }, [currentSearchParams, performSearch]);
 
-  // Load initial data on mount
+  // Load initial data on mount (skip if restored from cache)
   useEffect(() => {
+    if (restoredFromCacheRef.current) return;
     performSearch(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -176,6 +227,9 @@ export function SearchPage() {
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
+        // Skip if we're still in the restoration period (prevents accidental pagination)
+        if (restoredFromCacheRef.current) return;
+
         if (entries[0].isIntersecting && hasMore && !isLoading && !isLoadingMore) {
           performSearch(page + 1, true);
         }

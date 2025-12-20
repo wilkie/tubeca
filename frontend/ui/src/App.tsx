@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Box } from '@mui/material';
 import { Header, Sidebar } from './components';
+import { NavigationLoadingOverlay } from './components/NavigationLoadingOverlay';
 import { ActiveLibraryProvider } from './context/ActiveLibraryContext';
 import { SettingsPage } from './pages/SettingsPage';
 import { LibrariesPage } from './pages/LibrariesPage';
@@ -23,6 +24,7 @@ function App() {
 
   return (
     <ActiveLibraryProvider>
+      <NavigationLoadingOverlay />
       <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />

@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
 import { AuthProvider } from './context/AuthContext';
 import { PlayerProvider } from './context/PlayerContext';
+import { ScrollRestorationProvider } from './context/ScrollRestorationContext';
 import { ProtectedRoute } from './components';
 import { theme } from './theme';
 import './i18n';
@@ -26,9 +27,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               path="/*"
               element={
                 <ProtectedRoute>
-                  <PlayerProvider>
-                    <App />
-                  </PlayerProvider>
+                  <ScrollRestorationProvider>
+                    <PlayerProvider>
+                      <App />
+                    </PlayerProvider>
+                  </ScrollRestorationProvider>
                 </ProtectedRoute>
               }
             />

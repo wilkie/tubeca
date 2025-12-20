@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useCachedState, useScrollRestoration } from '../context/ScrollRestorationContext';
 import {
   Box,
   Container,
@@ -35,6 +36,20 @@ type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
 
 const PAGE_SIZE = 50;
 
+// State that gets cached for scroll restoration
+interface CachedLibraryState {
+  library: Library;
+  collections: Collection[];
+  page: number;
+  hasMore: boolean;
+  total: number;
+  favoritedIds: string[];
+  watchLaterIds: string[];
+  sortField: SortField;
+  sortDirection: SortDirection;
+  availableContentRatings: string[];
+}
+
 // Standard content ratings in order
 const CONTENT_RATING_ORDER = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
 
@@ -43,29 +58,33 @@ export function LibraryPage() {
   const { libraryId } = useParams<{ libraryId: string }>();
   const navigate = useNavigate();
 
-  // Core state
-  const [library, setLibrary] = useState<Library | null>(null);
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Check for cached state to restore on back navigation
+  const cacheKey = `library-${libraryId}`;
+  const { cachedState } = useCachedState<CachedLibraryState>(cacheKey);
+
+  // Core state - initialize from cache if available
+  const [library, setLibrary] = useState<Library | null>(cachedState?.library ?? null);
+  const [collections, setCollections] = useState<Collection[]>(cachedState?.collections ?? []);
+  const [isLoading, setIsLoading] = useState(!cachedState);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Pagination state
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(cachedState?.page ?? 1);
+  const [hasMore, setHasMore] = useState(cachedState?.hasMore ?? false);
+  const [total, setTotal] = useState(cachedState?.total ?? 0);
 
   // Sort/filter state
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortField, setSortField] = useState<SortField>(cachedState?.sortField ?? 'name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>(cachedState?.sortDirection ?? 'asc');
   const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
   const [availableKeywords, setAvailableKeywords] = useState<Keyword[]>([]);
   const [selectedKeywords, setSelectedKeywords] = useState<Keyword[]>([]);
-  const [availableContentRatings, setAvailableContentRatings] = useState<string[]>([]);
+  const [availableContentRatings, setAvailableContentRatings] = useState<string[]>(cachedState?.availableContentRatings ?? []);
 
   // UI state
-  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
-  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
+  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set(cachedState?.favoritedIds ?? []));
+  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set(cachedState?.watchLaterIds ?? []));
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
   const [selectedCollectionForAdd, setSelectedCollectionForAdd] = useState<Collection | null>(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -81,6 +100,41 @@ export function LibraryPage() {
 
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Track if we restored from cache - used to skip initial fetch and block infinite scroll
+  // Check both cachedState AND collections.length because in StrictMode, cachedState might be
+  // null on the second mount (if isBackNavigation changed), but collections state persists
+  const restoredFromCacheRef = useRef(cachedState !== null || collections.length > 0);
+
+  // Build current state for caching (only when library is loaded)
+  const getCurrentState = useCallback((): CachedLibraryState | null => {
+    if (!library) return null;
+    return {
+      library,
+      collections,
+      page,
+      hasMore,
+      total,
+      favoritedIds: Array.from(favoritedIds),
+      watchLaterIds: Array.from(watchLaterIds),
+      sortField,
+      sortDirection,
+      availableContentRatings,
+    };
+  }, [library, collections, page, hasMore, total, favoritedIds, watchLaterIds, sortField, sortDirection, availableContentRatings]);
+
+  // Scroll restoration - handles saving state and restoring scroll position
+  useScrollRestoration(cacheKey, getCurrentState);
+
+  // Unblock infinite scroll after restoration is complete
+  useEffect(() => {
+    if (restoredFromCacheRef.current) {
+      const timeout = setTimeout(() => {
+        restoredFromCacheRef.current = false;
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+  }, []);
 
   // Track if keywords have been loaded (lazy load on filter panel open)
   const keywordsLoadedRef = useRef(false);
@@ -176,6 +230,11 @@ export function LibraryPage() {
   useEffect(() => {
     if (!libraryId) return;
 
+    // Skip initial load if we restored from cache (library is already restored)
+    if (restoredFromCacheRef.current) {
+      return;
+    }
+
     let cancelled = false;
 
     // Clear all previous library data immediately to prevent stale content flash
@@ -226,6 +285,11 @@ export function LibraryPage() {
   useEffect(() => {
     if (!library) return; // Don't refetch until initial load is done
 
+    // Skip on first render if we restored from cache
+    if (restoredFromCacheRef.current) {
+      return;
+    }
+
     // Reset favorites/watchLater but keep collections visible until new data arrives
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync clear on filter change
     setFavoritedIds(new Set());
@@ -239,6 +303,9 @@ export function LibraryPage() {
 
     const observer = new IntersectionObserver(
       (entries) => {
+        // Skip if we're still in the restoration period (prevents accidental pagination)
+        if (restoredFromCacheRef.current) return;
+
         if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
           fetchCollections(page + 1, true);
         }
