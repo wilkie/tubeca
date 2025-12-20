@@ -94,8 +94,8 @@ router.get('/:id/file', imageAuth, async (req, res) => {
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
 
-    const stream = fs.createReadStream(fullPath);
-    stream.pipe(res);
+    // Use sendFile for efficient file serving
+    res.sendFile(fullPath);
   } catch {
     res.status(500).json({ error: 'Failed to serve image' });
   }
