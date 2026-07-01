@@ -62,7 +62,7 @@ tubeca/
 
 ### Prerequisites
 
-- Node.js >= 18.0.0
+- Node.js >= 22.0.0 (an `.nvmrc` is provided — run `nvm use`)
 - pnpm >= 8.0.0 (managed via corepack)
 - Redis server
 - FFmpeg (for video streaming/transcoding)
