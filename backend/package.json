@@ -5,9 +5,9 @@
   "description": "Tubeca backend API",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "UV_THREADPOOL_SIZE=24 tsx watch src/index.ts",
     "build": "prisma generate && tsc",
-    "start": "node dist/index.js",
+    "start": "UV_THREADPOOL_SIZE=24 node dist/index.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest",

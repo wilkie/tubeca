@@ -63,7 +63,7 @@ export class FileWatcherService {
     this.options = options;
 
     if (options.usePolling) {
-      console.log(`📁 Starting file watcher service (polling mode, interval: ${options.pollInterval || 1000}ms)...`);
+      console.log(`📁 Starting file watcher service (polling mode, interval: ${options.pollInterval ?? 30000}ms)...`);
     } else {
       console.log('📁 Starting file watcher service...');
     }
@@ -161,6 +161,16 @@ export class FileWatcherService {
 
     const extensions = libraryType === 'Music' ? AUDIO_EXTENSIONS : VIDEO_EXTENSIONS;
 
+    // In polling mode chokidar runs an fs.stat over every watched file each cycle.
+    // On a network mount (SMB/CIFS) those stat calls are slow and run on libuv's
+    // threadpool; a fast interval starves the threadpool and stalls everything
+    // else that uses it (DNS lookups, image writes, sharp). Poll gently — a media
+    // library doesn't need sub-minute detection of new files.
+    //
+    // Note: `binaryInterval` must be set too. Media files count as "binary", so
+    // without it chokidar polls them on its 300ms default regardless of `interval`.
+    const pollInterval = this.options.pollInterval ?? 30000;
+
     const watcher = watch(libraryPath, {
       ignored: [
         /(^|[/\\])\../, // Ignore hidden files/directories
@@ -175,7 +185,8 @@ export class FileWatcherService {
       depth: 10, // Reasonable depth limit
       // Polling options for WSL/mounted filesystems
       usePolling: this.options.usePolling ?? false,
-      interval: this.options.pollInterval ?? 1000,
+      interval: pollInterval,
+      binaryInterval: pollInterval,
     });
 
     // Store extensions for filtering in handlers

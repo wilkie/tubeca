@@ -13,7 +13,7 @@ export interface ScraperPluginConfig {
 export interface FileWatcherConfig {
   enabled?: boolean
   usePolling?: boolean  // Use polling instead of native events (needed for WSL/mounted filesystems)
-  pollInterval?: number // Polling interval in milliseconds (default: 1000)
+  pollInterval?: number // Polling interval in milliseconds (default: 30000). Keep this high for network mounts (SMB/CIFS): polling stats every file each cycle on the libuv threadpool.
 }
 
 export interface HlsCacheConfig {
