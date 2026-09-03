@@ -5,6 +5,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import {
   getTranscodingSettingsWithInfo,
   updateTranscodingSettings,
+  validateTranscodingSettings,
 } from '../services/transcodingSettingsService';
 
 const router = Router();
@@ -218,59 +219,64 @@ router.get('/transcoding', requireRole('Admin'), async (_req, res) => {
  *               preferredEncoder:
  *                 type: string
  *                 nullable: true
+ *                 description: Encoder id to pin, or null to let detection choose
  *               preset:
  *                 type: string
+ *                 description: One of the presets listed by GET /api/settings/transcoding
  *               enableLowLatency:
  *                 type: boolean
  *               threadCount:
  *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 64
+ *               maxConcurrentTranscodes:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 16
  *               segmentDuration:
  *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 30
+ *                 description: Seconds. Changing this purges the segment cache.
  *               prefetchSegments:
  *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 10
  *               bitrate1080p:
  *                 type: integer
+ *                 minimum: 100
+ *                 maximum: 100000
  *               bitrate720p:
  *                 type: integer
+ *                 minimum: 100
+ *                 maximum: 100000
  *               bitrate480p:
  *                 type: integer
+ *                 minimum: 100
+ *                 maximum: 100000
  *               bitrate360p:
  *                 type: integer
+ *                 minimum: 100
+ *                 maximum: 100000
  *     responses:
  *       200:
  *         description: Updated transcoding settings
+ *       400:
+ *         description: A field was missing, the wrong type, or out of range
  */
 router.put('/transcoding', requireRole('Admin'), async (req, res) => {
   try {
-    const {
-      enableHardwareAccel,
-      preferredEncoder,
-      preset,
-      enableLowLatency,
-      threadCount,
-      maxConcurrentTranscodes,
-      segmentDuration,
-      prefetchSegments,
-      bitrate1080p,
-      bitrate720p,
-      bitrate480p,
-      bitrate360p,
-    } = req.body;
+    // These values become FFmpeg arguments and playlist arithmetic, so a bad
+    // one is rejected here rather than breaking playback later.
+    const { data, errors } = validateTranscodingSettings(req.body);
+    if (errors.length > 0) {
+      return res.status(400).json({
+        error: 'Invalid transcoding settings',
+        details: errors,
+      });
+    }
 
-    await updateTranscodingSettings({
-      enableHardwareAccel,
-      preferredEncoder,
-      preset,
-      enableLowLatency,
-      threadCount,
-      maxConcurrentTranscodes,
-      segmentDuration,
-      prefetchSegments,
-      bitrate1080p,
-      bitrate720p,
-      bitrate480p,
-      bitrate360p,
-    });
+    await updateTranscodingSettings(data);
 
     // Return updated settings with info
     const settings = await getTranscodingSettingsWithInfo();

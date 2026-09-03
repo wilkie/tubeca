@@ -7,6 +7,7 @@ import {
   collectCacheStats,
   sweepExpiredSegments,
   enforceCacheSize,
+  purgeAllSegments,
 } from '../hlsCache';
 
 let root: string;
@@ -72,6 +73,17 @@ describe('cache maintenance', () => {
     expect(fs.existsSync(old)).toBe(false);
     expect(fs.existsSync(fresh)).toBe(true);
     expect(fs.existsSync(path.join(root, 'm2'))).toBe(false);
+  });
+
+  it('purges every segment regardless of age when the geometry changes', () => {
+    const fresh = segment('m1/adefault/720p/0.ts', 100, 0);
+    const other = segment('m2/adefault/480p/9.ts', 100, 1);
+
+    expect(purgeAllSegments(root)).toBe(2);
+    expect(fs.existsSync(fresh)).toBe(false);
+    expect(fs.existsSync(other)).toBe(false);
+    expect(fs.existsSync(path.join(root, 'm1'))).toBe(false);
+    expect(purgeAllSegments(root)).toBe(0);
   });
 
   it('enforces a size limit by dropping least recently used segments first', () => {

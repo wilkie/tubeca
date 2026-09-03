@@ -8,6 +8,7 @@ import { loadScrapers } from './plugins/scraperLoader';
 import { redisConnection } from './config/redis';
 import { swaggerSpec } from './config/swagger.js';
 import { hlsCacheCleanupService } from './services/hlsCacheCleanupService';
+import { detectBestEncoderAsync } from './utils/hwaccel';
 import { shutdownHlsService } from './services/hlsService';
 import { getRole, runsApi, runsWorkers } from './runtime/role';
 import { mountFrontend, resolveFrontendDist } from './runtime/frontend';
@@ -152,6 +153,12 @@ function startApi(): Server {
 
   return app.listen(PORT, () => {
     console.log(`🚀 Backend server running on http://localhost:${PORT}`);
+    // Encoder detection spawns FFmpeg several times. Doing it now, rather than
+    // during boot or on the first segment request, keeps startup quick and the
+    // first playback from paying for it.
+    void detectBestEncoderAsync().catch((error) => {
+      console.warn('Encoder detection failed; falling back to software encoding:', error);
+    });
   });
 }
 

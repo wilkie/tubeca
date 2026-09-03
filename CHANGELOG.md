@@ -17,8 +17,17 @@ All notable changes to Tubeca are recorded here. The format follows
   volume, m mute, f fullscreen; OS media controls via the Media Session API.
 - Scrapers take `language`, `region` and `imageSize` from `tubeca.config.json`, so metadata
   and artwork no longer have to be English and US.
+- An admin can pin a specific video encoder in Settings; a choice this machine cannot run is
+  ignored in favour of the detected one.
 
 ### Fixed
+- Seeking no longer waits behind segments being encoded for the position you left: the player's
+  segment takes an encoder slot first, and the stale work is abandoned.
+- Hardware encoding works on machines whose only accelerator is VAAPI.
+- Transcoding settings are checked before they are saved, so a value like a zero-second segment
+  is refused instead of producing a library that will not play.
+- Changing the segment duration clears the segment cache, which otherwise no longer matched the
+  playlists.
 - Identifying a show now re-scrapes its seasons and episodes against the show you picked,
   instead of leaving them with the wrong show's descriptions and artwork.
 - Seasons are scraped after their show has been matched rather than after a fixed delay, so
@@ -30,6 +39,8 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- Video encoder detection runs just after the server starts answering requests rather than
+  during startup, so a machine with several unusable encoders boots without the wait.
 - A re-scrape keeps artwork that has not changed at the provider, so a full scan of a large
   library no longer re-downloads every poster, backdrop and cast photo.
 - Repeated provider lookups during a scan are answered from a short-lived cache, cutting the

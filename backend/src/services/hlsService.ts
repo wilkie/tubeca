@@ -3,7 +3,14 @@ import * as path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { loadAppConfig, getHlsCacheConfig } from '../config/appConfig';
 import { MediaService } from './mediaService';
-import { detectBestEncoder, getEncoderArgs, type HardwareEncoder } from '../utils/hwaccel';
+import {
+  detectBestEncoderAsync,
+  getEncoderArgs,
+  getEncoderInputArgs,
+  resolvePreferredEncoder,
+  SOFTWARE_ENCODER,
+  type HardwareEncoder,
+} from '../utils/hwaccel';
 import { getTranscodingSettings, getTranscodingSettingsVersion } from './transcodingSettingsService';
 import { prisma } from '../config/database';
 import {
@@ -53,18 +60,52 @@ export interface PlaylistInfo {
   totalDuration: number;
 }
 
+/**
+ * Why a segment is being encoded. A player waiting on a segment beats a
+ * prefetch for a segment nobody has asked for yet, both for a transcode slot
+ * and when deciding what to abandon after a seek.
+ */
+export type SegmentPriority = 'live' | 'prefetch'
+
+/** Thrown when a prefetch is abandoned because the player moved elsewhere. */
+export class SegmentCancelledError extends Error {
+  readonly cancelled = true;
+  constructor(index: number) {
+    super(`Segment ${index} encode cancelled`);
+    this.name = 'SegmentCancelledError';
+  }
+}
+
+/** True for the error a cancelled prefetch rejects with. */
+function isCancellation(error: unknown): boolean {
+  return error instanceof SegmentCancelledError;
+}
+
+/** One in-flight segment encode, shared by every caller that wants it. */
+interface SegmentJob {
+  promise: Promise<void>
+  variantPath: string
+  index: number
+  /** Starts as the requester's priority; upgraded to live if a player joins. */
+  priority: SegmentPriority
+  cancelled: boolean
+  /** Set once FFmpeg is running, so a cancel can kill it. */
+  child: ChildProcess | null
+}
+
 export class HlsService {
   private mediaService: MediaService;
   private cachePath: string;
   private defaultSegmentDuration: number;
   // Track in-progress segment generations to prevent concurrent generation of same segment
   /** In-flight segment encodes keyed by `<variantPath>:<index>`, shared by player requests and prefetch. */
-  private generatingSegments: Map<string, Promise<void>> = new Map();
+  private generatingSegments: Map<string, SegmentJob> = new Map();
   /** FFmpeg children still running, so they can be killed on shutdown. */
   private activeProcesses: Set<ChildProcess> = new Set();
   private readonly segmentTimeoutMs: number;
   // Detected video encoder (detected once at startup)
-  private detectedEncoder: HardwareEncoder;
+  /** Resolved on first use, or earlier by `warmEncoderDetection()` after boot. */
+  private detectedEncoder: HardwareEncoder | null = null;
   // Settings cache
   private settingsCache: TranscodingSettings | null = null;
   private settingsCacheTime: number = 0;
@@ -72,7 +113,7 @@ export class HlsService {
   private readonly SETTINGS_CACHE_TTL = 30000; // 30 seconds
   // Concurrency control for FFmpeg processes
   private activeTranscodes: number = 0;
-  private waitingQueue: Array<() => void> = [];
+  private waitingQueue: Array<{ job: SegmentJob; start: () => void }> = [];
 
   constructor(options: { segmentTimeoutMs?: number } = {}) {
     this.segmentTimeoutMs = options.segmentTimeoutMs ?? 120000;
@@ -81,15 +122,28 @@ export class HlsService {
     const hlsConfig = getHlsCacheConfig(appConfig);
     this.cachePath = hlsConfig.path;
     this.defaultSegmentDuration = hlsConfig.segmentDuration;
-    // Detect best encoder at startup
-    this.detectedEncoder = detectBestEncoder();
   }
 
   /**
-   * Acquire a slot for transcoding, waiting if necessary
-   * Returns a release function to call when done
+   * Resolve which encoder to use, detecting on first call.
+   *
+   * Detection spawns FFmpeg several times, so it is neither done in the
+   * constructor (which runs at import time) nor synchronously; the server
+   * warms it after it starts listening and the first segment request would
+   * otherwise pay for it.
    */
-  private async acquireTranscodeSlot(): Promise<() => void> {
+  private async getDetectedEncoder(): Promise<HardwareEncoder> {
+    if (!this.detectedEncoder) {
+      this.detectedEncoder = await detectBestEncoderAsync();
+    }
+    return this.detectedEncoder;
+  }
+
+  /**
+   * Acquire a slot for transcoding, waiting if necessary.
+   * Returns a release function to call when done.
+   */
+  private async acquireTranscodeSlot(job: SegmentJob): Promise<() => void> {
     const settings = await this.getSettings();
     const maxConcurrent = settings.maxConcurrentTranscodes || 2;
 
@@ -101,22 +155,32 @@ export class HlsService {
 
     // Otherwise, wait in queue
     return new Promise((resolve) => {
-      this.waitingQueue.push(() => {
-        this.activeTranscodes++;
-        resolve(() => this.releaseTranscodeSlot());
+      this.waitingQueue.push({
+        job,
+        start: () => {
+          this.activeTranscodes++;
+          resolve(() => this.releaseTranscodeSlot());
+        },
       });
     });
   }
 
   /**
-   * Release a transcoding slot and wake up next waiter if any
+   * Release a transcoding slot and wake the next waiter.
+   *
+   * A player that is waiting on a segment goes ahead of any prefetch, so a
+   * seek does not sit behind two speculative encodes for the old position.
+   * Priority is read at wake-up time, so a prefetch that a player has since
+   * joined is promoted while it waits.
    */
   private releaseTranscodeSlot(): void {
     this.activeTranscodes--;
-    const next = this.waitingQueue.shift();
-    if (next) {
-      next();
-    }
+    if (this.waitingQueue.length === 0) return;
+
+    let index = this.waitingQueue.findIndex((w) => w.job.priority === 'live');
+    if (index === -1) index = 0;
+    const [next] = this.waitingQueue.splice(index, 1);
+    next.start();
   }
 
   /**
@@ -142,18 +206,23 @@ export class HlsService {
    */
   private async getActiveEncoder(): Promise<HardwareEncoder> {
     const settings = await this.getSettings();
+    const detected = await this.getDetectedEncoder();
 
     // If hardware accel is disabled and detected encoder is hardware, fall back to software
-    if (!settings.enableHardwareAccel && this.detectedEncoder.type === 'hardware') {
-      return {
-        name: 'x264 (Software)',
-        encoder: 'libx264',
-        type: 'software',
-        priority: 100,
-      };
+    if (!settings.enableHardwareAccel && detected.type === 'hardware') {
+      return SOFTWARE_ENCODER;
     }
 
-    return this.detectedEncoder;
+    // An admin's explicit choice wins over detection, but only once it has
+    // been confirmed to work on this machine.
+    if (settings.preferredEncoder && settings.preferredEncoder !== detected.encoder) {
+      const preferred = await resolvePreferredEncoder(settings.preferredEncoder);
+      if (preferred && (settings.enableHardwareAccel || preferred.type === 'software')) {
+        return preferred;
+      }
+    }
+
+    return detected;
   }
 
   /**
@@ -199,7 +268,8 @@ export class HlsService {
     quality: string,
     segmentIndex: number,
     audioTrack: string,
-    variantPath: string
+    variantPath: string,
+    priority: SegmentPriority = 'live'
   ): Promise<void> {
     const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
     try {
@@ -209,14 +279,58 @@ export class HlsService {
     }
     const key = `${variantPath}:${segmentIndex}`;
     const existing = this.generatingSegments.get(key);
-    if (existing) return existing;
+    if (existing) {
+      // A player is now waiting on what began as a prefetch: promote it so it
+      // is neither queued behind live work nor abandoned by a later seek.
+      if (priority === 'live') existing.priority = 'live';
+      return existing.promise;
+    }
 
-    const generation = this.generateSegment(videoPath, totalDuration, quality, segmentIndex, audioTrack, variantPath)
-      .finally(() => {
+    const job: SegmentJob = {
+      promise: Promise.resolve(),
+      variantPath,
+      index: segmentIndex,
+      priority,
+      cancelled: false,
+      child: null,
+    };
+    job.promise = this.generateSegment(
+      videoPath,
+      totalDuration,
+      quality,
+      segmentIndex,
+      audioTrack,
+      variantPath,
+      job
+    ).finally(() => {
+      // Only clear our own entry: a cancelled job may already have been
+      // replaced by a fresh request for the same segment.
+      if (this.generatingSegments.get(key) === job) {
         this.generatingSegments.delete(key);
-      });
-    this.generatingSegments.set(key, generation);
-    return generation;
+      }
+    });
+    this.generatingSegments.set(key, job);
+    return job.promise;
+  }
+
+  /**
+   * Abandon prefetches the player has moved away from.
+   *
+   * Called whenever a player asks for a segment: anything still encoding for
+   * this variant outside the window the player is about to consume is work
+   * nobody will watch, and it is holding a transcode slot the seek needs.
+   * Encodes a player is waiting on are never cancelled.
+   */
+  private cancelStalePrefetches(variantPath: string, liveIndex: number, prefetchCount: number): void {
+    for (const [key, job] of this.generatingSegments) {
+      if (job.variantPath !== variantPath) continue;
+      if (job.priority !== 'prefetch') continue;
+      if (job.index >= liveIndex && job.index <= liveIndex + prefetchCount) continue;
+
+      job.cancelled = true;
+      job.child?.kill('SIGKILL');
+      this.generatingSegments.delete(key);
+    }
   }
 
   /** Kill every running FFmpeg child. Called on server shutdown. */
@@ -326,8 +440,8 @@ export class HlsService {
 
     // Generate initial segments (0, 1, 2, ...) in parallel
     for (let i = 0; i < prefetchCount; i++) {
-      this.ensureSegment(videoPath, totalDuration, quality, i, audioTrack, variantPath).catch((err) => {
-        console.error(`Initial prefetch failed for segment ${i}:`, err);
+      this.ensureSegment(videoPath, totalDuration, quality, i, audioTrack, variantPath, 'prefetch').catch((err) => {
+        if (!isCancellation(err)) console.error(`Initial prefetch failed for segment ${i}:`, err);
       });
     }
   }
@@ -350,6 +464,12 @@ export class HlsService {
 
     const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
     const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
+
+    // The player has told us where it is. Anything still encoding for a part
+    // of this variant it has left behind (a seek, or a jump backwards) is
+    // wasted work holding a transcode slot.
+    const settings = await this.getSettings();
+    this.cancelStalePrefetches(variantPath, segmentIndex, settings.prefetchSegments || 2);
 
     // Check if segment already exists and has content
     if (fs.existsSync(segmentPath)) {
@@ -404,9 +524,11 @@ export class HlsService {
       const nextIndex = currentIndex + i;
       if (nextIndex > maxSegment) break;
 
-      this.ensureSegment(videoPath, totalDuration, quality, nextIndex, audioTrack, variantPath).catch((err) => {
-        console.error(`Prefetch failed for segment ${nextIndex}:`, err);
-      });
+      this.ensureSegment(videoPath, totalDuration, quality, nextIndex, audioTrack, variantPath, 'prefetch').catch(
+        (err) => {
+          if (!isCancellation(err)) console.error(`Prefetch failed for segment ${nextIndex}:`, err);
+        }
+      );
     }
   }
 
@@ -419,7 +541,8 @@ export class HlsService {
     quality: string,
     segmentIndex: number,
     audioTrack: string,
-    outputDir: string
+    outputDir: string,
+    job: SegmentJob = { promise: Promise.resolve(), variantPath: outputDir, index: segmentIndex, priority: 'live', cancelled: false, child: null }
   ): Promise<void> {
     // Ensure output directory exists
     if (!fs.existsSync(outputDir)) {
@@ -444,6 +567,11 @@ export class HlsService {
     const qualityPreset = isOriginal ? null : presets[quality];
 
     const ffmpegArgs: string[] = [];
+
+    // Anything the encoder needs before the input, such as VAAPI's render node.
+    if (!isOriginal && qualityPreset) {
+      ffmpegArgs.push(...getEncoderInputArgs(encoder));
+    }
 
     // For stream copy, we need accurate seeking, so use -ss after -i
     // For transcoding, we can use -ss before -i for faster seeking
@@ -542,10 +670,17 @@ export class HlsService {
     );
 
     // Acquire a transcode slot (waits if at max concurrency)
-    const releaseSlot = await this.acquireTranscodeSlot();
+    const releaseSlot = await this.acquireTranscodeSlot(job);
+
+    // The player may have moved on while this waited for a slot.
+    if (job.cancelled) {
+      releaseSlot();
+      throw new SegmentCancelledError(segmentIndex);
+    }
 
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      job.child = ffmpeg;
       this.activeProcesses.add(ffmpeg);
 
       let stderr = '';
@@ -563,19 +698,22 @@ export class HlsService {
 
       const finish = () => {
         clearTimeout(timer);
+        job.child = null;
         this.activeProcesses.delete(ffmpeg);
         releaseSlot();
       };
 
       ffmpeg.on('close', (code) => {
         finish();
-        if (code === 0) {
+        if (code === 0 && !job.cancelled) {
           resolve();
         } else {
           // Never leave a partial segment behind: a zero-length or truncated file
           // would be served as if complete.
           fs.rmSync(outputPath, { force: true });
-          if (timedOut) {
+          if (job.cancelled) {
+            reject(new SegmentCancelledError(segmentIndex));
+          } else if (timedOut) {
             reject(new Error(`FFmpeg timed out after ${this.segmentTimeoutMs}ms generating segment ${segmentIndex}`));
           } else {
             console.error(`FFmpeg segment generation failed:\n${stderr}`);

@@ -20,7 +20,8 @@
 - Generate individual MPEG-TS segments on demand with one FFmpeg process per segment, de-duplicate
   concurrent requests for the same segment, and cap concurrent FFmpeg processes with a semaphore.
 - Prefetch the first N segments when a variant playlist is requested and the next N segments after
-  every served segment.
+  every served segment, giving player requests priority over prefetches and abandoning prefetches
+  the player has seeked away from.
 - Serve progressive video (range requests for native containers, live FFmpeg remux/transcode to
   fragmented MP4 otherwise) via the older `/video/:id` endpoint, still used by the frontend for
   Audio media and as a non-HLS fallback.
@@ -30,8 +31,9 @@
   (Jellyfin layout); Tubeca does not generate these itself.
 - Probe files with ffprobe at scan/watch time and persist duration plus per-stream
   codec/language/disposition data in `MediaStream`.
-- Detect the best H.264 encoder at startup (NVENC, QSV, AMF, VAAPI, VideoToolbox, then libx264) by
-  actually test-encoding a frame, and honour the admin setting that disables hardware encoding.
+- Detect the best H.264 encoder shortly after the server starts listening (NVENC, QSV, AMF, VAAPI,
+  VideoToolbox, then libx264) by actually test-encoding a frame, honour the admin setting that
+  disables hardware encoding, and honour an admin's pinned encoder once it passes the same test.
 - Persist transcoding settings (preset, threads, concurrency, segment duration, prefetch count,
   per-rung bitrates) in a singleton Prisma table and expose them at `/api/settings/transcoding`.
 - Sweep HLS segments whose atime is older than a TTL, hourly.
@@ -63,7 +65,7 @@
 | `backend/src/services/hlsCacheCleanupService.ts` | Singleton timer: first sweep 30 s after boot, then hourly; logs freed MB. Started/stopped from `index.ts`. |
 | `backend/src/services/transcodingSettingsService.ts` | Read/create/update the `TranscodingSettings` singleton row with a 30 s in-memory cache; adds detected/active encoder and preset list for the settings UI. |
 | `backend/src/routes/settings.ts` | `GET`/`PUT /api/settings/transcoding` (Admin only). |
-| `backend/src/utils/hwaccel.ts` | `detectBestEncoder()` (runs `ffmpeg -encoders` then a 1-frame `lavfi` test encode per candidate) and `getEncoderArgs()` (per-encoder rate-control/profile args plus the scale+pad filter). |
+| `backend/src/utils/hwaccel.ts` | `detectBestEncoder()`/`detectBestEncoderAsync()` (run `ffmpeg -encoders` then a 1-frame `lavfi` test encode per candidate, sharing one cache), `resolvePreferredEncoder()` (verify an admin's choice), `getEncoderArgs()` (rate control, profile, scale+pad filter) and `getEncoderInputArgs()` (VAAPI's render node, which must precede `-i`). |
 | `backend/src/utils/ffprobe.ts` | `probeMediaFile()` -> `{ duration, streams[] }` from `ffprobe -print_format json -show_format -show_streams`; `getMediaDuration()` legacy helper. |
 | `backend/src/workers/libraryScanWorker.ts`, `backend/src/services/fileWatcherService.ts` | Callers of `probeMediaFile`; write `Media.duration`, `Media.thumbnails` and `MediaStream` rows. |
 | `backend/src/config/appConfig.ts` | `hlsCache` block of `tubeca.config.json`: `path`, `maxSizeGB`, `segmentTTLHours`, `segmentDuration`; creates the cache directory. |
@@ -166,19 +168,29 @@ The FFmpeg command per segment:
   switches splice cleanly. `-output_ts_offset <start>` positions the segment on the global timeline.
 - **Mux.** `-f mpegts -mpegts_copyts 1 -avoid_negative_ts disabled -y <out>`.
 
-Note that the VAAPI branch of `getEncoderArgs` omits the `-vaapi_device`/`hwupload` plumbing VAAPI
-requires, so on a VAAPI-only box the test encode in `testEncoder` fails and the service falls back
-to libx264; `preferredEncoder` is stored and returned by the settings API but never read by
-`HlsService`.
+VAAPI is encode-only: frames are scaled and letterboxed in software, then `format=nv12,hwupload`
+hands them to the GPU, with `-vaapi_device` (default `/dev/dri/renderD128`, overridable with
+`TUBECA_VAAPI_DEVICE`) placed before `-i` by `getEncoderInputArgs`. Decoding still happens in
+software. Before 2026-09-03 that plumbing was missing, so the test encode failed and a VAAPI-only
+box silently fell back to libx264.
 
 ### Concurrency and process lifecycle
 
-`acquireTranscodeSlot` (`hlsService.ts:78`) is a simple counting semaphore over
-`maxConcurrentTranscodes` (default 2, admin-editable) with a FIFO `waitingQueue`. It is acquired
-after the args are built and released on `close` or `error`. Prefetch jobs and player-driven jobs
-share the same pool with no priority, so with `prefetchSegments=2` a single viewer can have three
-FFmpegs wanting slots (current + 2 ahead) while a second viewer or a seek waits behind them. The
-settings value is re-read every 30 s; lowering it does not preempt running processes.
+`acquireTranscodeSlot` is a counting semaphore over `maxConcurrentTranscodes` (default 2,
+admin-editable). It is acquired after the args are built and released on `close` or `error`. Every
+encode carries a priority: `live` when a player is waiting for the segment, `prefetch` when it is
+speculative. On release the queue is scanned for a live waiter first, so a seek does not sit behind
+two speculative encodes for the position the viewer just left. Priority is read at wake-up time, so
+a prefetch that a player has since joined (`ensureSegment` promotes it) is promoted while it waits.
+The settings value is re-read every 30 s; lowering it does not preempt running processes.
+
+Every player request also calls `cancelStalePrefetches`, which kills any encode for the same variant
+that is still `prefetch` and whose index falls outside `[requested, requested + prefetchSegments]`.
+Sequential playback never triggers it, because the segments being prefetched are exactly the ones
+inside that window; a seek cancels both in-flight prefetches immediately, freeing their slots for
+the segment the viewer is waiting on. A cancelled encode rejects with `SegmentCancelledError`, its
+partial file is removed, and it is not logged as a failure. Encodes a player is waiting on are never
+cancelled.
 
 Each segment FFmpeg is tracked in `activeProcesses` and killed with `SIGKILL` if it exceeds
 `segmentTimeoutMs` (120 s by default, injectable for tests); a killed or failed run removes its
@@ -191,22 +203,34 @@ progressive `/video` and `/subtitles` routes do kill their child on `req.on('clo
 
 ### Encoder detection and settings
 
-`detectBestEncoder()` runs once per process (module-level cache) and is invoked synchronously from
-the `HlsService` constructor, so it executes at import time of `stream.ts` and again from the
-cleanup service constructor (cached). It shells out with `execSync` (`ffmpeg -encoders`, then up to
-five 10 s test encodes), blocking the event loop during boot. `HlsService.getActiveEncoder` swaps
-the detected hardware encoder for libx264 when `enableHardwareAccel` is false. The libx264 default
-args include `-threads 0 -x264-params threads=auto:sliced-threads=1`.
+Detection runs once per process and its result is shared by every caller. `index.ts` kicks off
+`detectBestEncoderAsync()` from the `listen` callback, so the up-to-five 10 s test encodes happen
+after the server is answering requests rather than during boot; `HlsService` no longer detects in
+its constructor but on first use, awaiting whatever the warm-up started. The synchronous
+`detectBestEncoder()` remains for callers that cannot await. Test encodes are built with
+`testEncodeArgs`, the same helpers a real encode uses, so an encoder passes the test only if its
+full argument set works.
+
+`HlsService.getActiveEncoder` swaps the detected hardware encoder for libx264 when
+`enableHardwareAccel` is false. Otherwise, if the admin has pinned `preferredEncoder` to something
+other than the detected one, `resolvePreferredEncoder` confirms it with a one-frame test encode
+(cached per encoder id) and uses it, falling back to detection with a warning when the machine
+cannot run it. The libx264 default args include `-threads 0 -x264-params
+threads=auto:sliced-threads=1`.
 
 `TranscodingSettings` is a singleton row created on first read with Prisma defaults (`preset
 veryfast`, `enableLowLatency true`, `threadCount 0`, `maxConcurrentTranscodes 2`, `segmentDuration
 6`, `prefetchSegments 2`, bitrates 8000/5000/2500/1000 kbps). Two independent 30 s caches exist: one
 in `transcodingSettingsService` (invalidated on update) and one inside `HlsService` (not
-invalidated, so a `PUT` takes up to 30 s to affect encoding). `PUT /api/settings/transcoding` passes
-body fields through unvalidated: a non-numeric or negative `segmentDuration` reaches FFmpeg and
-playlist maths directly. `segmentDuration` also exists in `tubeca.config.json` as a fallback only;
-the DB value wins. Changing `segmentDuration` after segments exist makes old cached segments wrong
-for the new playlist geometry; nothing purges the cache on settings change.
+invalidated, so a `PUT` takes up to 30 s to affect encoding). `PUT /api/settings/transcoding` runs the body through
+`validateTranscodingSettings` first: booleans must be booleans, every numeric field must be a whole
+number inside a stated range (`segmentDuration` 1-30 s, `maxConcurrentTranscodes` 1-16,
+`prefetchSegments` 0-10, `threadCount` 0-64, bitrates 100-100000 kbps), `preset` must be one of the
+six offered, and `preferredEncoder` must be null or a known encoder id. Anything else is a 400
+listing the offending fields, and nothing is written. Unknown fields are ignored and absent fields
+are left alone. `segmentDuration` also exists in `tubeca.config.json` as a fallback only; the DB
+value wins, and changing it purges every cached segment (`purgeAllSegments`), because playlists are
+synthesised from that number and existing files would cover the wrong spans of the timeline.
 
 ### Cache cleanup
 
@@ -279,6 +303,11 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 
 ## History
 
+- 2026-09-03 Streaming responsiveness: live requests take transcode slots ahead of prefetches and
+  cancel the prefetches a seek left behind; encoder detection moved off the boot path and made
+  async; `PUT /api/settings/transcoding` validated, with a cache purge when the segment duration
+  changes; VAAPI given its device and upload filter, and `preferredEncoder` wired through with a
+  verification test encode and a picker in the Settings page.
 - `4946f1d` 2025-11-28 Initial commit: `videoQueue.ts`/`videoWorker.ts` stubs and `POST /api/jobs/*`
   endpoints.
 - `dd02263` 2025-11-28 Basic streaming: `/video/:id` with range requests for mp4/webm and live
@@ -325,15 +354,18 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Segment latency equals full-segment encode time.** The route waits for FFmpeg to exit before
   sending any bytes; with software x264 at 1080p on a slow CPU a seek costs one full 6 s segment of
   encode before playback resumes.
-- **Encodes are not cancelled on disconnect or seek**, and prefetch has no priority below live
-  requests; the per-segment timeout bounds the damage but a seek-heavy session still encodes
-  segments nobody will watch.
+- **Cancellation is by position, not by viewer.** A seek cancels the prefetches outside the new
+  window for that variant, but the service has no session identity, so two people watching the same
+  media at the same rung can cancel each other's prefetches; the work is re-queued on the next
+  served segment. An encode a player is already waiting on is never cancelled, and a client that
+  simply disconnects still finishes its segment.
 - **Cache eviction is `atime`-based** (patched by `touchFile` only on the read path) and each sweep
   is a full-tree `stat` walk; on `noatime` mounts the LRU order degrades to creation order.
-- **Settings edge cases.** `PUT` body is unvalidated; `preferredEncoder` is dead; changing
-  `segmentDuration` invalidates every cached segment silently; `/hls/:id/qualities` reports default
-  bitrates rather than configured ones.
-- **VAAPI args are incomplete**, so VAAPI-only Linux boxes silently fall back to software.
+- **Settings edge cases.** `/hls/:id/qualities` still reports default bitrates rather than
+  configured ones. A `segmentDuration` change purges the whole cache, including media nobody is
+  watching, which is correct but costs a re-encode for everything afterwards.
+- **VAAPI decodes in software** and assumes one render node; a box whose GPU is not
+  `/dev/dri/renderD128` needs `TUBECA_VAAPI_DEVICE` set.
 - **Stream ACL.** Any authenticated user can stream any media id regardless of library group
   membership; tokens appear in URLs.
 - **Subtitles**: every subtitle stream is offered, including bitmap formats that cannot become
@@ -343,25 +375,27 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   yields `duration 0` and therefore an unplayable empty playlist.
 - **Trickplay is external only**; the `thumbnail` job that might have generated sprites is a stub,
   and the reported interval is hardcoded.
-- **Blocking boot**: encoder detection uses `execSync` with up to ~55 s of worst-case timeouts.
-- **Tests cover playlists, direct-play eligibility, segment de-duplication, timeout and shutdown
-  (against a fake `child_process`), and the cache helpers**; FFmpeg argument construction, the
-  semaphore, probing and most stream routes are untested.
+- **Encoder detection still costs the first playback** if it has not finished: the first segment
+  request awaits it, and a machine with several unusable hardware encoders can spend tens of
+  seconds there. Results are not cached across restarts.
+- **Tests cover playlists, direct-play eligibility, segment de-duplication, timeout and shutdown,
+  slot priority and prefetch cancellation (against a fake `child_process`), the cache helpers,
+  encoder argument construction and the settings validation and purge**; probing and most stream
+  routes are still untested.
 
 ## Opportunities
 
-- **Live-over-prefetch priority** (S): give player requests a priority lane in the transcode
-  semaphore, and cancel in-flight prefetches when a session seeks away.
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
+- **Cache encoder detection across restarts** (S): write the result next to the HLS cache so the
+  first playback after a restart never waits for test encodes.
+- **Cancel by viewer rather than by position** (S/M): carry a session id on segment requests so one
+  viewer's seek cannot cancel another's prefetches, and abandon an encode when its client
+  disconnects.
+- **Purge only what changed** (S): a `segmentDuration` change could re-encode lazily instead of
+  emptying the whole cache.
 - **Stream segments while encoding / smaller first segments** (M): write to a temp path and start
   serving once the muxer emits data, or use 2 s segments for the first rung to cut
   time-to-first-frame.
-- **Purge the cache when `segmentDuration` changes** (S), since every cached segment becomes
-  misaligned.
-- **Validate `PUT /api/settings/transcoding`** (S): numeric bounds, preset whitelist, and wire or
-  remove `preferredEncoder`.
-- **Complete VAAPI support** (S): add `-vaapi_device /dev/dri/renderD128`, `-hwaccel vaapi`,
-  `format=nv12,hwupload` to the filter chain.
 
 - **Filter subtitle streams by codec and cache extracted VTT** (S): only text codecs (`subrip`,
   `ass`, `webvtt`, `mov_text`) are convertible; write the VTT next to the HLS cache.
@@ -370,8 +404,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 
 - **fMP4/CMAF segments with `#EXT-X-MAP`** (M): enables HEVC/AV1 passthrough in `original`, native
   Safari playback of more codecs, and removes the MPEG-TS remux overhead.
-- **Async encoder detection** (S): run detection with `execFile` after the server starts listening,
-  and cache results across restarts.
 - **Tests** (M): FFmpeg argument construction per encoder/quality, the semaphore, cache-path
   resolution, and `probeMediaFile` parsing against fixture JSON; route tests for `streamAuth` and
   quality validation. Playlist synthesis is covered.

@@ -90,6 +90,8 @@ startup summary. Notable defaults:
   from the file only.
 - `UV_THREADPOOL_SIZE=24` is not read by code; it is baked into the `dev` and `start` scripts
   (7052d0c) so that chokidar polling on SMB mounts does not starve DNS lookups and sharp.
+- `TUBECA_VAAPI_DEVICE` -> `/dev/dri/renderD128`, the render node passed to FFmpeg as
+  `-vaapi_device`. Only needed on a box whose GPU is not the first render node.
 
 ### Layer 2: `tubeca.config.json`
 
@@ -264,6 +266,7 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
 - `c95eedf` 2026-07-01 `PORT` passes through Turbo to the Vite proxy; `.nvmrc` 22; `engines.node >=22`.
 - `7052d0c` 2026-07-01 `UV_THREADPOOL_SIZE=24` in scripts; poll interval default 30 s and `binaryInterval`.
 - 2026-09-03 Legacy inline handlers removed from `index.ts`; `PATCH /api/settings` added to the router (Admin); `JWT_SECRET` validated at startup in production.
+- 2026-09-03 `TUBECA_VAAPI_DEVICE` env var; transcoding settings validated on write.
 - 2026-09-03 `TUBECA_ROLE` (`api`/`worker`/`all`) and `FRONTEND_DIST` env vars; workers loaded lazily by role; esbuild bundle replaces `tsx` at runtime.
 
 ## Known Limitations

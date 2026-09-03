@@ -56,6 +56,7 @@ Key settings:
 - `JWT_SECRET` - Auto-generated on install, change if needed
 - `REDIS_HOST` / `REDIS_PORT` - Redis connection (default: localhost:6379)
 - `FILE_WATCHER_ENABLED` - Set to `true` to auto-import new media files
+- `TUBECA_VAAPI_DEVICE` - Render node for VAAPI hardware encoding (default: `/dev/dri/renderD128`)
 
 ### Access the Application
 

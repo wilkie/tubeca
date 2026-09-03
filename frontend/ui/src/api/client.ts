@@ -212,6 +212,7 @@ export interface TranscodingSettings {
   detectedEncoder: HardwareEncoder;
   activeEncoder: HardwareEncoder;
   availablePresets: string[];
+  availableEncoders: HardwareEncoder[];
 }
 
 export interface TranscodingSettingsResponse {

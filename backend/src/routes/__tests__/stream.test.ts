@@ -8,11 +8,17 @@ import { resetDatabase, createGroup, createLibrary, createCollection, createUser
 
 const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-stream-test-'));
 const actualAppConfig = await import('../../config/appConfig');
+const softwareEncoder = { name: 'libx264', encoder: 'libx264', type: 'software', priority: 100 };
 jest.unstable_mockModule('../../utils/hwaccel', () => ({
-  detectBestEncoder: () => ({ name: 'libx264', type: 'software', available: true }),
+  detectBestEncoder: () => softwareEncoder,
+  detectBestEncoderAsync: async () => softwareEncoder,
   getEncoderArgs: () => [],
-  getEncoder: () => ({ name: 'libx264', type: 'software', available: true }),
+  getEncoderInputArgs: () => [],
+  getEncoder: () => softwareEncoder,
   isHardwareAccelerated: () => false,
+  listEncoderOptions: () => [softwareEncoder],
+  resolvePreferredEncoder: async () => null,
+  SOFTWARE_ENCODER: softwareEncoder,
 }));
 jest.unstable_mockModule('../../config/appConfig', () => ({
   ...actualAppConfig,

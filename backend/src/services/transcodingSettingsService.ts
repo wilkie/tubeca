@@ -1,6 +1,14 @@
 import { prisma } from '../config/database';
 import type { TranscodingSettings } from '@prisma/client';
-import { detectBestEncoder, type HardwareEncoder } from '../utils/hwaccel';
+import {
+  detectBestEncoderAsync,
+  listEncoderOptions,
+  resolvePreferredEncoder,
+  SOFTWARE_ENCODER,
+  type HardwareEncoder,
+} from '../utils/hwaccel';
+import { getHlsCachePath } from '../config/appConfig';
+import { purgeAllSegments } from './hlsCache';
 
 export interface TranscodingSettingsData {
   enableHardwareAccel: boolean;
@@ -22,6 +30,8 @@ export interface TranscodingSettingsWithInfo extends TranscodingSettingsData {
   detectedEncoder: HardwareEncoder;
   activeEncoder: HardwareEncoder;
   availablePresets: string[];
+  /** Every encoder an admin may pin, whether or not this machine can run it. */
+  availableEncoders: HardwareEncoder[];
 }
 
 // Available FFmpeg presets (fastest to slowest)
@@ -68,18 +78,16 @@ export async function getTranscodingSettings(): Promise<TranscodingSettings> {
  */
 export async function getTranscodingSettingsWithInfo(): Promise<TranscodingSettingsWithInfo> {
   const settings = await getTranscodingSettings();
-  const detectedEncoder = detectBestEncoder();
+  const detectedEncoder = await detectBestEncoderAsync();
 
   // Determine active encoder based on settings
   let activeEncoder = detectedEncoder;
   if (!settings.enableHardwareAccel && detectedEncoder.type === 'hardware') {
     // Hardware disabled, fall back to software
-    activeEncoder = {
-      name: 'x264 (Software)',
-      encoder: 'libx264',
-      type: 'software',
-      priority: 100,
-    };
+    activeEncoder = SOFTWARE_ENCODER;
+  } else if (settings.preferredEncoder && settings.preferredEncoder !== detectedEncoder.encoder) {
+    const preferred = await resolvePreferredEncoder(settings.preferredEncoder);
+    if (preferred) activeEncoder = preferred;
   }
 
   return {
@@ -99,7 +107,96 @@ export async function getTranscodingSettingsWithInfo(): Promise<TranscodingSetti
     detectedEncoder,
     activeEncoder,
     availablePresets: AVAILABLE_PRESETS,
+    availableEncoders: listEncoderOptions(),
   };
+}
+
+/** A rejected field and why, for a 400 response. */
+export interface SettingsValidationError {
+  field: string
+  message: string
+}
+
+interface NumericBound {
+  min: number
+  max: number
+  unit?: string
+}
+
+const NUMERIC_BOUNDS: Record<string, NumericBound> = {
+  threadCount: { min: 0, max: 64 },
+  maxConcurrentTranscodes: { min: 1, max: 16 },
+  segmentDuration: { min: 1, max: 30, unit: 'seconds' },
+  prefetchSegments: { min: 0, max: 10 },
+  bitrate1080p: { min: 100, max: 100000, unit: 'kbps' },
+  bitrate720p: { min: 100, max: 100000, unit: 'kbps' },
+  bitrate480p: { min: 100, max: 100000, unit: 'kbps' },
+  bitrate360p: { min: 100, max: 100000, unit: 'kbps' },
+};
+
+const BOOLEAN_FIELDS = ['enableHardwareAccel', 'enableLowLatency'] as const;
+
+/**
+ * Check an incoming settings body and return only the fields it may change.
+ *
+ * These values go straight into FFmpeg arguments and playlist arithmetic, so a
+ * string where a number belongs, or a negative segment duration, would produce
+ * a library that will not play rather than an error at the point of the
+ * mistake. Unknown fields are ignored; absent fields are left as they are.
+ */
+export function validateTranscodingSettings(body: unknown): {
+  data: Partial<TranscodingSettingsData>
+  errors: SettingsValidationError[]
+} {
+  const errors: SettingsValidationError[] = [];
+  const data: Partial<TranscodingSettingsData> = {};
+  const input = (body ?? {}) as Record<string, unknown>;
+
+  for (const field of BOOLEAN_FIELDS) {
+    const value = input[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'boolean') {
+      errors.push({ field, message: 'must be true or false' });
+      continue;
+    }
+    data[field] = value;
+  }
+
+  for (const [field, bound] of Object.entries(NUMERIC_BOUNDS)) {
+    const value = input[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < bound.min || value > bound.max) {
+      const unit = bound.unit ? ` ${bound.unit}` : '';
+      errors.push({ field, message: `must be a whole number between ${bound.min} and ${bound.max}${unit}` });
+      continue;
+    }
+    (data as Record<string, number>)[field] = value;
+  }
+
+  if (input.preset !== undefined) {
+    if (typeof input.preset !== 'string' || !AVAILABLE_PRESETS.includes(input.preset)) {
+      errors.push({ field: 'preset', message: `must be one of: ${AVAILABLE_PRESETS.join(', ')}` });
+    } else {
+      data.preset = input.preset;
+    }
+  }
+
+  if (input.preferredEncoder !== undefined) {
+    const value = input.preferredEncoder;
+    // An empty choice means "let detection decide".
+    if (value === null || value === '') {
+      data.preferredEncoder = null;
+    } else if (typeof value !== 'string' || !listEncoderOptions().some((o) => o.encoder === value)) {
+      errors.push({
+        field: 'preferredEncoder',
+        message: `must be null or one of: ${listEncoderOptions().map((o) => o.encoder).join(', ')}`,
+      });
+    } else {
+      data.preferredEncoder = value;
+    }
+  }
+
+  return { data, errors };
 }
 
 /**
@@ -131,6 +228,16 @@ export async function updateTranscodingSettings(
   // Invalidate cache
   settingsCache = null;
   settingsVersion++;
+
+  // Playlists are computed from the segment duration, so every cached segment
+  // now covers the wrong span of the timeline. Drop them rather than serve a
+  // playlist whose segments do not line up with it.
+  if (data.segmentDuration !== undefined && data.segmentDuration !== settings.segmentDuration) {
+    const purged = purgeAllSegments(getHlsCachePath());
+    console.log(
+      `🧹 Segment duration changed ${settings.segmentDuration}s → ${data.segmentDuration}s; purged ${purged} cached segment(s)`
+    );
+  }
 
   return updated;
 }

@@ -61,6 +61,8 @@ export function SettingsPage() {
 
   // Transcoding form state
   const [enableHardwareAccel, setEnableHardwareAccel] = useState(true);
+  // Empty means "let the server pick", which is what the API stores as null.
+  const [preferredEncoder, setPreferredEncoder] = useState('');
   const [preset, setPreset] = useState('veryfast');
   const [enableLowLatency, setEnableLowLatency] = useState(true);
   const [threadCount, setThreadCount] = useState(0);
@@ -112,6 +114,7 @@ export function SettingsPage() {
         const s = result.data.settings;
         setTranscodingSettings(s);
         setEnableHardwareAccel(s.enableHardwareAccel);
+        setPreferredEncoder(s.preferredEncoder ?? '');
         setPreset(s.preset);
         setEnableLowLatency(s.enableLowLatency);
         setThreadCount(s.threadCount);
@@ -158,7 +161,7 @@ export function SettingsPage() {
 
     const result = await apiClient.updateTranscodingSettings({
       enableHardwareAccel,
-      preferredEncoder: null,
+      preferredEncoder: preferredEncoder || null,
       preset,
       enableLowLatency,
       threadCount,
@@ -326,6 +329,28 @@ export function SettingsPage() {
               <FormHelperText>
                 {t('settings.enableHardwareAccelHelp', 'Use GPU encoding when available for better performance')}
               </FormHelperText>
+
+              <FormControl fullWidth margin="normal">
+                <InputLabel>{t('settings.preferredEncoder', 'Preferred Encoder')}</InputLabel>
+                <Select
+                  value={preferredEncoder}
+                  label={t('settings.preferredEncoder', 'Preferred Encoder')}
+                  onChange={(e: SelectChangeEvent) => setPreferredEncoder(e.target.value)}
+                >
+                  <MenuItem value="">{t('settings.encoderAutomatic', 'Automatic')}</MenuItem>
+                  {transcodingSettings?.availableEncoders?.map((encoder) => (
+                    <MenuItem key={encoder.encoder} value={encoder.encoder}>
+                      {encoder.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <FormHelperText>
+                  {t(
+                    'settings.preferredEncoderHelp',
+                    'Automatic picks the fastest encoder that works here. A choice that fails a test encode is ignored.'
+                  )}
+                </FormHelperText>
+              </FormControl>
             </Paper>
 
             {/* Performance Settings */}

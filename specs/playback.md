@@ -104,6 +104,9 @@ handlers are injected through `registerMouseMoveHandler` / `registerMouseDownHan
    [Streaming and Transcoding](streaming-and-transcoding.md). What the player relies on: requesting
    a variant playlist triggers prefetch of the first `prefetchSegments` (default 2, 0fc5947)
    segments, and each segment request prefetches the next N, so sequential playback rarely waits.
+   Since 2026-09-03 a segment the player is waiting for also takes an encoder slot ahead of any
+   prefetch, and a seek cancels the prefetches for the position just left, so the first segment
+   after a jump no longer queues behind speculative work.
 5. On `MANIFEST_PARSED` the level list becomes `availableQualities` (`Auto` prepended; labels from
    the playlist `NAME` attribute) and `video.play()` is attempted (autoplay rejection swallowed).
 6. Else if `video.canPlayType('application/vnd.apple.mpegurl')` (Safari): `video.src = hlsUrl`.

@@ -9,12 +9,14 @@ import { prisma, resetDatabase, createVideoMedia } from '../../test/db';
 interface FakeChild extends EventEmitter {
   stderr: EventEmitter
   kill: ReturnType<typeof jest.fn>
+  args: string[]
 }
 const spawned: FakeChild[] = [];
 jest.unstable_mockModule('child_process', () => ({
-  spawn: () => {
+  spawn: (_cmd: string, args: string[]) => {
     const child = new EventEmitter() as FakeChild;
     child.stderr = new EventEmitter();
+    child.args = args;
     child.kill = jest.fn(() => {
       setImmediate(() => child.emit('close', null));
       return true;
@@ -27,11 +29,17 @@ jest.unstable_mockModule('child_process', () => ({
 const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-hls-test-'));
 
 // Encoder detection shells out to ffmpeg at construction time; stub it.
+const softwareEncoder = { name: 'libx264', encoder: 'libx264', type: 'software', priority: 100 };
 jest.unstable_mockModule('../../utils/hwaccel', () => ({
-  detectBestEncoder: () => ({ name: 'libx264', type: 'software', available: true }),
+  detectBestEncoder: () => softwareEncoder,
+  detectBestEncoderAsync: async () => softwareEncoder,
   getEncoderArgs: () => [],
-  getEncoder: () => ({ name: 'libx264', type: 'software', available: true }),
+  getEncoderInputArgs: () => [],
+  getEncoder: () => softwareEncoder,
   isHardwareAccelerated: () => false,
+  listEncoderOptions: () => [softwareEncoder],
+  resolvePreferredEncoder: async () => null,
+  SOFTWARE_ENCODER: softwareEncoder,
 }));
 const actualAppConfig = await import('../../config/appConfig');
 jest.unstable_mockModule('../../config/appConfig', () => ({
@@ -184,6 +192,157 @@ describe('HlsService playlist synthesis', () => {
       quick.shutdown();
       await expect(pending).rejects.toThrow(/exited with code null/);
       expect(spawned[0].kill).toHaveBeenCalled();
+    });
+  });
+
+  describe('transcode slot priority', () => {
+    type Internals = {
+      ensureSegment: (
+        videoPath: string,
+        totalDuration: number,
+        quality: string,
+        segmentIndex: number,
+        audioTrack: string,
+        variantPath: string,
+        priority?: 'live' | 'prefetch'
+      ) => Promise<void>
+    };
+
+    const settle = () => new Promise((r) => setImmediate(r));
+    /** Which segment a spawned FFmpeg is writing, from its output path. */
+    const segmentOf = (child: FakeChild) => path.basename(child.args[child.args.length - 1]);
+
+    beforeEach(() => {
+      spawned.length = 0;
+    });
+
+    it('starts a player request ahead of prefetches already queued for a slot', async () => {
+      // Default maxConcurrentTranscodes is 2, so two encodes fill the pool.
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const internals = service as unknown as Internals;
+      const variant = path.join(cacheDir, 'prio', 'adefault', '720p');
+      const started = [
+        internals.ensureSegment('/media/a.mkv', 600, '720p', 0, 'default', variant, 'prefetch'),
+        internals.ensureSegment('/media/a.mkv', 600, '720p', 1, 'default', variant, 'prefetch'),
+      ];
+      await settle();
+      expect(spawned).toHaveLength(2);
+
+      const queuedPrefetch = internals.ensureSegment('/media/a.mkv', 600, '720p', 2, 'default', variant, 'prefetch');
+      const queuedLive = internals.ensureSegment('/media/a.mkv', 600, '720p', 50, 'default', variant, 'live');
+      await settle();
+      expect(spawned).toHaveLength(2);
+
+      // Free one slot: the player's segment goes next, not the older prefetch.
+      spawned[0].emit('close', 0);
+      await settle();
+      expect(spawned).toHaveLength(3);
+      expect(segmentOf(spawned[2])).toBe('50.ts');
+
+      spawned[1].emit('close', 0);
+      await settle();
+      expect(segmentOf(spawned[3])).toBe('2.ts');
+
+      spawned[2].emit('close', 0);
+      spawned[3].emit('close', 0);
+      await Promise.all([...started, queuedPrefetch, queuedLive]);
+    });
+
+    it('promotes a prefetch the player catches up to', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const internals = service as unknown as Internals;
+      const variant = path.join(cacheDir, 'promote', 'adefault', '720p');
+
+      const busy = [
+        internals.ensureSegment('/media/b.mkv', 600, '720p', 0, 'default', variant, 'prefetch'),
+        internals.ensureSegment('/media/b.mkv', 600, '720p', 1, 'default', variant, 'prefetch'),
+      ];
+      await settle();
+
+      const waiting = internals.ensureSegment('/media/b.mkv', 600, '720p', 2, 'default', variant, 'prefetch');
+      const alsoWaiting = internals.ensureSegment('/media/b.mkv', 600, '720p', 3, 'default', variant, 'prefetch');
+      await settle();
+
+      // The player asks for segment 3, joining the prefetch already queued.
+      const live = internals.ensureSegment('/media/b.mkv', 600, '720p', 3, 'default', variant, 'live');
+      spawned[0].emit('close', 0);
+      await settle();
+
+      expect(segmentOf(spawned[2])).toBe('3.ts');
+
+      spawned[1].emit('close', 0);
+      await settle();
+      spawned[2].emit('close', 0);
+      spawned[3].emit('close', 0);
+      await Promise.all([...busy, waiting, alsoWaiting, live]);
+    });
+  });
+
+  describe('abandoning prefetches after a seek', () => {
+    type Internals = {
+      ensureSegment: (
+        videoPath: string,
+        totalDuration: number,
+        quality: string,
+        segmentIndex: number,
+        audioTrack: string,
+        variantPath: string,
+        priority?: 'live' | 'prefetch'
+      ) => Promise<void>
+    };
+    const settle = () => new Promise((r) => setImmediate(r));
+
+    beforeEach(async () => {
+      await resetDatabase();
+      spawned.length = 0;
+    });
+
+    it('kills prefetches for the position the player has left', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const internals = service as unknown as Internals;
+      const media = await createVideoMedia({ path: '/media/seek.mkv', duration: 3600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+
+      const stale = internals
+        .ensureSegment(media.path, 3600, '720p', 0, 'default', variant, 'prefetch')
+        .catch(() => 'cancelled');
+      await settle();
+      expect(spawned).toHaveLength(1);
+
+      // The viewer jumps far ahead; segment 0 is no longer worth encoding.
+      const seek = service.getSegment(media.id, '720p', 100, 'default');
+      await settle();
+
+      expect(spawned[0].kill).toHaveBeenCalledWith('SIGKILL');
+      await expect(stale).resolves.toBe('cancelled');
+
+      // The seek target is encoding in the freed slot.
+      const target = spawned.find((c) => path.basename(c.args[c.args.length - 1]) === '100.ts');
+      expect(target).toBeDefined();
+      target!.emit('close', 1);
+      await expect(seek).resolves.toBeNull();
+    });
+
+    it('leaves the prefetch window in front of the player alone', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const internals = service as unknown as Internals;
+      const media = await createVideoMedia({ path: '/media/forward.mkv', duration: 3600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+
+      const ahead = internals
+        .ensureSegment(media.path, 3600, '720p', 11, 'default', variant, 'prefetch')
+        .catch(() => 'cancelled');
+      await settle();
+
+      // Default prefetchSegments is 2, so segment 11 is inside [10, 12].
+      const live = service.getSegment(media.id, '720p', 10, 'default');
+      await settle();
+
+      expect(spawned[0].kill).not.toHaveBeenCalled();
+
+      for (const child of spawned) child.emit('close', 1);
+      await live;
+      await expect(ahead).resolves.toBe('cancelled');
     });
   });
 });

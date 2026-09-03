@@ -114,6 +114,27 @@ export function sweepExpiredSegments(cacheRoot: string, ttlHours: number): numbe
 }
 
 /**
+ * Delete every cached segment. Returns the number deleted.
+ *
+ * Used when a setting changes the shape of a segment, such as its duration:
+ * playlists are synthesised from that number, so every file on disk covers
+ * the wrong span of the timeline and would play back as a stutter or a skip.
+ */
+export function purgeAllSegments(cacheRoot: string): number {
+  let deleted = 0;
+  for (const segment of listSegments(cacheRoot)) {
+    try {
+      fs.unlinkSync(segment.path);
+      deleted++;
+    } catch {
+      // Already gone
+    }
+  }
+  pruneEmptyDirs(cacheRoot);
+  return deleted;
+}
+
+/**
  * Bring the cache under `maxBytes` by deleting the least recently accessed
  * segments first. Returns what was removed.
  */

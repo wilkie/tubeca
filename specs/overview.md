@@ -232,7 +232,7 @@ Ordered by leverage. Each item's details are in the linked spec.
    ([Metadata Scraping](metadata-scraping.md)).
 7. ~~**Streaming robustness**~~ Done 2026-09-03: codec-aware Original, unified segment
    de-duplication, FFmpeg timeouts and shutdown, cache size enforcement, eviction on media
-   delete. Cancel-on-seek and live-over-prefetch priority remain
+   delete. Cancel-on-seek and live-over-prefetch priority followed in the third round
    ([Streaming](streaming-and-transcoding.md)).
 8. ~~**Runtime and deployment shape**~~ Done 2026-09-03: esbuild bundle run by `node`,
    `TUBECA_ROLE` api/worker split, SPA served by the API, Docker image, compose file and CI
@@ -273,10 +273,10 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
    job's success path, Identify cascading to both, artwork reused when the source URL has not
    moved, a TTL cache over provider calls, scraper config passed through to plugins, and the
    workers' duplicated artwork and credit code unified ([Metadata Scraping](metadata-scraping.md)).
-5. **Streaming responsiveness** (S/M): cancel in-flight prefetches on seek and give live
-   requests priority in the transcode semaphore, detect encoders asynchronously after listen,
-   validate the transcoding settings body, purge the cache when segment duration changes, and
-   finish VAAPI. ([Streaming](streaming-and-transcoding.md))
+5. ~~**Streaming responsiveness**~~ Done 2026-09-03: player requests take transcode slots ahead
+   of prefetches and cancel the ones a seek left behind, encoder detection runs after listen,
+   the transcoding settings body is validated, a segment-duration change purges the cache, and
+   VAAPI works ([Streaming](streaming-and-transcoding.md)).
 6. **Frontend data layer** (M to L): adopt a query library to replace the copy-pasted
    fetch/cancel patterns and the five "add to recent collection" copies, split the
    1000-line `LibraryPage`, lazy-load routes, and persist view mode and sort per library.

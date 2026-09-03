@@ -278,6 +278,60 @@ Update system settings.
 }
 ```
 
+### GET /settings/transcoding
+
+Get transcoding settings plus the encoders and presets this server offers. Admin only.
+
+**Response:**
+```json
+{
+  "settings": {
+    "enableHardwareAccel": true,
+    "preferredEncoder": null,
+    "preset": "veryfast",
+    "enableLowLatency": true,
+    "threadCount": 0,
+    "maxConcurrentTranscodes": 2,
+    "segmentDuration": 6,
+    "prefetchSegments": 2,
+    "bitrate1080p": 8000,
+    "bitrate720p": 5000,
+    "bitrate480p": 2500,
+    "bitrate360p": 1000,
+    "detectedEncoder": { "name": "string", "encoder": "string", "type": "hardware|software" },
+    "activeEncoder": { "name": "string", "encoder": "string", "type": "hardware|software" },
+    "availablePresets": ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium"],
+    "availableEncoders": [{ "name": "string", "encoder": "string", "type": "hardware|software" }]
+  }
+}
+```
+
+### PUT /settings/transcoding
+
+Update transcoding settings. Admin only. Every field is optional; those sent are validated and
+those omitted are left unchanged.
+
+| Field | Accepted values |
+|-------|-----------------|
+| `enableHardwareAccel`, `enableLowLatency` | boolean |
+| `preferredEncoder` | `null` or an `encoder` id from `availableEncoders` |
+| `preset` | one of `availablePresets` |
+| `threadCount` | whole number, 0-64 (0 means auto) |
+| `maxConcurrentTranscodes` | whole number, 1-16 |
+| `segmentDuration` | whole number, 1-30 seconds |
+| `prefetchSegments` | whole number, 0-10 |
+| `bitrate1080p`, `bitrate720p`, `bitrate480p`, `bitrate360p` | whole number, 100-100000 kbps |
+
+Changing `segmentDuration` purges every cached HLS segment, because playlists are computed from it.
+
+**Error Response (400):**
+```json
+{
+  "error": "Invalid transcoding settings",
+  "details": [{ "field": "segmentDuration", "message": "must be a whole number between 1 and 30 seconds" }]
+}
+```
+
 ---
 
 ## Library Endpoints
