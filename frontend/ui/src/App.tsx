@@ -18,6 +18,7 @@ import { UserCollectionPage } from './pages/UserCollectionPage';
 import { FavoritesPage } from './pages/FavoritesPage';
 import { WatchLaterPage } from './pages/WatchLaterPage';
 import { QueuePage } from './pages/QueuePage';
+import { HomePage } from './pages/HomePage';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -52,7 +53,7 @@ function App() {
           <Route path="/my-collections" element={<UserCollectionsPage />} />
           <Route path="/my-collections/:collectionId" element={<UserCollectionPage />} />
 
-            <Route path="/" element={<Box />} />
+            <Route path="/" element={<HomePage />} />
           </Routes>
         </Box>
       </Box>

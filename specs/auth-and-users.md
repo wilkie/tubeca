@@ -54,8 +54,9 @@
 ### Token format and verification
 
 `AuthService.generateToken` signs `{ userId, name, role }` with `JWT_SECRET` and `expiresIn: '24h'`
-(`authService.ts:24-26`). The secret falls back to the literal `'dev-secret-change-in-production'`
-when the env var is absent; nothing warns or refuses to start. Passwords are hashed with bcrypt at
+(`authService.ts`). The secret comes from `resolveJwtSecret()`: a missing, blank or
+`.env.example`-placeholder `JWT_SECRET` is fatal when `NODE_ENV=production` and falls back to a
+fixed development secret (with a console warning) otherwise. Passwords are hashed with bcrypt at
 10 salt rounds; the same constant is duplicated in `routes/users.ts:7` which calls `bcrypt` directly
 rather than going through `AuthService`.
 
@@ -77,14 +78,11 @@ Role gates as actually applied:
 - Editor: collection create/update/delete/refresh-metadata/refresh-images/identify, media delete/refresh-*, image download/delete, person refresh.
 - Any authenticated user: everything else, including all reads, all streaming, all `user-collections`, `GET /api/settings`, and the scraper search endpoints.
 
-Legacy handlers registered directly on `app` in `backend/src/index.ts` (from the initial commit)
-are *not* covered by any middleware: `POST /api/jobs/transcode`, `/api/jobs/thumbnail`,
-`/api/jobs/analyze` (`index.ts:515-640`) require no token at all and accept caller-supplied
-`inputPath`/`outputPath`. `POST /api/media/video`, `POST /api/media/audio` and
-`PATCH /api/settings` (`index.ts:316-460`) sit behind the mounted routers' `authenticate` (the
-router runs first and 401s anonymous callers) but have no role check, so a Viewer can create media
-rows or rename the instance. The frontend's `SettingsPage` actually uses the legacy
-`PATCH /api/settings` (`client.ts:319`), not the Admin-gated `PUT`.
+`backend/src/index.ts` registers only `/api/health` directly on `app`; every other endpoint lives
+on a router that applies `authenticate`. (Until 2026-09-03 the entry file also carried
+unauthenticated legacy handlers for `/api/jobs/*`, `/api/media*` and a role-less
+`PATCH /api/settings` that the settings page used; they were deleted and the settings router now
+accepts `PATCH` with `requireRole('Admin')`.)
 
 ### Query-string tokens for media elements
 
@@ -181,13 +179,13 @@ API calls return 403.
 - `fc8e567` 2025-12-03 Search page; `8143c03` 2025-12-10 Library group access control: `getAccessibleLibraries`, `canUserAccessLibrary`, and the separate filter in `search.ts`.
 - `d71d4e5` 2025-12-05 HLS streaming: `streamAuth` extended to whole stream router; HLS URL helpers with token.
 - No auth-specific commits since 2025-12-10.
+- 2026-09-03 Stop-the-bleeding batch: `resolveJwtSecret()` refuses placeholder/missing secrets in production (with tests); legacy unauthenticated handlers removed from `index.ts`; `PATCH /api/settings` added to the router behind `requireRole('Admin')`.
 
 ## Known Limitations
 
-- `JWT_SECRET` defaults to a hard-coded string when unset (`authService.ts:6`); a deployment that forgets the env var mints tokens anyone can forge.
+- Outside production a missing `JWT_SECRET` still falls back to a public constant; a `NODE_ENV` left at `development` on a real deployment would sign forgeable tokens.
 - Tokens are bearer secrets placed in URLs (`?token=`), so they end up in server logs, browser history, referrer headers and any shared link. The same 24h token is used for both API and media URLs; there is no short-lived, scoped media token.
 - No revocation: role changes, password changes and user deletion do not invalidate existing tokens (`authenticate` never hits the DB). No refresh, so users are logged out every 24h regardless of activity.
-- `POST /api/jobs/transcode|thumbnail|analyze` are entirely unauthenticated and take arbitrary filesystem paths (`index.ts:515-640`). `POST /api/media/video|audio` and `PATCH /api/settings` have no role check.
 - Group access is only enforced on `/api/libraries` and `/api/search`; collections, media, images, streams and persons are reachable by ID regardless of library membership. Search additionally disagrees with `LibraryService` about whether group-less libraries are public.
 - No rate limiting, lockout, or password requirements on `/api/auth/login` or `/api/auth/setup`; `cors()` is wide open (`index.ts:36`).
 - Setup race: `createInitialAdmin` does count-then-create without a transaction or unique constraint on "first admin".
@@ -200,8 +198,6 @@ API calls return 403.
 
 ## Opportunities
 
-- **Refuse to start without `JWT_SECRET` in production** (S): one check in `authService.ts`/`index.ts`; removes the single worst default.
-- **Authenticate and Admin-gate the legacy `app.*` handlers in `index.ts`, or delete them** (S): the routers already cover `/api/media` and `/api/settings`; the `/api/jobs/*` endpoints are unused by the frontend.
 - **Move the search access rule onto `LibraryService`** (S): call `getAccessibleLibraries` from `search.ts` so "public library" means the same thing everywhere.
 - **Enforce library access on collection/media/image/stream reads** (M): resolve `libraryId` for the requested entity (collections carry it directly; media via collection) and call `canUserAccessLibrary`; cache the user's group IDs per request to avoid the extra queries.
 - **Short-lived, media-scoped tokens for query-string URLs** (M): sign a separate `{ userId, scope: 'media' }` token with a short TTL from a dedicated endpoint, so leaked URLs cannot drive the admin API; would also let the 24h API token move to an `httpOnly` cookie.

@@ -27,7 +27,8 @@
 ## Goals
 
 - **Zero-config local dev.** Every env var has a fallback (`localhost` Redis, `file:./dev.db`,
-  a literal `dev-secret-change-in-production` JWT secret) so `pnpm dev` works with an empty `.env`.
+  a literal `dev-secret-change-in-production` JWT secret outside production) so `pnpm dev` works
+  with an empty `.env`.
 - **Keep secrets out of git.** `.env` and `tubeca.config.json` are git-ignored; only `.example`
   files are committed. The Arch package installs both under `/etc/tubeca` with `640 root:tubeca`
   (4500646, 7aa555d).
@@ -76,8 +77,9 @@ startup summary. Notable defaults:
 - `DATABASE_URL` -> `file:./dev.db` (`database.ts:6`), but `.env.example` and `prisma.config.ts`
   expect `file:./prisma/dev.db`. Running the API without `.env` therefore opens a different SQLite
   file than the one migrations were applied to.
-- `JWT_SECRET` -> `'dev-secret-change-in-production'` (`authService.ts:6`). A production process
-  with a missing variable silently signs tokens with a public constant.
+- `JWT_SECRET` -> `'dev-secret-change-in-production'` with a warning, but only when `NODE_ENV`
+  is not `production`; in production a missing, blank or placeholder value throws at import
+  (`authService.ts`, `resolveJwtSecret()`), so the process exits before listening.
 - `REDIS_PASSWORD` -> `undefined`; `REDIS_PORT` -> `6379` via `Number(x) || 6379`.
 - `NODE_ENV` controls Prisma query logging (`['query','error','warn']` in development) and whether
   the Prisma client is stashed on `global` for hot reload.
@@ -113,8 +115,8 @@ have no `apiKey`, and passes `{ apiKey }` to `loadScrapers()`.
 
 `Settings` holds a single row with `instanceName`. Three code paths touch it with different default
 names: `SettingsService.getOrCreateSettings()` (`'Tubeca Instance'`), `routes/settings.ts:104`
-(`'Tubeca'`), and the inline handlers in `index.ts:406-458` which use the service. `instanceName` is
-only displayed on the Settings page itself; no other frontend or backend code reads it.
+(`'Tubeca'`). `instanceName` is only displayed on the Settings page itself; no other frontend or
+backend code reads it.
 
 `TranscodingSettings` is created lazily with schema defaults (`veryfast`, 2 concurrent transcodes,
 6 s segments, 8000/5000/2500/1000 kbps). `transcodingSettingsService.ts` caches the row for 30 s and
@@ -161,13 +163,11 @@ which is hard-coded per worker (video 2, all others 1).
 3. `/api-docs` mounts Swagger UI from `swaggerSpec` (built at import time from JSDoc in
    `src/routes/*.ts`, `src/index.ts`). The spec's `servers` entry is hard-coded to
    `http://localhost:3000`.
-4. Routers are mounted for twelve `/api/*` prefixes. After them, `index.ts` defines inline legacy
-   handlers for `/api/health`, `/api/media*`, `/api/settings` (GET, PATCH) and `/api/jobs/*`. The
-   mounted `mediaRoutes` and `settingsRoutes` apply `router.use(authenticate)`, so requests reach the
-   inline handlers only when the router has no matching method: `PATCH /api/settings` passes
-   `authenticate` but not `requireRole('Admin')`, then lands on `index.ts:450`. The frontend's
-   `updateSettings` uses PATCH (`client.ts:373-378`), so in practice any logged-in Viewer can rename
-   the instance. `/api/jobs/transcode|thumbnail|analyze` are mounted with no authentication at all.
+4. Routers are mounted for twelve `/api/*` prefixes. The only handler registered directly on
+   `app` is `/api/health`. `routes/settings.ts` serves both `PUT` and `PATCH /api/settings` from
+   one Admin-gated handler; the frontend's `updateSettings` uses PATCH (`client.ts:373-378`).
+   (The inline legacy handlers for `/api/media*`, `/api/settings` and `/api/jobs/*` that used to
+   follow the routers were removed on 2026-09-03; `index.ts` shrank from 721 to 185 lines.)
 5. `/api/health` runs `SELECT 1` through Prisma and returns 200/503; it does not check Redis, ffmpeg
    or worker state.
 6. `startServer()`: `loadAppConfig()` -> `loadScrapers()` -> optional `fileWatcherService.start()`
@@ -214,8 +214,7 @@ requirement (54e40a2; `.nvmrc` and `engines.node >=22` followed in c95eedf). Bec
 `config/swagger.ts` declares the OpenAPI 3.0 skeleton (tags, `bearerAuth`, component schemas for
 `Error`, `User`, `Settings`, `Library`, `Collection`, `Media`, ...). `docs:generate` runs
 `tsx src/swagger.ts` to write `openapi.json`, then `redocly build-docs` to `docs/api.html`; both
-outputs are git-ignored. Because the inline handlers and the routers each document `/api/settings`
-with different verbs and response shapes, the generated spec lists both.
+outputs are git-ignored.
 
 ## Interactions
 
@@ -256,16 +255,15 @@ with different verbs and response shapes, the generated spec lists both.
   `prisma.config.ts` requiring Node 22.
 - `c95eedf` 2026-07-01 `PORT` passes through Turbo to the Vite proxy; `.nvmrc` 22; `engines.node >=22`.
 - `7052d0c` 2026-07-01 `UV_THREADPOOL_SIZE=24` in scripts; poll interval default 30 s and `binaryInterval`.
+- 2026-09-03 Legacy inline handlers removed from `index.ts`; `PATCH /api/settings` added to the router (Admin); `JWT_SECRET` validated at startup in production.
 
 ## Known Limitations
 
-- No validation of any layer at startup: a typo in `tubeca.config.json` keys, a missing `JWT_SECRET`
-  in production, or a `DATABASE_URL` pointing at an unmigrated file all start the server normally.
+- No validation of the config file or `DATABASE_URL` at startup: a typo in `tubeca.config.json`
+  keys or a `DATABASE_URL` pointing at an unmigrated file starts the server normally. Only
+  `JWT_SECRET` is checked.
 - `DATABASE_URL` default differs between `database.ts` (`file:./dev.db`) and `.env.example` /
   `prisma.config.ts` (`file:./prisma/dev.db`).
-- `PATCH /api/settings` bypasses the Admin check and is the verb the frontend uses; `/api/jobs/*`
-  and the inline `/api/media*` handlers in `index.ts` are dead or unauthenticated duplicates of
-  router endpoints.
 - Config file changes require a restart; DB settings take up to 60 s to apply due to stacked caches.
 - Workers run inside the API process: a heavy scan or transcode competes with request handling, and
   the API cannot be scaled or restarted independently of in-flight jobs.
@@ -284,11 +282,8 @@ with different verbs and response shapes, the generated spec lists both.
 ## Opportunities
 
 - Introduce a single typed config module (e.g. zod schema over env + file) that validates once at
-  startup, logs the effective configuration, and refuses to start in production without
-  `JWT_SECRET`. Rationale: removes the silent-default class of bugs above. (M)
-- Remove the inline `/api/settings`, `/api/media*` and `/api/jobs/*` handlers from `index.ts`, and
-  switch the frontend to `PUT /api/settings` (or add PATCH to the router with `requireRole`).
-  Rationale: closes the Viewer-can-rename hole and the unauthenticated job endpoints. (S)
+  startup and logs the effective configuration, extending the `JWT_SECRET` check to the other
+  layers. Rationale: removes the silent-default class of bugs above. (M)
 - Align `DATABASE_URL` defaults and make `SettingsService` the only writer of `Settings` (routes
   currently bypass it with a different default name). (S)
 - Cache `loadAppConfig()` once per process (or inject the loaded config) and drop the second cache

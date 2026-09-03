@@ -68,7 +68,7 @@
 | `backend/src/workers/libraryScanWorker.ts`, `backend/src/services/fileWatcherService.ts` | Callers of `probeMediaFile`; write `Media.duration`, `Media.thumbnails` and `MediaStream` rows. |
 | `backend/src/queues/videoQueue.ts`, `backend/src/workers/videoWorker.ts` | BullMQ `video-processing` queue with `transcode`/`thumbnail`/`analyze` job types; all three handlers are `TODO` placeholders that sleep and bump progress. |
 | `backend/src/config/appConfig.ts` | `hlsCache` block of `tubeca.config.json`: `path`, `maxSizeGB`, `segmentTTLHours`, `segmentDuration`; creates the cache directory. |
-| `backend/src/index.ts` | Mounts `/api/stream`, starts/stops the cleanup service and video worker, exposes `POST /api/jobs/{transcode,thumbnail,analyze}`. |
+| `backend/src/index.ts` | Mounts `/api/stream`, starts/stops the cleanup service and video worker. |
 | `backend/prisma/schema.prisma` | `Media.duration`, `Media.thumbnails`, `MediaStream`, `TranscodingSettings`. |
 
 ## How It Works
@@ -248,12 +248,13 @@ backoff, and retention of 1000/24 h completed and 7 d failed jobs. `videoWorker.
 concurrency 2 with a 10/s limiter. All three handlers are placeholders from the initial commit: they
 `console.log` their inputs, `setTimeout` for 1-4 s while stepping `job.updateProgress`, and
 `prisma.media.update` with only `updatedAt`; `processAnalyze` writes a hardcoded `duration: 120`
-into the real `Media` row, which would corrupt playlists if anyone posted to `POST
-/api/jobs/analyze`. The intended designs are legible from the data shapes: `transcode` was to
+into the real `Media` row, which would corrupt playlists if any producer ever enqueued an
+`analyze` job. The intended designs are legible from the data shapes: `transcode` was to
 pre-encode a file to a target resolution/container on disk (superseded by on-demand HLS),
 `thumbnail` was to grab a poster frame at `timestamp` (superseded by scraped images and external
-trickplay), and `analyze` was to do what `probeMediaFile` now does inline at scan time. The three
-`POST /api/jobs/*` routes in `index.ts` are unauthenticated and not called by the frontend.
+trickplay), and `analyze` was to do what `probeMediaFile` now does inline at scan time. Nothing
+enqueues these jobs any more: the unauthenticated `POST /api/jobs/*` routes that used to were
+removed on 2026-09-03, so the worker is now unreachable dead code.
 
 ### Frontend protocol summary (see playback.md)
 
@@ -315,6 +316,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - `7052d0c` 2026-07-01 `UV_THREADPOOL_SIZE=24` in backend scripts and watcher polling advice for
   network mounts; no change to streaming code, but it addresses the threadpool contention that sync
   `fs` calls in the stream routes contribute to.
+- 2026-09-03 `POST /api/jobs/*` endpoints removed with the other legacy handlers in `index.ts`; the video worker no longer has a producer.
 
 ## Known Limitations
 
@@ -354,8 +356,8 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Trickplay is external only**; the `thumbnail` job that might have generated sprites is a stub,
   and the reported interval is hardcoded.
 - **Blocking boot**: encoder detection uses `execSync` with up to ~55 s of worst-case timeouts.
-- **Unauthenticated `POST /api/jobs/*`** endpoints reach stub handlers, one of which overwrites
-  `Media.duration` with 120.
+- **The `video-processing` worker is dead code** with a harmful `analyze` stub (overwrites
+  `Media.duration` with 120); nothing enqueues to it since the job endpoints were removed.
 - **No tests** for any file in this part (the only backend tests are `authService` and
   `mediaParser`).
 

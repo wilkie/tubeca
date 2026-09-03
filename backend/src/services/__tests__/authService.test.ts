@@ -1,4 +1,4 @@
-import { AuthService } from '../authService';
+import { AuthService, resolveJwtSecret } from '../authService';
 
 describe('AuthService', () => {
   let authService: AuthService;
@@ -89,5 +89,53 @@ describe('AuthService', () => {
       expect(decoded).toHaveProperty('exp');
       expect(decoded).toHaveProperty('iat');
     });
+  });
+});
+
+describe('resolveJwtSecret', () => {
+  const PLACEHOLDER = 'change-this-to-a-secure-random-string';
+  const originalWarn = console.warn;
+  let warnings: string[] = [];
+
+  beforeEach(() => {
+    warnings = [];
+    console.warn = (message: string) => {
+      warnings.push(message);
+    };
+  });
+
+  afterEach(() => {
+    console.warn = originalWarn;
+  });
+
+  it('returns the configured secret', () => {
+    expect(resolveJwtSecret({ JWT_SECRET: 'abc123', NODE_ENV: 'production' })).toBe('abc123');
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('throws in production when the secret is missing', () => {
+    expect(() => resolveJwtSecret({ NODE_ENV: 'production' })).toThrow(/JWT_SECRET must be set/);
+  });
+
+  it('throws in production when the secret is the .env.example placeholder', () => {
+    expect(() => resolveJwtSecret({ NODE_ENV: 'production', JWT_SECRET: PLACEHOLDER })).toThrow(
+      /JWT_SECRET must be set/
+    );
+  });
+
+  it('throws in production when the secret is blank', () => {
+    expect(() => resolveJwtSecret({ NODE_ENV: 'production', JWT_SECRET: '   ' })).toThrow();
+  });
+
+  it('falls back to a development default with a warning outside production', () => {
+    const secret = resolveJwtSecret({ NODE_ENV: 'development' });
+    expect(secret).toBe('dev-secret-change-in-production');
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('treats the placeholder as unset outside production', () => {
+    expect(resolveJwtSecret({ NODE_ENV: 'test', JWT_SECRET: PLACEHOLDER })).toBe(
+      'dev-secret-change-in-production'
+    );
   });
 });

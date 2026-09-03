@@ -255,5 +255,10 @@
     "itemsSelected_one": "{{count}} selected",
     "clear": "Clear selection",
     "selectAll": "Select All"
+  },
+  "home": {
+    "title": "Your Libraries",
+    "empty": "No libraries are available yet.",
+    "addLibrary": "Add a library"
   }
 }

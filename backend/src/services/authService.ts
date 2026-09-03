@@ -3,7 +3,31 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
 import type { Role } from '@prisma/client';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+const DEV_JWT_SECRET = 'dev-secret-change-in-production';
+const PLACEHOLDER_JWT_SECRET = 'change-this-to-a-secure-random-string';
+
+/**
+ * Resolve the JWT signing secret from the environment.
+ *
+ * In production a missing or placeholder secret is a fatal misconfiguration:
+ * anyone could mint tokens. Outside production we fall back to a fixed
+ * development secret and warn.
+ */
+export function resolveJwtSecret(env: Record<string, string | undefined> = process.env): string {
+  const secret = env.JWT_SECRET?.trim();
+  if (secret && secret !== PLACEHOLDER_JWT_SECRET) {
+    return secret;
+  }
+  if (env.NODE_ENV === 'production') {
+    throw new Error(
+      'JWT_SECRET must be set to a secure random value in production (e.g. `openssl rand -hex 32`)'
+    );
+  }
+  console.warn('⚠️  JWT_SECRET is not set; using an insecure development default');
+  return DEV_JWT_SECRET;
+}
+
+const JWT_SECRET = resolveJwtSecret();
 const SALT_ROUNDS = 10;
 
 export interface TokenPayload {

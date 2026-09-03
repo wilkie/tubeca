@@ -111,10 +111,12 @@
 
 `post_install`: `systemd-sysusers`, `systemd-tmpfiles --create`, `chown -R tubeca:tubeca
 /opt/tubeca /var/lib/tubeca`, config files to `root:tubeca 0640` (4500646), then
-`sudo -u tubeca npx prisma generate`, `npx prisma migrate deploy || npx prisma db push`,
-then generate `JWT_SECRET` with `openssl rand -hex 32` if the placeholder is present, then
-`sed` `NODE_ENV=development -> production` and `DATABASE_URL` `dev.db -> tubeca.db`. All Prisma
-commands are `2>/dev/null || true`, so failures are silent. `post_upgrade` repeats the chown/
+`sudo -u tubeca npx prisma generate`, then generate `JWT_SECRET` with `openssl rand -hex 32` if
+the placeholder is present, then `sed` `NODE_ENV=development -> production` and `DATABASE_URL`
+`dev.db -> tubeca.db`, and only then `npx prisma migrate deploy || npx prisma db push` (the
+migration step ran before the `sed` until 2026-09-03 and therefore migrated the wrong file; its
+stderr is no longer swallowed, though `|| true` still keeps the install from failing).
+`post_upgrade` repeats the chown/
 chmod, runs `prisma generate` + `migrate deploy`, and restarts whichever services are active.
 `pre_remove` stops/disables the units; `post_remove` prints what was preserved.
 
@@ -216,13 +218,14 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 - `6c12ed4` 2025-12-19 — Vite proxy uses `127.0.0.1` instead of `localhost`.
 - `c95eedf` 2026-07-01 — `PORT` passed through Turbo to the Vite proxy; `engines.node >= 22`; `.nvmrc`.
 - `7052d0c` 2026-07-01 — `UV_THREADPOOL_SIZE=24` added to `dev`/`start` scripts (not to the systemd unit).
+- 2026-09-03 — `tubeca.install` runs migrations after rewriting `DATABASE_URL`; Prisma stderr no longer hidden.
 
 ## Known Limitations
 
-- **First-boot database bug.** `post_install` runs `prisma migrate deploy` *before* the `sed`
-  that changes `DATABASE_URL` from `dev.db` to `tubeca.db`, so migrations land in
-  `prisma/dev.db` and the service starts against an empty `tubeca.db`. Errors are hidden by
-  `2>/dev/null || true`. It self-heals on the first `post_upgrade`.
+- **Migration failures do not fail the install.** `migrate deploy || db push || true` prints
+  errors now but still reports success; a broken migration is only noticed when the service
+  fails to start. Installs made before 2026-09-03 may have an empty `tubeca.db` and a migrated
+  `dev.db` until their first `post_upgrade`.
 - **`serve` on 8080 cannot reach the API.** Relative `/api` calls hit `serve`, which returns
   `index.html`. Without nginx the documented `http://localhost:8080` entry point is broken.
 - **Two divergent unit definitions.** `systemd/*.service` (plain `node`, `npx serve`,
@@ -246,8 +249,8 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 
 ## Opportunities
 
-- **Fix `post_install` ordering** — move the `sed` on `DATABASE_URL`/`NODE_ENV` above the
-  migration step and stop swallowing Prisma errors. (S)
+- **Fail `post_install` on migration errors** (drop the trailing `|| true`, or at least print a
+  loud warning) now that the ordering is fixed. (S)
 - **Serve the SPA from the backend** (`express.static(frontend/ui/dist)` + SPA fallback) and drop
   `tubeca-frontend.service` and `serve`; one process, one port, works without nginx. (M)
 - **Emit runnable ESM from `tsc`** (add `.js` extensions or switch to `moduleResolution:

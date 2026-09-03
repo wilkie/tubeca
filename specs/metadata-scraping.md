@@ -54,7 +54,7 @@
 
 At boot `backend/src/index.ts:647` calls `getScraperConfigs(appConfig)` then `loadScrapers()`. The loader is not a discovery mechanism: it `await import()`s the two known packages if a config block exists for them, registers the factory's plugin, and calls `initialize()` on each. Both plugin `package.json` files carry a `"pluginType": "scraper"` marker that nothing reads. `getScraperConfigs` strips everything except `apiKey`, so the `language`, `baseUrl`, and `imageSize` options that both plugins accept in `initialize()` cannot be set from config; TMDB is always `en-US`/`w500` and TVDB always `eng`.
 
-Configuration lives in `tubeca.config.json` under `scrapers.tmdb` / `scrapers.tvdb` with `enabled` and `apiKey` (see [Configuration](configuration.md)). A scraper with `enabled: false` or no key is skipped with a console warning. Note that the checked-in `tubeca.config.json` in this repo contains real-looking API keys and has TVDB disabled.
+Configuration lives in `tubeca.config.json` under `scrapers.tmdb` / `scrapers.tvdb` with `enabled` and `apiKey` (see [Configuration](configuration.md)). A scraper with `enabled: false` or no key is skipped with a console warning. The file is git-ignored (only `tubeca.config.example.json` is committed); the developer's local copy has TVDB disabled.
 
 ### TMDB plugin
 
@@ -160,7 +160,7 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 - **Person merging by exact name** as the last resort in `findOrCreatePerson` can conflate different people with the same name across works; TMDB credits never include an IMDB ID, so the "most reliable" key is never populated.
 - **No caching of provider responses**: every episode job re-fetches `/tv/{id}` for the show name, every show/film job re-fetches `/images`; refreshes redo full detail calls; a season's episodes each trigger a fresh series search.
 - **Sequential, non-transactional credit rewrite**: `deleteMany` then per-credit `create` (+ person lookup + photo fetch) runs outside a transaction; a crash mid-way leaves a collection with partial credits.
-- **Secrets in the repo**: `tubeca.config.json` at the repo root is committed with API keys.
+- **Secrets were in history**: `tubeca.config.json` with live keys was committed early on; it was purged from history and the keys rotated on 2026-09-03, but clones from before that date still carry it.
 - **Tests**: only `mediaParser.test.ts` and `parseTitle.test.ts` (both from 27c0663) and a menu-visibility test in `CollectionOptionsMenu.test.tsx`. No tests for the plugins, loader, workers, queue helpers, `personService`, or the search/identify routes.
 
 ## Opportunities

@@ -124,36 +124,29 @@ Limitations and Opportunities sections; the pointers here are the entry points.
 Group membership is enforced only when listing libraries and (with a different rule) in
 search. Collections, media, images, HLS streams, persons and public user collections are all
 served by id to any authenticated user. The same 24-hour login JWT is embedded in every image
-and stream URL as a query parameter, and `JWT_SECRET` silently falls back to a hard-coded
-string. Seen in [Auth](auth-and-users.md), [Content Model](content-model.md),
+and stream URL as a query parameter. Seen in [Auth](auth-and-users.md), [Content Model](content-model.md),
 [Images](images.md), [Streaming](streaming-and-transcoding.md), [Search](search.md).
 
-### Legacy routes in the entry file
+### Secrets were in history
 
-`backend/src/index.ts` is 721 lines, most of it inline handlers from the initial commit that
-predate the routers. `POST /api/jobs/transcode|thumbnail|analyze` require no token and accept
-caller-supplied paths; the `analyze` stub overwrites a real `Media.duration` with a constant.
-`PATCH /api/settings`, which the settings page actually calls, falls through the router to an
-inline handler with no role check, so a Viewer can rename the instance. See
-[Configuration](configuration.md) and [Auth](auth-and-users.md).
-
-### Secrets in history
-
-`tubeca.config.json` with live TMDB and TVDB API keys was committed in `41cf2f0` and
-`d7d4c32` before being removed in `363b909`. The keys still in the working copy are the same
-ones, and they remain recoverable from git history. They should be rotated regardless of
-whether the history is rewritten. See [Metadata Scraping](metadata-scraping.md).
+`tubeca.config.json` with live TMDB and TVDB API keys was committed in the second day of the
+project and removed a week later, but stayed recoverable from git history until 2026-09-03,
+when the file was purged from every commit (rewriting all hashes after the first four) and the
+keys were rotated. Clones made before that date still carry the old objects. The config file
+remains git-ignored; see [Metadata Scraping](metadata-scraping.md) and
+[Configuration](configuration.md).
 
 ### Backend is untested
 
 Two backend test files (auth service, title parser) cover a 14.8k-line backend. The scan
 worker, both scrape workers, HLS service, every service and every route are untested, and the
 pre-commit hook runs lint and typecheck but not tests. Several bugs the specs found are the
-kind a route test catches immediately: `GET /api/persons/search` is unreachable because
-`/:id` is registered first; sorting by release date, rating or runtime is applied per page in
-memory so infinite scroll is globally unordered; the search endpoint applies the same offset to
-two parallel queries. Frontend coverage is far better (42 files, 854 cases) but thin on
-contexts and hooks.
+kind a route test catches immediately: `GET /api/persons/search` was unreachable for nine
+months because `/:id` was registered first; sorting by release date, rating or runtime is
+applied per page in memory so infinite scroll is globally unordered; the search endpoint applies
+the same offset to two parallel queries. Frontend coverage is far better (43 files) but thin on
+contexts and hooks, and 29 cases in three files currently fail on `main` because the pre-commit
+hook never runs them.
 
 ### One process, blocking work, leaky lifecycles
 
@@ -202,26 +195,24 @@ path double-plays through two elements. See [Libraries](libraries-and-scanning.m
 
 ### Deployment does not work as documented
 
-The Arch install script runs migrations before rewriting `DATABASE_URL`, so first boot starts
-against an empty database. The packaged layout (backend plus `serve -s dist`) has no proxy, the
+The packaged layout (backend plus `serve -s dist`) has no proxy, the
 SPA hard-codes a relative `/api` base and the backend serves no static files, so the documented
 entry point cannot reach the API without nginx. `pnpm start` and the committed systemd unit run
 plain `node` against extensionless ESM output that only works under `tsx`. There are no release
-tags, no CI and no container image. The root route of the SPA renders an empty box, which is
-where login sends users. See [Deployment](deployment.md), [Frontend App](frontend-app.md).
+tags, no CI and no container image. See [Deployment](deployment.md),
+[Frontend App](frontend-app.md).
 
 ## Suggested Direction
 
 Ordered by leverage. Each item's details are in the linked spec.
 
-1. **Stop the bleeding** (all S): rotate the TMDB/TVDB keys; refuse to start without
-   `JWT_SECRET`; delete the legacy inline handlers in `index.ts` and add `PATCH` (or switch the
-   client to `PUT`) on the settings router; fix the install script ordering; register
-   `/persons/search` before `/:id`; give `/` a real landing page. Each is under an hour and
-   several are security fixes. ([Auth](auth-and-users.md), [Configuration](configuration.md),
-   [Deployment](deployment.md), [Frontend App](frontend-app.md))
-2. **Backend test scaffolding** (M): a Prisma test database helper and supertest, then tests
-   for the group filter, pagination and sorting, the scan worker's path mapping, scrape
+1. ~~**Stop the bleeding**~~ Done 2026-09-03: keys rotated and purged from history,
+   `JWT_SECRET` enforced in production, legacy inline handlers deleted, Admin-gated
+   `PATCH /api/settings`, install-script ordering fixed, `/persons/search` reachable, `/` has a
+   landing page.
+2. **Test scaffolding** (M): repair the 29 failing frontend cases and add `pnpm test` to the
+   pre-commit hook; then a Prisma test database helper and supertest for the backend, with
+   tests for the group filter, pagination and sorting, the scan worker's path mapping, scrape
    matching, and playlist synthesis. Everything below gets safer once this exists.
 3. **Enforce library access on content** (M): one middleware that resolves an entity's
    library and checks the user's groups, applied to collections, media, images and streams;

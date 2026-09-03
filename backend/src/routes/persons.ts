@@ -11,6 +11,52 @@ const imageService = new ImageService();
 // All routes require authentication
 router.use(authenticate);
 
+// NOTE: /search must be registered before /:id or Express routes "search" to the id handler.
+/**
+ * @openapi
+ * /api/persons/search:
+ *   get:
+ *     tags:
+ *       - Persons
+ *     summary: Search persons
+ *     description: Search for persons by name
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search query
+ *     responses:
+ *       200:
+ *         description: Search results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 persons:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Person'
+ *       400:
+ *         description: Query parameter is required
+ */
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || typeof q !== 'string') {
+      return res.status(400).json({ error: 'Query parameter q is required' });
+    }
+
+    const persons = await personService.searchByName(q);
+    res.json({ persons });
+  } catch {
+    res.status(500).json({ error: 'Failed to search persons' });
+  }
+});
+
 /**
  * @openapi
  * /api/persons/{id}:
@@ -117,51 +163,6 @@ router.get('/:id', async (req, res) => {
     res.json({ person });
   } catch {
     res.status(500).json({ error: 'Failed to fetch person' });
-  }
-});
-
-/**
- * @openapi
- * /api/persons/search:
- *   get:
- *     tags:
- *       - Persons
- *     summary: Search persons
- *     description: Search for persons by name
- *     parameters:
- *       - in: query
- *         name: q
- *         required: true
- *         schema:
- *           type: string
- *         description: Search query
- *     responses:
- *       200:
- *         description: Search results
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 persons:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Person'
- *       400:
- *         description: Query parameter is required
- */
-router.get('/search', async (req, res) => {
-  try {
-    const { q } = req.query;
-
-    if (!q || typeof q !== 'string') {
-      return res.status(400).json({ error: 'Query parameter q is required' });
-    }
-
-    const persons = await personService.searchByName(q);
-    res.json({ persons });
-  } catch {
-    res.status(500).json({ error: 'Failed to search persons' });
   }
 });
 

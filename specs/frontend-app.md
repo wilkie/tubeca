@@ -105,9 +105,11 @@ top-level `Routes` with `/login`, `/setup`, and a catch-all `/*` that is wrapped
 `App.tsx` adds `ActiveLibraryProvider`, the header/sidebar chrome, and a nested `Routes` with 18
 routes. All page components are statically imported; there is no `React.lazy` or `Suspense`
 anywhere in `src/`, so the production bundle is a single 1.49MB `index-*.js` (plus 547 bytes of
-CSS) in `frontend/ui/dist/assets/`. Note that the `/` route renders an empty `<Box />`
-(`App.tsx:57`), and `LoginPage`, `SetupPage`, `CollectionPage` (after delete) and `MediaPage`
-(after delete) all `navigate('/')`, so those flows land on a page that is just the header. The
+CSS) in `frontend/ui/dist/assets/`. The `/` route renders `HomePage`, a card grid of the
+libraries the user can see (icon by type, click sets the active library and opens
+`/library/:id`, empty state with an admin shortcut to `/admin/libraries`); `LoginPage`,
+`SetupPage`, `CollectionPage` (after delete) and `MediaPage` (after delete) all `navigate('/')`
+and land there. The
 `/libraries` route is retained as an alias of `/admin/libraries` for old links.
 
 ### Theme and global styles
@@ -311,11 +313,13 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - `758f70f` 2025-12-20 `ScrollRestorationContext` + `NavigationLoadingOverlay`.
 - `c95eedf` 2026-07-01 Vite proxy follows `PORT`.
 - `27c0663` 2026-09-02 `parseTitle` util + test (working tree).
+- 2026-09-03 `HomePage` added at `/` (library cards, empty state, tests); replaces the empty `<Box />`.
 
 ## Known Limitations
 
-- **`/` is blank.** `App.tsx:57` maps the root to `<Box />`, yet login, setup and post-delete
-  flows navigate there. The user sees only the header until they click a library tab.
+- **Test suite is red on `main`.** As of 2026-09-03, 29 cases across `apiClient.test.ts`,
+  `LibraryPage.test.tsx` and `SearchPage.test.tsx` fail on the committed tree (they predate the
+  HomePage change); the pre-commit hook does not run tests, so this went unnoticed.
 - **No code splitting.** One 1.49MB JS bundle; `PlayPage`, hls.js, dnd-kit and the admin pages
   are downloaded before the login form renders.
 - **Expired tokens are not handled.** `request()` returns the backend error text on 401; nothing
@@ -346,8 +350,8 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Opportunities
 
-- **Route to a real home page** (`/` → redirect to the first library or a dashboard) — fixes
-  the blank landing after login and delete flows. (S)
+- **Repair the three failing test files and add `pnpm test` to the pre-commit hook** so the
+  suite stays green. (S)
 - **Lazy-load routes** with `React.lazy` + `Suspense` per page, at minimum `PlayPage`
   (hls.js), `QueuePage`/`UserCollectionPage` (dnd-kit) and the admin pages. (S)
 - **Adopt a query library** (TanStack Query or SWR): would replace the copy-pasted

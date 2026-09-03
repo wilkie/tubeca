@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import { prisma } from '../config/database';
 import { authenticate, requireRole } from '../middleware/auth';
 import {
@@ -70,7 +71,7 @@ router.get('/', async (_req, res) => {
  *       200:
  *         description: Updated settings
  */
-router.put('/', requireRole('Admin'), async (req, res) => {
+const updateInstanceSettings = async (req: Request, res: Response) => {
   try {
     const { instanceName } = req.body;
 
@@ -91,7 +92,34 @@ router.put('/', requireRole('Admin'), async (req, res) => {
   } catch {
     res.status(500).json({ error: 'Failed to update settings' });
   }
-});
+};
+
+router.put('/', requireRole('Admin'), updateInstanceSettings);
+
+/**
+ * @openapi
+ * /api/settings:
+ *   patch:
+ *     tags:
+ *       - Settings
+ *     summary: Update settings
+ *     description: Partially update instance settings (Admin only). Same semantics as PUT.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               instanceName:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Updated settings
+ *       403:
+ *         description: Admin role required
+ */
+router.patch('/', requireRole('Admin'), updateInstanceSettings);
 
 /**
  * @openapi

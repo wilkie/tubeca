@@ -135,10 +135,10 @@
 
 ### People search
 
-`GET /api/persons/search` (`persons.ts:153`, `contains` on `Person.name`, limit 20) is
-registered **after** `GET /:id` (`persons.ts:46`), so Express hands `/api/persons/search`
-to the `:id` handler and it 404s. `apiClient.searchPersons` has a URL unit test but no UI
-caller; PersonPage has no search. `POST /api/collections/search` (identification) queries
+`GET /api/persons/search` (`contains` on `Person.name`, limit 20) is registered before
+`GET /:id` in `persons.ts` (it was shadowed by `/:id` until 2026-09-03; a router-order test in
+`routes/__tests__/persons.test.ts` guards the fix). `apiClient.searchPersons` has a URL unit
+test but no UI caller; PersonPage has no search. `POST /api/collections/search` (identification) queries
 external scrapers and belongs to Metadata Scraping.
 
 ## Interactions
@@ -162,7 +162,7 @@ external scrapers and belongs to Metadata Scraping.
 ## History
 
 - `a3f2f55` 2025-11-30 — People listing added, including `personService.searchByName` and
-  `GET /api/persons/search` (already shadowed by `/:id`).
+  `GET /api/persons/search` (shadowed by `/:id` until 2026-09-03).
 - `f7f96fd` 2025-12-02 — Library sort controls (name/dateAdded/releaseDate/rating/runtime);
   backend returns sortable metadata fields.
 - `fc8e567` 2025-12-03 — Search page and `GET /api/search` added: name `contains` across
@@ -182,6 +182,7 @@ external scrapers and belongs to Metadata Scraping.
 - `78d94c1` 2025-12-14 — Multi-select + Select All on Search page, feeding
   `SelectionActionBar`.
 - `758f70f` 2025-12-20 — Scroll/state restoration for Search and Library pages.
+- 2026-09-03 — `/api/persons/search` registered before `/:id`, with a router-order test.
 
 ## Known Limitations
 
@@ -191,8 +192,8 @@ external scrapers and belongs to Metadata Scraping.
 - **Substring `LIKE` with no index, no FTS, no ranking.** Every search is a full table scan
   of `Collection` then `Media`, results are alphabetical rather than by relevance, and
   "Matrix Reloaded" does not match "matrix reloded". Case-insensitivity is ASCII-only.
-- **`/api/persons/search` is unreachable** because `/:id` is registered first; the client
-  method is dead code and PersonPage has no search.
+- **`/api/persons/search` has no UI.** The endpoint works but `apiClient.searchPersons` is
+  dead code and PersonPage/SearchPage have no people search.
 - **Access-control divergence.** `libraryService.getAccessibleLibraries` treats libraries
   with no groups as public, but `search.ts` only includes group-linked libraries, so a
   non-admin can browse a public library yet get zero search results from it.
@@ -218,8 +219,8 @@ external scrapers and belongs to Metadata Scraping.
 
 ## Opportunities
 
-- **Fix persons route ordering** (move `/search` above `/:id`) and wire `searchPersons`
-  into the Search page as a third result section. S.
+- **Wire `searchPersons` into the Search page** as a third result section now that the
+  endpoint is reachable. S.
 - **Reuse `libraryService.getAccessibleLibraries` in `search.ts`** so public (no-group)
   libraries are searchable and the empty response has the standard shape. S.
 - **Extract a shared `buildCollectionWhere({ nameFilter, keywordIds, excludedRatings,

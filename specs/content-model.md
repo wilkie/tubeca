@@ -187,9 +187,9 @@ order depends on filenames sorting correctly.
   TMDB/TVDB id exists, synchronously calls the scraper's `getPersonMetadata`, updates the row,
   downloads a photo if none exists, and re-reads. A first visit to a person page therefore
   performs network I/O inside the request.
-- `GET /api/persons/search?q=`: name `contains`, limit 20. **Shadowed**: `router.get('/:id')` is
-  registered first, so `/search` resolves to `getPersonById('search')` and returns 404. The
-  client method `searchPersons` exists but nothing in the UI calls it.
+- `GET /api/persons/search?q=`: name `contains`, limit 20. Registered before `/:id` (it was
+  shadowed until 2026-09-03). The client method `searchPersons` exists but nothing in the UI
+  calls it.
 - `POST /:id/refresh` (Editor): same scraper fetch as the lazy path, 404 if no scraper returns data.
 
 `getPersonById` (`personService.ts:170-352`) issues four queries (person, `showCredit`,
@@ -290,6 +290,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - `b088bdc` 2025-12-15 Identify feature (`POST /search`, `POST /:id/identify`, `IdentifyDialog`).
 - `b6003ef`, `0fc5947` 2025-12-16/19 `TranscodingSettings` table (`add_transcoding_settings`,
   `add_max_concurrent_transcodes`); last schema change to date.
+- 2026-09-03 `/api/persons/search` moved above `/:id` in `routes/persons.ts`.
 
 ## Known Limitations
 
@@ -308,8 +309,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - **Identify does not clear keywords or stale details.** `saveKeywords` only connects; a film
   re-identified as a different film keeps the old film's keywords. Detail fields not returned by
   the new scrape keep their previous values (upsert with partial data).
-- **`GET /api/persons/search` is unreachable** because `/:id` is registered first
-  (`persons.ts:46` vs `:153`).
 - **Person merging by exact name** (`personService.ts:120-125`) conflates distinct people with
   the same name when a scraper omits external ids, and the back-filled ids then stick.
 - **N+1 in scrape write paths that this part owns the tables for:** credits are inserted one
@@ -341,7 +340,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - **Enforce library access in `collections.ts`/`media.ts`** by reusing
   `libraryService.getAccessibleLibraries` (or a middleware that resolves the row's `libraryId`);
   the search route already has the pattern. (M)
-- **Fix `/persons/search` ordering**: register `/search` before `/:id`. One-line move. (S)
 - **Push relation sorts into SQL**: either denormalise `releaseDate`/`rating`/`runtime` onto
   `Collection` (updated by the scrape workers) or use `orderBy: { filmDetails: { releaseDate } }`
   with nulls-last, so pagination is globally ordered. (M)

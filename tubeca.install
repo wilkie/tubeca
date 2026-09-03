@@ -22,9 +22,6 @@ post_install() {
     # Generate Prisma client if needed
     sudo -u tubeca npx prisma generate 2>/dev/null || true
 
-    # Run database migrations
-    sudo -u tubeca npx prisma migrate deploy 2>/dev/null || sudo -u tubeca npx prisma db push 2>/dev/null || true
-
     # Generate JWT secret if not set
     if grep -q "JWT_SECRET=change-this" /etc/tubeca/tubeca.env 2>/dev/null; then
         JWT_SECRET=$(openssl rand -hex 32)
@@ -35,6 +32,11 @@ post_install() {
     # Update environment for production
     sed -i 's/NODE_ENV=development/NODE_ENV=production/' /etc/tubeca/tubeca.env
     sed -i 's|DATABASE_URL="file:./prisma/dev.db"|DATABASE_URL="file:./prisma/tubeca.db"|' /etc/tubeca/tubeca.env
+
+    # Run database migrations. This must happen after DATABASE_URL has been
+    # rewritten above, otherwise the schema lands in dev.db and the service
+    # starts against an empty tubeca.db.
+    sudo -u tubeca npx prisma migrate deploy || sudo -u tubeca npx prisma db push || true
 
     echo ""
     echo "==> Tubeca has been installed!"
