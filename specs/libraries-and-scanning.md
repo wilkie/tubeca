@@ -92,7 +92,7 @@ Hints are built by the pure `buildMediaHints` and `buildCollectionHints` in `imp
 Queueing goes through `ImportService.queueMediaScrapes` and `queueCollectionScrapes`:
 
 - Media scrape jobs are skipped entirely for Film libraries (`shouldScrapeMedia`): film metadata is attached to the Film collection, not the media. The watcher now applies the same rule.
-- Collection scrape jobs are added for Show, Season, Film, Artist and Album collections, ordered Shows → Seasons → Films → Artists → Albums so a season's parent show is likely scraped first. Seasons and albums carry `parentShowId`; seasons carry `seasonNumber`; films carry `year`. Everything else about matching lives in [Metadata Scraping](metadata-scraping.md).
+- Collection scrape jobs are added for Show, Season, Film, Artist and Album collections. Shows go first, and a season whose show is in the same batch is not queued here at all: the show job queues it once it has an external id to look the season up with. Seasons and albums carry `parentShowId`; seasons carry `seasonNumber`; films carry `year`. Everything else about matching lives in [Metadata Scraping](metadata-scraping.md).
 
 ### Orphan reconciliation
 

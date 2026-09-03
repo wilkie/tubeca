@@ -787,12 +787,16 @@ router.post('/:id/identify', requireRole('Editor'), collectionAccess, async (req
     // The queued scrape will refresh these, but keep them consistent meanwhile.
     await syncCollectionSortFields(collection.id);
 
+    // Re-identifying a show invalidates everything below it: its seasons and
+    // episodes were matched against the show the search guessed wrong. The
+    // show job carries the new identity down to them once it has run.
     const job = await addCollectionScrapeJob({
       collectionId: collection.id,
       collectionName: collection.name,
       collectionType: collection.collectionType as CollectionScrapeType,
       scraperId,
       externalId,
+      cascade: collection.collectionType === 'Show' ? 'all' : undefined,
     });
 
     res.status(202).json({

@@ -2,8 +2,9 @@ import { Worker, Job } from 'bullmq';
 import { redisConnection } from '../config/redis';
 import { prisma } from '../config/database';
 import { scraperManager } from '../plugins/scraperLoader';
-import { ImageService } from '../services/imageService';
-import { PersonService } from '../services/personService';
+import { applyCredits, downloadArtwork, shouldDownloadArtwork } from '../services/scrapeApply';
+import { queueEpisodeScrapes, queueSeasonScrapes } from '../services/scrapeCascade';
+import { cachedCall, scrapeCacheKey } from '../services/scrapeCache';
 import type { CollectionScrapeJobData } from '../queues/collectionScrapeQueue';
 import type { SeriesMetadata, SeasonMetadata, VideoMetadata } from '@tubeca/scraper-types';
 import { parseTitleAndYear } from '../utils/mediaParser';
@@ -16,8 +17,6 @@ import {
   type ScrapeAttempt,
 } from '../services/scrapeResolution';
 
-const imageService = new ImageService();
-const personService = new PersonService();
 
 interface ScrapeResult {
   success: boolean
@@ -102,13 +101,15 @@ export const collectionScrapeWorker = new Worker<CollectionScrapeJobData, Scrape
 );
 
 async function scrapeShowMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeAttempt<SeriesMetadata>> {
-  const { collectionId, collectionName, scraperId, externalId, skipImages, imagesOnly } = job.data;
+  const { collectionId, collectionName, scraperId, externalId, skipImages, imagesOnly, cascade } = job.data;
 
   let attempt: ScrapeAttempt<SeriesMetadata>;
   if (externalId && scraperId) {
     // Already identified: fetch by id only, never fall back to a name search.
     attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, externalId, (s) =>
-      s.getSeriesMetadata?.(externalId)
+      s.getSeriesMetadata
+        ? cachedCall(scrapeCacheKey(s.id, 'series', externalId), () => s.getSeriesMetadata!(externalId))
+        : undefined
     );
   } else {
     const scrapers = scraperId
@@ -121,20 +122,34 @@ async function scrapeShowMetadata(job: Job<CollectionScrapeJobData>): Promise<Sc
     attempt = await resolveBySearch(
       scrapers,
       { title, year },
-      (s) => s.searchSeries?.(title),
-      (s, id) => s.getSeriesMetadata!(id)
+      (s) =>
+        s.searchSeries
+          ? cachedCall(scrapeCacheKey(s.id, 'searchSeries', title), () => s.searchSeries!(title))
+          : undefined,
+      (s, id) => cachedCall(scrapeCacheKey(s.id, 'series', id), () => s.getSeriesMetadata!(id))
     );
   }
 
   if (attempt.status === 'matched') {
     await applyShowMetadata(collectionId, attempt.metadata, attempt.scraperId, skipImages, imagesOnly);
     console.log(`✅ Found show metadata for ${collectionName} via ${attempt.scraperId}`);
+
+    // Seasons are addressed by the show's external id, so they can only be
+    // queued now that we have one. This replaces the old fixed delay.
+    if (cascade) {
+      await queueSeasonScrapes(
+        collectionId,
+        { scraperId: attempt.scraperId, externalId: attempt.externalId },
+        { skipImages, imagesOnly, cascade }
+      );
+    }
   }
   return attempt;
 }
 
 async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeAttempt<SeasonMetadata>> {
-  const { collectionId, collectionName, parentShowId, seasonNumber, skipImages, imagesOnly } = job.data;
+  const { collectionId, collectionName, parentShowId, seasonNumber, skipImages, imagesOnly, cascade } =
+    job.data;
   let { parentExternalId, parentScraperId } = job.data;
 
   // If we don't have parent info from the job, look it up from the database
@@ -158,11 +173,26 @@ async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<
   }
 
   try {
-    const metadata = await scraper.getSeasonMetadata(parentExternalId, seasonNumber);
+    const metadata = await cachedCall(
+      scrapeCacheKey(scraper.id, 'season', parentExternalId, seasonNumber),
+      () => scraper.getSeasonMetadata!(parentExternalId!, seasonNumber!)
+    );
 
     if (metadata) {
       await applySeasonMetadata(collectionId, metadata, parentScraperId, skipImages, imagesOnly);
       console.log(`✅ Found season metadata for ${collectionName} via ${scraper.name}`);
+
+      // Episodes are fetched by the show's id plus season and episode number,
+      // so a re-identified show has to push its identity down to them.
+      if (cascade === 'all') {
+        await queueEpisodeScrapes(
+          collectionId,
+          { scraperId: parentScraperId, externalId: parentExternalId },
+          seasonNumber,
+          { skipImages, imagesOnly }
+        );
+      }
+
       return { status: 'matched', scraperId: parentScraperId, externalId: metadata.externalId, metadata };
     }
   } catch (error) {
@@ -179,7 +209,9 @@ async function scrapeFilmMetadata(job: Job<CollectionScrapeJobData>): Promise<Sc
   if (externalId && scraperId) {
     // Already identified: fetch by id only, never fall back to a name search.
     attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, externalId, (s) =>
-      s.getVideoMetadata?.(externalId)
+      s.getVideoMetadata
+        ? cachedCall(scrapeCacheKey(s.id, 'video', externalId), () => s.getVideoMetadata!(externalId))
+        : undefined
     );
   } else {
     const scrapers = scraperId
@@ -194,8 +226,13 @@ async function scrapeFilmMetadata(job: Job<CollectionScrapeJobData>): Promise<Sc
     attempt = await resolveBySearch(
       scrapers,
       query,
-      (s) => s.searchVideo?.(query.title, { year: query.year, videoType: 'movie' }),
-      (s, id) => s.getVideoMetadata!(id)
+      (s) =>
+        s.searchVideo
+          ? cachedCall(scrapeCacheKey(s.id, 'searchVideo', query.title, query.year, 'movie'), () =>
+              s.searchVideo!(query.title, { year: query.year, videoType: 'movie' })
+            )
+          : undefined,
+      (s, id) => cachedCall(scrapeCacheKey(s.id, 'video', id), () => s.getVideoMetadata!(id))
     );
   }
 
@@ -264,7 +301,7 @@ async function applyShowMetadata(
 ): Promise<void> {
   // If imagesOnly is set, only download images and skip metadata updates
   if (imagesOnly) {
-    await downloadCollectionImages(collectionId, metadata, scraperId);
+    await downloadArtwork({ collectionId }, metadata, scraperId, { label: 'show collection' });
     console.log(`📷 Refreshed images for show collection ${collectionId}`);
     return;
   }
@@ -295,74 +332,22 @@ async function applyShowMetadata(
     },
   });
 
-  // Download images for collection (unless skipImages is set and collection already has images)
-  if (!skipImages) {
-    await downloadCollectionImages(collectionId, metadata, scraperId);
-  } else {
-    // Even with skipImages, download if collection has no images yet
-    const existingImages = await prisma.image.count({ where: { collectionId } });
-    if (existingImages === 0) {
-      await downloadCollectionImages(collectionId, metadata, scraperId);
-    }
-  }
-
-  // Add credits if available
-  if (metadata.credits && metadata.credits.length > 0) {
-    // Clear existing credits
-    await prisma.showCredit.deleteMany({
-      where: { showDetailsId: showDetails.id },
+  // A re-scrape usually returns the artwork we already have on disk, so let
+  // the image service keep the existing file when the URL has not moved.
+  if (await shouldDownloadArtwork({ collectionId }, skipImages)) {
+    await downloadArtwork({ collectionId }, metadata, scraperId, {
+      reuseExisting: true,
+      label: 'show collection',
     });
-
-    // Add new credits
-    for (const credit of metadata.credits) {
-      // Find or create person for this credit
-      let personId: string | undefined;
-      try {
-        const person = await personService.findOrCreatePerson({
-          name: credit.name,
-          type: credit.type,
-          tmdbId: credit.tmdbId,
-          tvdbId: credit.tvdbId,
-          imdbId: credit.imdbId,
-        });
-        personId = person.id;
-      } catch (error) {
-        console.warn(`Failed to link person for ${credit.name}:`, error);
-      }
-
-      await prisma.showCredit.create({
-        data: {
-          showDetailsId: showDetails.id,
-          name: credit.name,
-          role: credit.role,
-          creditType: mapCreditType(credit.type),
-          order: credit.order,
-          personId,
-        },
-      });
-
-      // Download credit photo to person if available and person doesn't have one yet
-      if (credit.photoUrl && personId) {
-        try {
-          // Check if person already has a photo
-          const existingPhoto = await prisma.image.findFirst({
-            where: { personId, imageType: 'Photo', isPrimary: true },
-          });
-          if (!existingPhoto) {
-            await imageService.downloadAndSaveImage(credit.photoUrl, {
-              imageType: 'Photo',
-              personId,
-              isPrimary: true,
-              scraperId,
-            });
-            console.log(`📷 Downloaded photo for ${credit.name}`);
-          }
-        } catch (error) {
-          console.warn(`Failed to download photo for ${credit.name}:`, error);
-        }
-      }
-    }
   }
+
+  await applyCredits({
+    credits: metadata.credits ?? [],
+    scraperId,
+    downloadPhotos: !skipImages,
+    deleteExisting: () => prisma.showCredit.deleteMany({ where: { showDetailsId: showDetails.id } }),
+    createCredit: (row) => prisma.showCredit.create({ data: { showDetailsId: showDetails.id, ...row } }),
+  });
 
   // Save keywords for search and recommendations
   if (metadata.keywords && metadata.keywords.length > 0) {
@@ -385,19 +370,7 @@ async function applySeasonMetadata(
 ): Promise<void> {
   // If imagesOnly is set, only download images and skip metadata updates
   if (imagesOnly) {
-    if (metadata.posterUrl) {
-      try {
-        await imageService.downloadAndSaveImage(metadata.posterUrl, {
-          imageType: 'Poster',
-          collectionId,
-          isPrimary: true,
-          scraperId,
-        });
-        console.log(`📷 Refreshed season poster for collection ${collectionId}`);
-      } catch (error) {
-        console.warn(`Failed to download season poster:`, error);
-      }
-    }
+    await downloadArtwork({ collectionId }, metadata, scraperId, { label: 'season collection' });
     return;
   }
 
@@ -420,109 +393,15 @@ async function applySeasonMetadata(
     },
   });
 
-  // Download season poster if available (unless skipImages is set)
-  if (metadata.posterUrl && !skipImages) {
-    try {
-      await imageService.downloadAndSaveImage(metadata.posterUrl, {
-        imageType: 'Poster',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      });
-      console.log(`📷 Downloaded season poster for collection ${collectionId}`);
-    } catch (error) {
-      console.warn(`Failed to download season poster:`, error);
-    }
+  if (await shouldDownloadArtwork({ collectionId }, skipImages)) {
+    await downloadArtwork({ collectionId }, metadata, scraperId, {
+      reuseExisting: true,
+      label: 'season collection',
+    });
   }
 
   // Keep the denormalised sort keys in step with the details row just written.
   await syncCollectionSortFields(collectionId);
-}
-
-/**
- * Download images for a collection (show/series)
- */
-async function downloadCollectionImages(
-  collectionId: string,
-  metadata: SeriesMetadata,
-  scraperId: string
-): Promise<void> {
-  const imagePromises: Promise<void>[] = [];
-
-  // Download poster
-  if (metadata.posterUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.posterUrl, {
-        imageType: 'Poster',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded poster for collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download poster:`, error);
-      })
-    );
-  }
-
-  // Download backdrop
-  if (metadata.backdropUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.backdropUrl, {
-        imageType: 'Backdrop',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded backdrop for collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download backdrop:`, error);
-      })
-    );
-  }
-
-  // Download thumbnail (highest rated English backdrop)
-  if (metadata.thumbnailUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.thumbnailUrl, {
-        imageType: 'Thumbnail',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded thumbnail for collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download thumbnail:`, error);
-      })
-    );
-  }
-
-  // Download logo
-  if (metadata.logoUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.logoUrl, {
-        imageType: 'Logo',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded logo for collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download logo:`, error);
-      })
-    );
-  }
-
-  // Wait for all image downloads
-  await Promise.all(imagePromises);
 }
 
 /**
@@ -537,7 +416,7 @@ async function applyFilmMetadata(
 ): Promise<void> {
   // If imagesOnly is set, only download images and skip metadata updates
   if (imagesOnly) {
-    await downloadFilmImages(collectionId, metadata, scraperId);
+    await downloadArtwork({ collectionId }, metadata, scraperId, { label: 'film collection' });
     console.log(`📷 Refreshed images for film collection ${collectionId}`);
     return;
   }
@@ -570,74 +449,20 @@ async function applyFilmMetadata(
     },
   });
 
-  // Download images for the collection (unless skipImages is set)
-  if (!skipImages) {
-    await downloadFilmImages(collectionId, metadata, scraperId);
-  } else {
-    // Even with skipImages, download if collection has no images yet
-    const existingImages = await prisma.image.count({ where: { collectionId } });
-    if (existingImages === 0) {
-      await downloadFilmImages(collectionId, metadata, scraperId);
-    }
-  }
-
-  // Add credits if available
-  if (metadata.credits && metadata.credits.length > 0) {
-    // Clear existing credits
-    await prisma.filmCredit.deleteMany({
-      where: { filmDetailsId: filmDetails.id },
+  if (await shouldDownloadArtwork({ collectionId }, skipImages)) {
+    await downloadArtwork({ collectionId }, metadata, scraperId, {
+      reuseExisting: true,
+      label: 'film collection',
     });
-
-    // Add new credits
-    for (const credit of metadata.credits) {
-      // Find or create person for this credit
-      let personId: string | undefined;
-      try {
-        const person = await personService.findOrCreatePerson({
-          name: credit.name,
-          type: credit.type,
-          tmdbId: credit.tmdbId,
-          tvdbId: credit.tvdbId,
-          imdbId: credit.imdbId,
-        });
-        personId = person.id;
-      } catch (error) {
-        console.warn(`Failed to link person for ${credit.name}:`, error);
-      }
-
-      await prisma.filmCredit.create({
-        data: {
-          filmDetailsId: filmDetails.id,
-          name: credit.name,
-          role: credit.role,
-          creditType: mapCreditType(credit.type),
-          order: credit.order,
-          personId,
-        },
-      });
-
-      // Download credit photo to person if available and person doesn't have one yet
-      if (credit.photoUrl && personId) {
-        try {
-          // Check if person already has a photo
-          const existingPhoto = await prisma.image.findFirst({
-            where: { personId, imageType: 'Photo', isPrimary: true },
-          });
-          if (!existingPhoto) {
-            await imageService.downloadAndSaveImage(credit.photoUrl, {
-              imageType: 'Photo',
-              personId,
-              isPrimary: true,
-              scraperId,
-            });
-            console.log(`📷 Downloaded photo for ${credit.name}`);
-          }
-        } catch (error) {
-          console.warn(`Failed to download photo for ${credit.name}:`, error);
-        }
-      }
-    }
   }
+
+  await applyCredits({
+    credits: metadata.credits ?? [],
+    scraperId,
+    downloadPhotos: !skipImages,
+    deleteExisting: () => prisma.filmCredit.deleteMany({ where: { filmDetailsId: filmDetails.id } }),
+    createCredit: (row) => prisma.filmCredit.create({ data: { filmDetailsId: filmDetails.id, ...row } }),
+  });
 
   // Save keywords for search and recommendations
   if (metadata.keywords && metadata.keywords.length > 0) {
@@ -646,110 +471,6 @@ async function applyFilmMetadata(
 
   // Keep the denormalised sort keys in step with the details row just written.
   await syncCollectionSortFields(collectionId);
-}
-
-/**
- * Download images for a film collection
- */
-async function downloadFilmImages(
-  collectionId: string,
-  metadata: VideoMetadata,
-  scraperId: string
-): Promise<void> {
-  const imagePromises: Promise<void>[] = [];
-
-  // Download poster
-  if (metadata.posterUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.posterUrl, {
-        imageType: 'Poster',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded poster for film collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download film poster:`, error);
-      })
-    );
-  }
-
-  // Download backdrop
-  if (metadata.backdropUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.backdropUrl, {
-        imageType: 'Backdrop',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded backdrop for film collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download film backdrop:`, error);
-      })
-    );
-  }
-
-  // Download thumbnail (highest rated English backdrop)
-  if (metadata.thumbnailUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.thumbnailUrl, {
-        imageType: 'Thumbnail',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded thumbnail for film collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download film thumbnail:`, error);
-      })
-    );
-  }
-
-  // Download logo
-  if (metadata.logoUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.logoUrl, {
-        imageType: 'Logo',
-        collectionId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded logo for film collection ${collectionId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download film logo:`, error);
-      })
-    );
-  }
-
-  // Wait for all image downloads
-  await Promise.all(imagePromises);
-}
-
-/**
- * Map scraper credit type to Prisma enum
- */
-function mapCreditType(
-  type: string
-): 'Actor' | 'Director' | 'Writer' | 'Producer' | 'Composer' | 'Cinematographer' | 'Editor' {
-  const mapping: Record<string, 'Actor' | 'Director' | 'Writer' | 'Producer' | 'Composer' | 'Cinematographer' | 'Editor'> = {
-    actor: 'Actor',
-    director: 'Director',
-    writer: 'Writer',
-    producer: 'Producer',
-    composer: 'Composer',
-    cinematographer: 'Cinematographer',
-    editor: 'Editor',
-  };
-  return mapping[type] ?? 'Actor';
 }
 
 // Worker event handlers

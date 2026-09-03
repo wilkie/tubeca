@@ -2,8 +2,8 @@ import { Worker, Job } from 'bullmq';
 import { redisConnection } from '../config/redis';
 import { prisma } from '../config/database';
 import { scraperManager } from '../plugins/scraperLoader';
-import { ImageService } from '../services/imageService';
-import { PersonService } from '../services/personService';
+import { applyCredits, downloadArtwork, shouldDownloadArtwork } from '../services/scrapeApply';
+import { cachedCall, scrapeCacheKey } from '../services/scrapeCache';
 import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue';
 import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types';
 import { parseTitleAndYear } from '../utils/mediaParser';
@@ -14,9 +14,6 @@ import {
   markMediaScrapePending,
   type ScrapeAttempt,
 } from '../services/scrapeResolution';
-
-const imageService = new ImageService();
-const personService = new PersonService();
 
 interface ScrapeResult {
   success: boolean
@@ -80,13 +77,33 @@ export const metadataScrapeWorker = new Worker<MetadataScrapeJobData, ScrapeResu
 );
 
 async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeAttempt<VideoMetadata>> {
-  const { mediaId, mediaName, year, showName, season, episode, scraperId, externalId, skipImages, imagesOnly } = job.data;
+  const {
+    mediaId,
+    mediaName,
+    year,
+    showName,
+    season,
+    episode,
+    scraperId,
+    externalId,
+    showExternalId,
+    skipImages,
+    imagesOnly,
+  } = job.data;
 
   let attempt: ScrapeAttempt<VideoMetadata>;
   if (externalId && scraperId) {
     // Already identified: fetch by id only, never fall back to a name search.
     attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, externalId, (s) =>
-      s.getVideoMetadata?.(externalId)
+      s.getVideoMetadata
+        ? cachedCall(scrapeCacheKey(s.id, 'video', externalId), () => s.getVideoMetadata!(externalId))
+        : undefined
+    );
+  } else if (showExternalId && scraperId && season !== undefined && episode !== undefined) {
+    // The show this episode belongs to has been identified, so address the
+    // episode through it rather than searching for the show name again.
+    attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, showExternalId, (s) =>
+      s.getEpisodeMetadata?.(showExternalId, season, episode)
     );
   } else {
     const scrapers = scraperId
@@ -102,7 +119,10 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
       attempt = await resolveBySearch(
         scrapers,
         query,
-        (s) => (s.searchSeries && s.getEpisodeMetadata ? s.searchSeries(query.title) : undefined),
+        (s) =>
+          s.searchSeries && s.getEpisodeMetadata
+            ? cachedCall(scrapeCacheKey(s.id, 'searchSeries', query.title), () => s.searchSeries!(query.title))
+            : undefined,
         (s, id) => s.getEpisodeMetadata!(id, season!, episode!)
       );
     } else {
@@ -111,8 +131,13 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
       attempt = await resolveBySearch(
         scrapers,
         query,
-        (s) => (s.searchVideo && s.getVideoMetadata ? s.searchVideo(query.title, { year: query.year }) : undefined),
-        (s, id) => s.getVideoMetadata!(id)
+        (s) =>
+          s.searchVideo && s.getVideoMetadata
+            ? cachedCall(scrapeCacheKey(s.id, 'searchVideo', query.title, query.year), () =>
+                s.searchVideo!(query.title, { year: query.year })
+              )
+            : undefined,
+        (s, id) => cachedCall(scrapeCacheKey(s.id, 'video', id), () => s.getVideoMetadata!(id))
       );
     }
   }
@@ -142,7 +167,10 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
     attempt = await resolveBySearch(
       scrapers,
       { title: mediaName },
-      (s) => (s.searchAudio && s.getAudioMetadata ? s.searchAudio(mediaName) : undefined),
+      (s) =>
+        s.searchAudio && s.getAudioMetadata
+          ? cachedCall(scrapeCacheKey(s.id, 'searchAudio', mediaName), () => s.searchAudio!(mediaName))
+          : undefined,
       (s, id) => s.getAudioMetadata!(id)
     );
   }
@@ -160,7 +188,7 @@ async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
 async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scraperId?: string, skipImages?: boolean, imagesOnly?: boolean): Promise<void> {
   // If imagesOnly is set, only download images and skip metadata updates
   if (imagesOnly) {
-    await downloadMediaImages(mediaId, metadata, scraperId);
+    await downloadArtwork({ mediaId }, metadata, scraperId);
     console.log(`📷 Refreshed images for media ${mediaId}`);
     return;
   }
@@ -195,166 +223,23 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
     });
   }
 
-  // Download images for media (unless skipImages is set and media already has images)
-  if (!skipImages) {
-    await downloadMediaImages(mediaId, metadata, scraperId);
-  } else {
-    // Even with skipImages, download if media has no images yet
-    const existingImages = await prisma.image.count({ where: { mediaId } });
-    if (existingImages === 0) {
-      await downloadMediaImages(mediaId, metadata, scraperId);
-    }
+  if (await shouldDownloadArtwork({ mediaId }, skipImages)) {
+    await downloadArtwork({ mediaId }, metadata, scraperId, { reuseExisting: true });
   }
 
-  // Add credits if available
   if (metadata.credits && metadata.credits.length > 0) {
-    const videoDetails = await prisma.videoDetails.findUnique({
-      where: { mediaId },
-    });
+    const videoDetails = await prisma.videoDetails.findUnique({ where: { mediaId } });
 
     if (videoDetails) {
-      // Clear existing credits
-      await prisma.credit.deleteMany({
-        where: { videoDetailsId: videoDetails.id },
+      await applyCredits({
+        credits: metadata.credits,
+        scraperId,
+        downloadPhotos: !skipImages,
+        deleteExisting: () => prisma.credit.deleteMany({ where: { videoDetailsId: videoDetails.id } }),
+        createCredit: (row) => prisma.credit.create({ data: { videoDetailsId: videoDetails.id, ...row } }),
       });
-
-      // Add new credits (without downloading photos if skipImages is set)
-      for (const credit of metadata.credits) {
-        // Find or create person for this credit
-        let personId: string | undefined;
-        try {
-          const person = await personService.findOrCreatePerson({
-            name: credit.name,
-            type: credit.type,
-            tmdbId: credit.tmdbId,
-            tvdbId: credit.tvdbId,
-            imdbId: credit.imdbId,
-          });
-          personId = person.id;
-        } catch (error) {
-          console.warn(`Failed to link person for ${credit.name}:`, error);
-        }
-
-        await prisma.credit.create({
-          data: {
-            videoDetailsId: videoDetails.id,
-            name: credit.name,
-            role: credit.role,
-            creditType: mapCreditType(credit.type),
-            order: credit.order,
-            personId,
-          },
-        });
-
-        // Download credit photo to person if available and person doesn't have one yet
-        if (credit.photoUrl && personId) {
-          try {
-            // Check if person already has a photo
-            const existingPhoto = await prisma.image.findFirst({
-              where: { personId, imageType: 'Photo', isPrimary: true },
-            });
-            if (!existingPhoto) {
-              await imageService.downloadAndSaveImage(credit.photoUrl, {
-                imageType: 'Photo',
-                personId,
-                isPrimary: true,
-                scraperId,
-              });
-              console.log(`📷 Downloaded photo for ${credit.name}`);
-            }
-          } catch (error) {
-            console.warn(`Failed to download photo for ${credit.name}:`, error);
-          }
-        }
-      }
     }
   }
-}
-
-/**
- * Download images for a media item
- */
-async function downloadMediaImages(
-  mediaId: string,
-  metadata: VideoMetadata | AudioMetadata,
-  scraperId?: string
-): Promise<void> {
-  const imagePromises: Promise<void>[] = [];
-
-  // Check for poster (video) or album art (audio)
-  if ('posterUrl' in metadata && metadata.posterUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.posterUrl, {
-        imageType: 'Poster',
-        mediaId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded poster for media ${mediaId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download poster:`, error);
-      })
-    );
-  }
-
-  // Check for backdrop (video only)
-  if ('backdropUrl' in metadata && metadata.backdropUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.backdropUrl, {
-        imageType: 'Backdrop',
-        mediaId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded backdrop for media ${mediaId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download backdrop:`, error);
-      })
-    );
-  }
-
-  // Check for thumbnail (video only - highest rated English backdrop)
-  if ('thumbnailUrl' in metadata && metadata.thumbnailUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.thumbnailUrl, {
-        imageType: 'Thumbnail',
-        mediaId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded thumbnail for media ${mediaId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download thumbnail:`, error);
-      })
-    );
-  }
-
-  // Check for album art (audio only)
-  if ('albumArtUrl' in metadata && metadata.albumArtUrl) {
-    imagePromises.push(
-      imageService.downloadAndSaveImage(metadata.albumArtUrl, {
-        imageType: 'AlbumArt',
-        mediaId,
-        isPrimary: true,
-        scraperId,
-      }).then((result) => {
-        if (result.success) {
-          console.log(`📷 Downloaded album art for media ${mediaId}`);
-        }
-      }).catch((error) => {
-        console.warn(`Failed to download album art:`, error);
-      })
-    );
-  }
-
-  // Wait for all image downloads
-  await Promise.all(imagePromises);
 }
 
 /**
@@ -393,7 +278,7 @@ async function applyAudioMetadata(mediaId: string, metadata: AudioMetadata, scra
   }
 
   // Download album art if available
-  await downloadMediaImages(mediaId, metadata, scraperId);
+  await downloadArtwork({ mediaId }, metadata, scraperId);
 }
 
 /**
@@ -416,24 +301,6 @@ function extractShowName(filename: string): string {
   }
 
   return result.trim();
-}
-
-/**
- * Map scraper credit type to Prisma enum
- */
-function mapCreditType(
-  type: string
-): 'Actor' | 'Director' | 'Writer' | 'Producer' | 'Composer' | 'Cinematographer' | 'Editor' {
-  const mapping: Record<string, 'Actor' | 'Director' | 'Writer' | 'Producer' | 'Composer' | 'Cinematographer' | 'Editor'> = {
-    actor: 'Actor',
-    director: 'Director',
-    writer: 'Writer',
-    producer: 'Producer',
-    composer: 'Composer',
-    cinematographer: 'Cinematographer',
-    editor: 'Editor',
-  };
-  return mapping[type] ?? 'Actor';
 }
 
 // Worker event handlers

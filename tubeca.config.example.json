@@ -7,11 +7,15 @@
   "scrapers": {
     "tmdb": {
       "enabled": true,
-      "apiKey": "your-tmdb-api-key-here"
+      "apiKey": "your-tmdb-api-key-here",
+      "language": "en-US",
+      "region": "US",
+      "imageSize": "w500"
     },
     "tvdb": {
       "enabled": true,
-      "apiKey": "your-tvdb-api-key-here"
+      "apiKey": "your-tvdb-api-key-here",
+      "language": "eng"
     }
   }
 }

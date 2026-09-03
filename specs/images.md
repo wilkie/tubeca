@@ -46,11 +46,12 @@
 
 ### Download and storage
 
-1. A worker or route calls `downloadAndSaveImage(url, { imageType, <ownerId>, isPrimary, scraperId })`.
+1. A worker or route calls `downloadAndSaveImage(url, { imageType, <ownerId>, isPrimary, scraperId, reuseExisting })`.
 2. The owner id chooses a folder: `media/`, `collections/` or `people/` (person, showCredit and credit all share `people/`) (`imageService.ts:104-121`).
-3. The URL is fetched with global `fetch` and fully buffered. Format is taken from `Content-Type` (`png`, `webp`, `gif`, `svg`), then from the URL extension, else `jpg` (`imageService.ts:133-149`). SVG was added in `056b695`; before that TMDB logos were written as `logo.jpg` and served as `image/jpeg`.
-4. The file is written synchronously to `<imagePath>/<folder>/<entityId>/<imagetype>.<format>`. There is no hashing, no dedup across entities, no resizing and no size cap; `sharp` is used only to read dimensions, and failure there is a warning.
-5. `saveImage` upserts: if `isPrimary`, every other image with the same owner and type is un-primaried; then the existing row for that owner+type is updated in place, otherwise created (`imageService.ts:216-278`). Because the filename is also keyed on type, an entity can never hold more than one image per type, so "primary" is effectively always true and the DB row and file are 1:1.
+3. With `reuseExisting` (every scrape apply path since 2026-09-03), the stored row for that owner and type is checked first: if its `sourceUrl` matches and its file is still on disk, nothing is fetched and the result comes back with `reused: true`, still routed through `saveImage` so the primary flag stays correct. This is what keeps a full scan from re-downloading artwork that has not changed.
+4. The URL is fetched with global `fetch` and fully buffered. Format is taken from `Content-Type` (`png`, `webp`, `gif`, `svg`), then from the URL extension, else `jpg` (`imageService.ts:133-149`). SVG was added in `056b695`; before that TMDB logos were written as `logo.jpg` and served as `image/jpeg`.
+5. The file is written synchronously to `<imagePath>/<folder>/<entityId>/<imagetype>.<format>`. There is no hashing, no dedup across entities, no resizing and no size cap; `sharp` is used only to read dimensions, and failure there is a warning.
+6. `saveImage` upserts: if `isPrimary`, every other image with the same owner and type is un-primaried; then the existing row for that owner+type is updated in place, otherwise created (`imageService.ts:216-278`). Because the filename is also keyed on type, an entity can never hold more than one image per type, so "primary" is effectively always true and the DB row and file are 1:1.
 
 `getImageStoragePath()` memoises the resolved root; an absolute `imagePath` is used verbatim, a relative one is resolved against the repo root, and the default is `backend/data/images` (`4dc330d` fixed it ignoring config when called without arguments).
 
@@ -114,7 +115,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 - One image per entity per type: the model has `isPrimary` and the dialog highlights it, but there is never a second candidate to choose from, and no endpoint sets primary. `ImagesDialog` is display-only.
 - No resizing or thumbnail generation: TMDB `original` backdrops and logos are stored and served at full size to every grid tile; `sharp` is imported but only reads metadata.
-- No dedup or hashing: the same person photo is downloaded once per entity directory; re-downloads overwrite even when bytes are unchanged, bumping `updatedAt` and `Last-Modified`.
+- No dedup or hashing: the same person photo is downloaded once per entity directory. A scrape now skips the fetch when the source URL is unchanged, but any download that does happen overwrites in place, bumping `updatedAt` and `Last-Modified`; a provider that moves a URL without changing the bytes still re-downloads.
 - Orphaned files: a format change (`poster.jpg` then `poster.png`) and identify's `deleteMany` leave files behind; there is no sweep. (Library deletion, watcher-driven media deletion and scan reconciliation clean up through `ContentDeletionService` since 2026-09-03.)
 - No library-level authorisation on `/api/images/:id/file`; any valid token can fetch any image by UUID.
 - JWT in the query string of every image URL: it lands in server logs, browser history and any `Referer`, and the `public` cache directive makes the token-bearing URL cacheable by intermediaries. URLs also change whenever the token changes, defeating browser caching across logins.

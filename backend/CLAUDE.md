@@ -212,16 +212,23 @@ interface ScraperPlugin {
 
 ### Configuration
 
-Scraper API keys are in `tubeca.config.json`:
+Scraper API keys are in `tubeca.config.json`. Anything else in a scraper's block is passed
+straight to the plugin's `initialize()`, so `language`, `region` and `imageSize` are set per
+scraper (the codes are the provider's own: TMDB `en-US`, TVDB `eng`):
 
 ```json
 {
   "scrapers": {
-    "tmdb": { "apiKey": "your-key" },
-    "tvdb": { "apiKey": "your-key" }
+    "tmdb": { "apiKey": "your-key", "language": "en-US", "region": "US" },
+    "tvdb": { "apiKey": "your-key", "language": "eng" }
   }
 }
 ```
+
+Shared scrape helpers live in `src/services/`: `scrapeApply.ts` (artwork downloads, credit
+rewriting, `mapCreditType`), `scrapeCascade.ts` (queue a show's seasons and their episodes once
+the show is matched) and `scrapeCache.ts` (short-lived cache over provider calls). Put anything
+both scrape workers need there rather than copying it into the second worker.
 
 ## Testing
 

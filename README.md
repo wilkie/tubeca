@@ -123,10 +123,14 @@ Create a `tubeca.config.json` in the repository root for scraper API keys and ot
 {
   "scrapers": {
     "tmdb": {
-      "apiKey": "your-tmdb-api-key"
+      "apiKey": "your-tmdb-api-key",
+      "language": "en-US",
+      "region": "US",
+      "imageSize": "w500"
     },
     "tvdb": {
-      "apiKey": "your-tvdb-api-key"
+      "apiKey": "your-tvdb-api-key",
+      "language": "eng"
     }
   },
   "fileWatcher": {

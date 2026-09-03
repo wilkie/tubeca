@@ -215,9 +215,9 @@ back-fills any missing external ids.
 The services above own reads and deletes; most rows are written elsewhere:
 `libraryScanWorker.ts` / `fileWatcherService.ts` create collections, media and streams;
 `collectionScrapeWorker.ts` upserts show/season/film details, replaces credits
-(`deleteMany` then one `create` per credit), and connects keywords (`saveKeywords`, upsert +
-connect per keyword, never disconnect); `metadataScrapeWorker.ts` / `scraperService.ts` upsert
-video/audio details and episode credits; `videoWorker.ts` updates `Media.thumbnails`.
+(`scrapeApply.applyCredits`: `deleteMany` then one `create` per credit), and connects keywords
+(`saveKeywords`, upsert + connect per keyword, never disconnect); `metadataScrapeWorker.ts` upserts
+video/audio details and episode credits through the same helper; `videoWorker.ts` updates `Media.thumbnails`.
 `ArtistDetails`, `AlbumDetails`, `AlbumCredit` and `ArtistMember` have **no writer** anywhere
 (`collectionScrapeWorker.ts:225` returns "Album scraping not yet implemented").
 

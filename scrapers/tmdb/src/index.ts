@@ -257,11 +257,14 @@ class TMDBScraper implements ScraperPlugin {
   private apiKey: string | null = null
   private language = 'en-US'
   private imageSize = 'w500'
+  private region: string | null = null
 
   async initialize(config: ScraperConfig): Promise<void> {
     this.apiKey = config.apiKey ?? null
     this.language = (config.language as string) ?? 'en-US'
     this.imageSize = (config.imageSize as string) ?? 'w500'
+    // Region steers release dates and certifications towards one country.
+    this.region = (config.region as string) ?? null
   }
 
   isConfigured(): boolean {
@@ -276,6 +279,9 @@ class TMDBScraper implements ScraperPlugin {
     const url = new URL(`${TMDB_API_URL}${endpoint}`)
     url.searchParams.set('api_key', this.apiKey)
     url.searchParams.set('language', this.language)
+    if (this.region) {
+      url.searchParams.set('region', this.region)
+    }
 
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value)

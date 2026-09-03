@@ -15,8 +15,14 @@ All notable changes to Tubeca are recorded here. The format follows
   every request until reload.
 - Keyboard shortcuts in the player: space/k play-pause, arrows and j/l seek, arrows for
   volume, m mute, f fullscreen; OS media controls via the Media Session API.
+- Scrapers take `language`, `region` and `imageSize` from `tubeca.config.json`, so metadata
+  and artwork no longer have to be English and US.
 
 ### Fixed
+- Identifying a show now re-scrapes its seasons and episodes against the show you picked,
+  instead of leaving them with the wrong show's descriptions and artwork.
+- Seasons are scraped after their show has been matched rather than after a fixed delay, so
+  a slow show no longer leaves its seasons with nothing but a folder name.
 - Audio items no longer play twice: the page rendered its own element alongside the shared one.
 - Playback failures stop after a few recovery attempts and show a retry instead of spinning.
 - The last playback position is saved when a tab is closed or hidden.
@@ -24,6 +30,10 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- A re-scrape keeps artwork that has not changed at the provider, so a full scan of a large
+  library no longer re-downloads every poster, backdrop and cast photo.
+- Repeated provider lookups during a scan are answered from a short-lived cache, cutting the
+  number of API calls a season or a show's episodes make.
 - Library sorting by release date, rating and runtime is applied by the database, so
   paging through a sorted library no longer shows a locally-sorted, globally wrong order.
 - The Docker image and the Arch package ship only the backend's production dependencies,

@@ -15,6 +15,12 @@ export interface SaveImageInput {
   sourceUrl?: string
   scraperId?: string
   isPrimary?: boolean
+  /**
+   * Keep the file already on disk when the provider still points at the same
+   * URL. A full library scan re-scrapes everything, and almost none of the
+   * artwork has changed since last time.
+   */
+  reuseExisting?: boolean
 }
 
 export interface DownloadImageResult {
@@ -25,6 +31,8 @@ export interface DownloadImageResult {
   format?: string
   fileSize?: number
   error?: string
+  /** The file on disk was still current, so nothing was downloaded. */
+  reused?: boolean
 }
 
 export class ImageService {
@@ -120,6 +128,15 @@ export class ImageService {
         return { success: false, error: 'No entity ID provided' };
       }
 
+      // Nothing to do when the provider still points at the file we already
+      // have. saveImage still runs so the row's primary flag stays correct.
+      if (input.reuseExisting) {
+        const reused = await this.reuseExistingImage(url, input);
+        if (reused) {
+          return reused;
+        }
+      }
+
       // Fetch the image
       const response = await fetch(url);
       if (!response.ok) {
@@ -201,6 +218,54 @@ export class ImageService {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return { success: false, error: message };
     }
+  }
+
+  /**
+   * Return the stored image for this entity and type when it came from the
+   * same URL and its file is still on disk, or null to download afresh.
+   */
+  private async reuseExistingImage(url: string, input: SaveImageInput): Promise<DownloadImageResult | null> {
+    const existing = await prisma.image.findFirst({
+      where: {
+        imageType: input.imageType,
+        mediaId: input.mediaId,
+        collectionId: input.collectionId,
+        personId: input.personId,
+        showCreditId: input.showCreditId,
+        creditId: input.creditId,
+      },
+    });
+
+    if (!existing || existing.sourceUrl !== url || !existing.path) {
+      return null;
+    }
+
+    const absolutePath = path.join(getImageStoragePath(), existing.path);
+    if (!fs.existsSync(absolutePath)) {
+      return null;
+    }
+
+    // The bytes are current; only the row may need touching (primary flag,
+    // scraper attribution) so route it through the usual write.
+    await this.saveImage({
+      ...input,
+      path: existing.path,
+      format: existing.format ?? undefined,
+      width: existing.width ?? undefined,
+      height: existing.height ?? undefined,
+      fileSize: existing.fileSize ?? undefined,
+      sourceUrl: url,
+    });
+
+    return {
+      success: true,
+      reused: true,
+      path: existing.path,
+      format: existing.format ?? undefined,
+      width: existing.width ?? undefined,
+      height: existing.height ?? undefined,
+      fileSize: existing.fileSize ?? undefined,
+    };
   }
 
   /**

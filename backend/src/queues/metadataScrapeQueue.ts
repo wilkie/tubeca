@@ -15,6 +15,9 @@ export interface MetadataScrapeJobData {
   scraperId?: string
   // External ID if already known (for refresh)
   externalId?: string
+  // External ID of the parent show, so an episode is fetched rather than
+  // searched for again after the show has been identified
+  showExternalId?: string
   // Skip downloading images (useful for metadata-only refresh)
   skipImages?: boolean
   // Skip metadata updates, only refresh images

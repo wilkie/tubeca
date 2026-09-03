@@ -167,8 +167,6 @@ three modules still register competing SIGINT/SIGTERM handlers. See
 
 ### Copy-paste that has already diverged
 
-The image download loop exists three times and
-`mapCreditType` four times across the scrape workers and an unused `scraperService`.
 Favorites and Watch Later pages differ by about 40 of 380 lines, and "add to most recent
 collection" is pasted into five components. Title/year parsing is mirrored in the frontend
 because `shared-types` is types-only. See [Libraries](libraries-and-scanning.md),
@@ -271,10 +269,10 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 3. ~~**Token hardening**~~ Done 2026-09-03: media-scoped tokens, session invalidation via
    `tokenVersion`, central 401 handling, login rate limiting, last-admin guard, self-service
    password change ([Auth](auth-and-users.md)).
-4. **Scrape follow-through** (M): Identify cascades to seasons and episodes, season jobs
-   depend on the show job instead of a timer, full scans skip re-downloading unchanged images,
-   provider responses cached, language/region passed through from config, and the two workers'
-   apply/download/credit code unified. ([Metadata Scraping](metadata-scraping.md))
+4. ~~**Scrape follow-through**~~ Done 2026-09-03: seasons and episodes queued from the show
+   job's success path, Identify cascading to both, artwork reused when the source URL has not
+   moved, a TTL cache over provider calls, scraper config passed through to plugins, and the
+   workers' duplicated artwork and credit code unified ([Metadata Scraping](metadata-scraping.md)).
 5. **Streaming responsiveness** (S/M): cancel in-flight prefetches on seek and give live
    requests priority in the transcode semaphore, detect encoders asynchronously after listen,
    validate the transcoding settings body, purge the cache when segment duration changes, and

@@ -108,10 +108,11 @@ from" line appears repeatedly. Paths are memoised in module-level variables afte
 previously fell back to the default `backend/data/*` paths.
 
 Keys in use: `imagePath`, `hlsCache.{path,maxSizeGB,segmentTTLHours,segmentDuration}`,
-`fileWatcher.{enabled,usePolling,pollInterval}`, `scrapers.<id>.{enabled,apiKey}`.
+`fileWatcher.{enabled,usePolling,pollInterval}`, `scrapers.<id>.{enabled,apiKey,language,region,imageSize,baseUrl}`.
 `hlsCache.maxSizeGB` is exposed by `getHlsCacheConfig()` but no caller reads it; only the TTL is
 enforced by the cleanup service. `getScraperConfigs()` drops scrapers that are `enabled: false` or
-have no `apiKey`, and passes `{ apiKey }` to `loadScrapers()`.
+have no `apiKey`, and passes the rest of the block through to `initialize()`, so a plugin's own
+options reach it unchanged. Language codes are the provider's own: TMDB expects `en-US`, TVDB `eng`.
 
 ### Layer 3: database settings
 

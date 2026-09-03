@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { ScraperConfig } from '@tubeca/scraper-types';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +38,19 @@ export function getRepoRoot(): string {
 export interface ScraperPluginConfig {
   enabled?: boolean
   apiKey?: string
+  /**
+   * Language the provider should answer in. The code is the provider's own:
+   * TMDB wants "en-US", TVDB wants "eng".
+   */
+  language?: string
+  /** Region used to pick release dates and certifications, e.g. "US". */
+  region?: string
+  /** Artwork width to request, e.g. "w500" or "original" for TMDB. */
+  imageSize?: string
+  /** Override the provider's base URL, for a proxy or a mirror. */
+  baseUrl?: string
+  /** Anything else the plugin understands is passed through unchanged. */
+  [key: string]: unknown
 }
 
 export interface FileWatcherConfig {
@@ -123,8 +137,8 @@ function resolveConfigPath(): string | null {
  * Get scraper configurations from app config
  * Returns only scrapers that have API keys configured
  */
-export function getScraperConfigs(appConfig: AppConfig): Record<string, { apiKey: string }> {
-  const scraperConfigs: Record<string, { apiKey: string }> = {};
+export function getScraperConfigs(appConfig: AppConfig): Record<string, ScraperConfig> {
+  const scraperConfigs: Record<string, ScraperConfig> = {};
 
   if (!appConfig.scrapers) {
     return scraperConfigs;
@@ -145,7 +159,15 @@ export function getScraperConfigs(appConfig: AppConfig): Record<string, { apiKey
       continue;
     }
 
-    scraperConfigs[scraperId] = { apiKey: config.apiKey };
+    // Everything the user set is handed to the plugin, so language, region and
+    // image size come from the config file instead of the plugin's defaults.
+    // `enabled` is ours, not the plugin's.
+    const pluginConfig: ScraperConfig = { apiKey: config.apiKey };
+    for (const [key, value] of Object.entries(config)) {
+      if (key === 'enabled' || value === undefined) continue;
+      pluginConfig[key] = value;
+    }
+    scraperConfigs[scraperId] = pluginConfig;
   }
 
   return scraperConfigs;
