@@ -26,14 +26,14 @@
 ## Goals
 
 - **Playback that survives navigation.** The video element is created once in `PlayerProvider`
-  and re-parented with `appendChild` rather than re-rendered (70b750e), so browsing the library
+  and re-parented with `appendChild` rather than re-rendered (3d28f43), so browsing the library
   while something plays in the corner does not restart the stream.
-- **Smooth startup on a transcoding backend.** Every HLS.js knob (3e30738, 665d354) is tuned for
+- **Smooth startup on a transcoding backend.** Every HLS.js knob (111d260, 38a5bdc) is tuned for
   the case where segments are produced by FFmpeg as they are requested: 30 s fragment timeouts,
   6 retries, 10 s starvation delay, 70%/50% bandwidth factors, minimal stall nudging.
-- **Learn what worked last time.** The saved quality level (31fe94d) trades initial quality for
+- **Learn what worked last time.** The saved quality level (fc7c3a8) trades initial quality for
   reliability: start where the previous session was stable, back off on stalls.
-- **Binge continuation.** Queue-based and episode-based continuation (5d28769, 7d2b8da) so a
+- **Binge continuation.** Queue-based and episode-based continuation (993c6cc, a81f85e) so a
   season plays through without user action.
 - **One controls component.** `VideoControls` is shared by the full player and the mini player
   via a `compact` flag; menus are rendered inside the player container so they work in fullscreen.
@@ -53,7 +53,7 @@ or keyboard control of playback (see Known Limitations).
 | `frontend/ui/src/components/VideoPlayer.tsx` | Legacy self-contained player (pre-HLS, `start=`-offset seeking). Exported from `components/index.ts` but no page imports it; only its test does. |
 | `frontend/ui/src/api/client.ts:562-651` | URL builders: `getVideoStreamUrl`, `getAudioStreamUrl`, `getSubtitleUrl`, `getHlsMasterPlaylistUrl`, `getTrickplaySpriteUrl`; fetchers `getTrickplayInfo`, `getHlsQualities` (unused), `getPlaybackQueue`. |
 | `frontend/ui/src/main.tsx:31` | Mounts `PlayerProvider` inside `BrowserRouter`/`AuthProvider` (needed because `VideoControls` calls `useNavigate`). |
-| `frontend/ui/src/components/__tests__/{VideoPlayer,VideoControls,MiniPlayer}.test.tsx`, `context/__tests__/PlayerContext.test.tsx`, `pages/__tests__/PlayPage.test.tsx` | Jest/RTL coverage (a34d24e, 365da36). |
+| `frontend/ui/src/components/__tests__/{VideoPlayer,VideoControls,MiniPlayer}.test.tsx`, `context/__tests__/PlayerContext.test.tsx`, `pages/__tests__/PlayPage.test.tsx` | Jest/RTL coverage (6a4f5a8, 1a2a410). |
 
 ## How It Works
 
@@ -102,7 +102,7 @@ handlers are injected through `registerMouseMoveHandler` / `registerMouseDownHan
    `GET /api/stream/hls/:id/<quality>/<segment>.ts?audioTrack=..`, authenticated by header only.
    Segment production, prefetch and concurrency are the backend's concern; see
    [Streaming and Transcoding](streaming-and-transcoding.md). What the player relies on: requesting
-   a variant playlist triggers prefetch of the first `prefetchSegments` (default 2, 6e311ec)
+   a variant playlist triggers prefetch of the first `prefetchSegments` (default 2, 0fc5947)
    segments, and each segment request prefetches the next N, so sequential playback rarely waits.
 5. On `MANIFEST_PARSED` the level list becomes `availableQualities` (`Auto` prepended; labels from
    the playlist `NAME` attribute) and `video.play()` is attempted (autoplay rejection swallowed).
@@ -114,7 +114,7 @@ the manifest.
 
 ### HLS.js configuration (`PlayerContext.tsx:200-251`)
 
-Introduced in 3e30738 and then made more conservative in 665d354 after software-transcoding
+Introduced in 111d260 and then made more conservative in 38a5bdc after software-transcoding
 stalls: `startLevel` = saved level or 0, `abrEwmaDefaultEstimate` 1 Mbps, EWMA fast/slow 5/15,
 `abrBandWidthFactor` 0.7, `abrBandWidthUpFactor` 0.5, `maxBufferLength` 60 s (max 120 s, 60 MB),
 `backBufferLength` 30 s, `fragLoadingTimeOut` 30 s with 6 retries over 60 s, level loading 15 s
@@ -125,7 +125,7 @@ duplicated verbatim in `setAudioTrack` (`:653-690`).
 hls.js is declared as `^1.6.15` in `frontend/ui/package.json` and resolved to 1.6.15 in
 `pnpm-lock.yaml`; no runtime version check.
 
-### Remembered quality level (31fe94d)
+### Remembered quality level (fc7c3a8)
 
 `localStorage.tubeca_last_quality_level` stores an HLS *level index*. On `FRAG_BUFFERED` (`:288`)
 a counter tracks consecutive fragments at the same level; after `STABLE_FRAGMENT_COUNT = 5` the
@@ -172,7 +172,7 @@ when not on Auto. Selecting a quality does not affect the remembered level.
 ### Trickplay preview (`VideoControls.tsx:321-361`)
 
 On mouse move over the slider box, the hover fraction is mapped to `previewTime`; the tooltip's
-`left` is clamped to `[tileWidth/2, sliderWidth - tileWidth/2]` (365da36) so it never overflows.
+`left` is clamped to `[tileWidth/2, sliderWidth - tileWidth/2]` (1a2a410) so it never overflows.
 `getTrickplayStyle` computes `frameIndex = floor(time / interval)`, sprite sheet index
 `floor(frameIndex / tileCount)`, and `background-position` from column/row, pointing at
 `GET /api/stream/trickplay/:id/:width/:index?token=`. Sheets load lazily on hover, one request
@@ -190,7 +190,7 @@ per sheet. Not shown in `compact` mode.
   fullscreen element. Note `isFullscreen` is never passed by `PlayPage`, so the icon never flips
   to "exit fullscreen" there.
 
-### Mini player (70b750e)
+### Mini player (3d28f43)
 
 `MiniPlayer` reads everything from `usePlayer()`. Position is one of four corners persisted in
 `localStorage.tubeca_miniplayer_position`. Dragging starts on mouse-down anywhere except buttons
@@ -200,7 +200,7 @@ play/pause, mute, expand (`navigate('/play/:id')`) and close. Because the video 
 into it, the drag handler must be registered with the context so mouse-downs on the video itself
 start a drag.
 
-### Queue continuation and Up Next (5d28769, 7d2b8da)
+### Queue continuation and Up Next (993c6cc, a81f85e)
 
 `refreshQueue` (`:803`) fetches `GET /api/user-collections/queue` (the system "Queue" user
 collection). An effect (`:816-948`) runs whenever `currentMedia` or `queue` changes:
@@ -257,20 +257,20 @@ corner.
 ## History
 
 - `dd02263` 2025-11-28 Basic media streaming: first `VideoPlayer` with `/stream/video` and `start=` seeking.
-- `aaeb5ea` 2025-11-30 Stream probing; audio track switching via `audioTrack=` reload.
-- `f6331e4` 2025-11-30 Subtitle tracks as `<track>` WebVTT children.
-- `1af4a83` 2025-12-02 Trickplay frame fixes and audio-desync-on-seek fix.
-- `365da36` 2025-12-02 Clamp trickplay preview at slider edges; `VideoPlayer` tests.
-- `70b750e` 2025-12-04 Persistent mini player: `PlayerContext`, DOM re-parented video, `VideoControls` extracted, "Play in mini player".
-- `6888f86` 2025-12-05 HLS streaming with HLS.js and quality menu; `PlayPage` moves onto the context.
-- `a34d24e` 2025-12-05 Tests for `VideoControls`, `MiniPlayer`, `PlayerContext`.
-- `5d28769` 2025-12-07 Up Next popup, queue state, `playNext`, auto-advance, URL sync.
-- `7d2b8da` 2025-12-07 Continue into the first episode of the next season.
-- `5cbbd47` 2025-12-13 Shared playlist component, play button, `playPrevious`/skip-previous.
-- `3e30738` 2025-12-16 HLS.js tuned for throughput (5 Mbps estimate, bigger buffers, retries).
-- `665d354` 2025-12-17 Re-tuned for software transcoding: start lowest, conservative ABR, no aggressive nudge, 30 s timeouts; backend initial prefetch.
-- `31fe94d` 2025-12-17 Remember last stable quality level in `localStorage`.
-- `6e311ec` 2025-12-19 `maxConcurrentTranscodes` semaphore; prefetch count follows `prefetchSegments` (no forced minimum of 3).
+- `78254a5` 2025-11-30 Stream probing; audio track switching via `audioTrack=` reload.
+- `2c4999c` 2025-11-30 Subtitle tracks as `<track>` WebVTT children.
+- `ac951c2` 2025-12-02 Trickplay frame fixes and audio-desync-on-seek fix.
+- `1a2a410` 2025-12-02 Clamp trickplay preview at slider edges; `VideoPlayer` tests.
+- `3d28f43` 2025-12-04 Persistent mini player: `PlayerContext`, DOM re-parented video, `VideoControls` extracted, "Play in mini player".
+- `d71d4e5` 2025-12-05 HLS streaming with HLS.js and quality menu; `PlayPage` moves onto the context.
+- `6a4f5a8` 2025-12-05 Tests for `VideoControls`, `MiniPlayer`, `PlayerContext`.
+- `993c6cc` 2025-12-07 Up Next popup, queue state, `playNext`, auto-advance, URL sync.
+- `a81f85e` 2025-12-07 Continue into the first episode of the next season.
+- `62dafea` 2025-12-13 Shared playlist component, play button, `playPrevious`/skip-previous.
+- `111d260` 2025-12-16 HLS.js tuned for throughput (5 Mbps estimate, bigger buffers, retries).
+- `38a5bdc` 2025-12-17 Re-tuned for software transcoding: start lowest, conservative ABR, no aggressive nudge, 30 s timeouts; backend initial prefetch.
+- `fc7c3a8` 2025-12-17 Remember last stable quality level in `localStorage`.
+- `0fc5947` 2025-12-19 `maxConcurrentTranscodes` semaphore; prefetch count follows `prefetchSegments` (no forced minimum of 3).
 
 ## Known Limitations
 

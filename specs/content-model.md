@@ -38,7 +38,7 @@
   all detail tables, keywords, all images).
 - **Scraper-agnostic metadata.** Every detail table stores `scraperId` + `externalId` so refreshes
   and Identify can re-target the same provider without re-searching.
-- **People are first-class.** Commit `edd67c9` introduced `Person` specifically so the same actor
+- **People are first-class.** Commit `a3f2f55` introduced `Person` specifically so the same actor
   shown on a film, a show and an episode resolves to one page; matching prefers stable external
   ids over names (`personService.ts:87-136`).
 - **Deletes leave no orphans on disk.** Both delete paths walk images (including credit photos)
@@ -258,37 +258,37 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - `5282cf0` 2025-11-28 Libraries, collections, library scan; migrations `add_media_model`,
   `add_user_auth_and_roles`, `add_user_groups`, `remove_user_email`, `add_library_model`.
 - `dd02263` 2025-11-28 Basic streaming; `add_video_thumbnails` adds `Media.thumbnails`.
-- `fe77ae6` 2025-11-29 Scrapers and metadata; `add_media_details` (Video/AudioDetails, Credit),
+- `41cf2f0` 2025-11-29 Scrapers and metadata; `add_media_details` (Video/AudioDetails, Credit),
   `add_collection_type` (enum + indexes), `add_collection_details` (Show/Season/Artist/Album
   details and credits).
-- `bf45a3c` 2025-11-29 Image scraping; `add_image_storage` (polymorphic `Image`).
-- `c9e65bb` 2025-11-29 Credit/season/episode images shown in containing views.
-- `edd67c9` 2025-11-30 People listing and cross-work linking; `add_person_entity`,
+- `b3fb3ee` 2025-11-29 Image scraping; `add_image_storage` (polymorphic `Image`).
+- `78ab1ff` 2025-11-29 Credit/season/episode images shown in containing views.
+- `a3f2f55` 2025-11-30 People listing and cross-work linking; `add_person_entity`,
   `personService`, `/api/persons`.
-- `aaeb5ea` 2025-11-30 Stream probing and audio track switching; `add_media_streams`.
-- `9600bde` 2025-11-30 Image dialog and metadata refresh endpoints.
-- `bb82089` 2025-12-01 File watcher; `add_watch_for_changes` on `Library`.
-- `30e9ea3` 2025-12-01 Fix person pages listing film media as episodes (filmography split).
-- `8ee3fba`, `3ef372e` 2025-12-01 Hero banners for collections/shows (detail query grows).
-- `1af4a83` 2025-12-02 Fix film media names.
-- `e6b594e` 2025-12-02 `FilmDetails` and `Keyword` (`add_film_details`, `add_keywords`).
-- `5d54756` 2025-12-02 Library sorting; fix film user ratings.
-- `312e7c4` 2025-12-03 Search page (parallel query logic in `routes/search.ts`).
-- `d4dc400` 2025-12-03 User collections (`add_user_collections`; FK back-relations on
+- `78254a5` 2025-11-30 Stream probing and audio track switching; `add_media_streams`.
+- `3404584` 2025-11-30 Image dialog and metadata refresh endpoints.
+- `d7d4c32` 2025-12-01 File watcher; `add_watch_for_changes` on `Library`.
+- `d9c9154` 2025-12-01 Fix person pages listing film media as episodes (filmography split).
+- `322f4ef`, `d37f069` 2025-12-01 Hero banners for collections/shows (detail query grows).
+- `ac951c2` 2025-12-02 Fix film media names.
+- `a52dbe1` 2025-12-02 `FilmDetails` and `Keyword` (`add_film_details`, `add_keywords`).
+- `f7f96fd` 2025-12-02 Library sorting; fix film user ratings.
+- `fc8e567` 2025-12-03 Search page (parallel query logic in `routes/search.ts`).
+- `a801620` 2025-12-03 User collections (`add_user_collections`; FK back-relations on
   `Collection`/`Media`).
-- `84d7bdb`, `a67a00e`, `ae3a327`, `70b750e`, `e55451d` 2025-12-04 Favorites, watch-later,
+- `d98b923`, `775a6e9`, `7685e01`, `3d28f43`, `a67dcbf` 2025-12-04 Favorites, watch-later,
   sorting/filtering across views, mini player and person filmography fix, favoriting user
   collections (three migrations on `UserCollection`).
-- `287e01e` 2025-12-05 Keyword/tag filtering with collapsible panel (`keywordIds`, `/keywords`).
-- `fb42fb2` 2025-12-05 Infinite scroll; `getPaginatedCollections` with `hasMore`.
-- `4c3a261` 2025-12-07 List view mode.
-- `d02715b`, `9117ccf` 2025-12-10 Library group access control (search only) and quick search
+- `68439dd` 2025-12-05 Keyword/tag filtering with collapsible panel (`keywordIds`, `/keywords`).
+- `482f7af` 2025-12-05 Infinite scroll; `getPaginatedCollections` with `hasMore`.
+- `33b11fc` 2025-12-07 List view mode.
+- `8143c03`, `62dc88f` 2025-12-10 Library group access control (search only) and quick search
   (`nameFilter`).
-- `7a46ade` 2025-12-10 Queue page display for films and episodes.
-- `914fd5d` 2025-12-11 `add_user_collection_type` (Set/Playlist).
-- `5cbbd47` 2025-12-13 Shared playlist component, play button.
-- `e6afcca` 2025-12-15 Identify feature (`POST /search`, `POST /:id/identify`, `IdentifyDialog`).
-- `4f7410e`, `6e311ec` 2025-12-16/19 `TranscodingSettings` table (`add_transcoding_settings`,
+- `5d8d37c` 2025-12-10 Queue page display for films and episodes.
+- `6184e8d` 2025-12-11 `add_user_collection_type` (Set/Playlist).
+- `62dafea` 2025-12-13 Shared playlist component, play button.
+- `b088bdc` 2025-12-15 Identify feature (`POST /search`, `POST /:id/identify`, `IdentifyDialog`).
+- `b6003ef`, `0fc5947` 2025-12-16/19 `TranscodingSettings` table (`add_transcoding_settings`,
   `add_max_concurrent_transcodes`); last schema change to date.
 
 ## Known Limitations

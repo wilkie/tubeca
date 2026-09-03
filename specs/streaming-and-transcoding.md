@@ -41,8 +41,8 @@
 - **Play anything without a pre-transcode step.** Every container/codec ffmpeg can decode is
   playable immediately; there is no import-time transcode, and the queue-based `transcode` job was
   never finished because HLS on demand made it unnecessary.
-- **Fast start on weak hardware.** Nearly every commit after the initial HLS one (`665d354`,
-  `6e311ec`, `3e30738`, `31fe94d`) is about first-segment latency and avoiding CPU overload from
+- **Fast start on weak hardware.** Nearly every commit after the initial HLS one (`38a5bdc`,
+  `0fc5947`, `111d260`, `fc7c3a8`) is about first-segment latency and avoiding CPU overload from
   software x264: prefetching, low `startLevel`, `veryfast`/`zerolatency`, a concurrency cap.
 - **Sharing work across viewers and seeks.** Segments are content-addressed by
   `mediaId/audioTrack/quality/index` on disk, so a second viewer, a re-seek, or a quality flip back
@@ -273,7 +273,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   `Media.duration`, `Media.thumbnails` and `MediaStream` via `probeMediaFile`;
   [Configuration](configuration.md) for the `hlsCache` block and the FFmpeg/ffprobe binaries on
   `PATH`; [Content Model](content-model.md) for the `Media` STI and `MediaStream` shapes;
-  [Deployment](deployment.md) for cache disk, `UV_THREADPOOL_SIZE=24` (set in `4abe949`, relevant
+  [Deployment](deployment.md) for cache disk, `UV_THREADPOOL_SIZE=24` (set in `7052d0c`, relevant
   because every segment request does several sync `fs` calls and each FFmpeg spawn uses the pool),
   and GPU/driver availability for hardware encoding.
 - **Used by:** [Playback](playback.md) (hls.js player, audio/subtitle menus, trickplay preview,
@@ -291,28 +291,28 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   endpoints.
 - `dd02263` 2025-11-28 Basic streaming: `/video/:id` with range requests for mp4/webm and live
   FFmpeg-to-fragmented-MP4 for everything else; `/audio/:id`; `?token=` auth.
-- `aaeb5ea` 2025-11-30 `ffprobe.ts`, `MediaStream` model, probing at scan time; `audioTrack` query
+- `78254a5` 2025-11-30 `ffprobe.ts`, `MediaStream` model, probing at scan time; `audioTrack` query
   param maps a specific stream.
-- `f6331e4` 2025-11-30 `/subtitles/:id` extracts a stream to WebVTT via FFmpeg.
-- `1af4a83` 2025-12-02 Trickplay metadata/sprite routes reading `.trickplay` folders; fixes A/V
+- `2c4999c` 2025-11-30 `/subtitles/:id` extracts a stream to WebVTT via FFmpeg.
+- `ac951c2` 2025-12-02 Trickplay metadata/sprite routes reading `.trickplay` folders; fixes A/V
   desync on seek by stream-copying both streams for native containers and adding `-avoid_negative_ts
   make_zero`.
-- `6888f86` 2025-12-05 HLS: `HlsService` with per-segment on-demand FFmpeg, four quality presets
+- `d71d4e5` 2025-12-05 HLS: `HlsService` with per-segment on-demand FFmpeg, four quality presets
   plus `original`, `HlsCacheCleanupService`, `hlsCache` config, hls.js on the frontend.
-- `5bfbb97` 2025-12-15 `getHlsCachePath()` loads config when called without arguments (cache path
+- `4dc330d` 2025-12-15 `getHlsCachePath()` loads config when called without arguments (cache path
   previously ignored `tubeca.config.json`).
-- `4f7410e` 2025-12-16 `TranscodingSettings` model, `hwaccel.ts` detection
+- `b6003ef` 2025-12-16 `TranscodingSettings` model, `hwaccel.ts` detection
   (NVENC/QSV/AMF/VAAPI/VideoToolbox), settings service and routes, per-rung bitrates, next-segment
   prefetching.
-- `3e30738` 2025-12-16 hls.js tuning (frontend only): higher initial bandwidth estimate, bigger
+- `111d260` 2025-12-16 hls.js tuning (frontend only): higher initial bandwidth estimate, bigger
   buffers.
-- `665d354` 2025-12-17 `prefetchInitialSegments` on playlist request (originally forced a minimum of
+- `38a5bdc` 2025-12-17 `prefetchInitialSegments` on playlist request (originally forced a minimum of
   3); frontend reverts to starting at lowest level and disables aggressive stall nudging.
-- `31fe94d` 2025-12-17 Frontend remembers last stable quality level in `localStorage` (no backend
+- `fc7c3a8` 2025-12-17 Frontend remembers last stable quality level in `localStorage` (no backend
   change).
-- `6e311ec` 2025-12-19 `maxConcurrentTranscodes` setting and the transcode semaphore; prefetch count
+- `0fc5947` 2025-12-19 `maxConcurrentTranscodes` setting and the transcode semaphore; prefetch count
   now honours the setting exactly.
-- `4abe949` 2026-07-01 `UV_THREADPOOL_SIZE=24` in backend scripts and watcher polling advice for
+- `7052d0c` 2026-07-01 `UV_THREADPOOL_SIZE=24` in backend scripts and watcher polling advice for
   network mounts; no change to streaming code, but it addresses the threadpool contention that sync
   `fs` calls in the stream routes contribute to.
 
@@ -335,7 +335,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   encoded twice concurrently into the same file.
 - **Orphaned/uncancellable encodes.** Segment FFmpegs have no timeout, are not killed on client
   disconnect, and are not tracked at shutdown; prefetch has no priority below live requests.
-- **No watch progress or resume.** The server stores nothing about playback position; `31fe94d`
+- **No watch progress or resume.** The server stores nothing about playback position; `fc7c3a8`
   persists only a quality level, client-side.
 - **Cache growth is TTL-only.** `maxSizeGB` is ignored; media deletion does not evict segments; the
   sweep relies on `atime` (patched by `touchFile` only on the read path) and does a full-tree `stat`

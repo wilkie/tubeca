@@ -13,11 +13,11 @@
 
 ## Goals
 
-- **Self-contained artwork**: every rendered image comes from local disk via the API, never from a third-party CDN (`bf45a3c`).
+- **Self-contained artwork**: every rendered image comes from local disk via the API, never from a third-party CDN (`b3fb3ee`).
 - **Deterministic storage**: a fixed path per entity and type (`collections/<id>/poster.jpg`) so re-scrapes overwrite rather than accumulate.
-- **Cheap serving in dev**: `res.sendFile` instead of manual stream piping because `tsx watch` made piping noticeably slow (`16178fd`); a day-long `Cache-Control` so the browser does not re-fetch grids.
-- **Correct content types**, including SVG logos from TMDB (`00c1767`).
-- **Consistent UI rows**: list views prefer landscape (`Thumbnail > Backdrop > Poster`) so row heights match (`a27f5f8`); seasons borrow the show poster rather than showing a folder icon (`d188a96`).
+- **Cheap serving in dev**: `res.sendFile` instead of manual stream piping because `tsx watch` made piping noticeably slow (`f679405`); a day-long `Cache-Control` so the browser does not re-fetch grids.
+- **Correct content types**, including SVG logos from TMDB (`056b695`).
+- **Consistent UI rows**: list views prefer landscape (`Thumbnail > Backdrop > Poster`) so row heights match (`5e379a5`); seasons borrow the show poster rather than showing a folder icon (`db1dafa`).
 - **Do not clobber curated images on metadata refresh** (`skipImages`) while still filling in empty entities.
 
 ## Components
@@ -48,11 +48,11 @@
 
 1. A worker or route calls `downloadAndSaveImage(url, { imageType, <ownerId>, isPrimary, scraperId })`.
 2. The owner id chooses a folder: `media/`, `collections/` or `people/` (person, showCredit and credit all share `people/`) (`imageService.ts:104-121`).
-3. The URL is fetched with global `fetch` and fully buffered. Format is taken from `Content-Type` (`png`, `webp`, `gif`, `svg`), then from the URL extension, else `jpg` (`imageService.ts:133-149`). SVG was added in `00c1767`; before that TMDB logos were written as `logo.jpg` and served as `image/jpeg`.
+3. The URL is fetched with global `fetch` and fully buffered. Format is taken from `Content-Type` (`png`, `webp`, `gif`, `svg`), then from the URL extension, else `jpg` (`imageService.ts:133-149`). SVG was added in `056b695`; before that TMDB logos were written as `logo.jpg` and served as `image/jpeg`.
 4. The file is written synchronously to `<imagePath>/<folder>/<entityId>/<imagetype>.<format>`. There is no hashing, no dedup across entities, no resizing and no size cap; `sharp` is used only to read dimensions, and failure there is a warning.
 5. `saveImage` upserts: if `isPrimary`, every other image with the same owner and type is un-primaried; then the existing row for that owner+type is updated in place, otherwise created (`imageService.ts:216-278`). Because the filename is also keyed on type, an entity can never hold more than one image per type, so "primary" is effectively always true and the DB row and file are 1:1.
 
-`getImageStoragePath()` memoises the resolved root; an absolute `imagePath` is used verbatim, a relative one is resolved against the repo root, and the default is `backend/data/images` (`5bfbb97` fixed it ignoring config when called without arguments).
+`getImageStoragePath()` memoises the resolved root; an absolute `imagePath` is used verbatim, a relative one is resolved against the repo root, and the default is `backend/data/images` (`4dc330d` fixed it ignoring config when called without arguments).
 
 ### Who triggers downloads
 
@@ -74,9 +74,9 @@
 The backend pre-selects one image for list payloads: collection listings and child lists include only the primary `Poster` (`collectionService.ts:45, 199, 311`), media inside a show tree include the primary of any type (`:364`), credits include the primary `Photo`, and user-collection items include primaries in `Thumbnail/Backdrop/Poster` with no ordering (`userCollectionService.ts:31-35, 67-71`). Detail endpoints (`getCollectionById`, `getMediaById`) include all images. Frontend rules:
 
 - Grids (`LibraryPage`, `MediaGrid`, `SearchPage`, `CastCrewGrid`) render `images[0]`, i.e. whatever the backend filtered to.
-- Hero views find `Backdrop`, `Poster` and `Logo` explicitly from the full list; `HeroSection` pins the backdrop while content scrolls (`d06b185`).
+- Hero views find `Backdrop`, `Poster` and `Logo` explicitly from the full list; `HeroSection` pins the backdrop while content scrolls (`63d1d10`).
 - `UserCollectionPage.getItemImage` orders `Thumbnail > Backdrop > Poster` when the view is a list or the library is `Film`, otherwise `Poster > Backdrop > Thumbnail`, then falls back to the media's parent collection images. `QueuePage` always prefers landscape but uses `media.images[0]` unfiltered for the media's own images, applying the order only to the parent fallback.
-- Seasons without their own poster show the parent show's poster: `ChildCollectionGrid` takes a `fallbackImages` prop that `StandardCollectionView` fills with the parent's images, and `ShowHeroView` does the same inline (`d188a96`).
+- Seasons without their own poster show the parent show's poster: `ChildCollectionGrid` takes a `fallbackImages` prop that `StandardCollectionView` fills with the parent's images, and `ShowHeroView` does the same inline (`db1dafa`).
 - `MediaPage` looks for a primary `Still`, then any `Still`, then any primary; since `Still` is never created this always resolves to the Thumbnail or Poster.
 
 ### Deletion
@@ -95,19 +95,19 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 ## History
 
-- `fe77ae6` 2025-11-29 Scraper plugins introduced; metadata carries artwork URLs.
-- `bf45a3c` 2025-11-29 `add_image_storage` migration, `ImageService`, `/api/images` routes, workers download artwork, frontend renders it.
-- `9600bde` 2025-11-30 `ImagesDialog` gallery and refresh-metadata / refresh-images actions.
-- `edd67c9` 2025-11-30 `Person` entity gains `images`; person photos downloaded on view.
+- `41cf2f0` 2025-11-29 Scraper plugins introduced; metadata carries artwork URLs.
+- `b3fb3ee` 2025-11-29 `add_image_storage` migration, `ImageService`, `/api/images` routes, workers download artwork, frontend renders it.
+- `3404584` 2025-11-30 `ImagesDialog` gallery and refresh-metadata / refresh-images actions.
+- `a3f2f55` 2025-11-30 `Person` entity gains `images`; person photos downloaded on view.
 - `20251202222947_add_film_details` 2025-12-02 `filmCreditId` added to `Image`.
-- `8371767` 2025-12-02 CollectionPage split into `ShowHeroView` / `FilmHeroView` / `StandardCollectionView` with tests.
-- `6888f86` 2025-12-05 `appConfig` gains `getImageStoragePath` alongside HLS cache path.
-- `a27f5f8` 2025-12-13 List views prefer landscape images (`Thumbnail > Backdrop > Poster`).
-- `d188a96` 2025-12-15 Seasons fall back to the parent show's poster.
-- `5bfbb97` 2025-12-15 `getImageStoragePath()` honours config when called with no argument.
-- `d06b185` 2025-12-16 Hero backdrop fixed while content scrolls.
-- `16178fd` 2025-12-19 `res.sendFile` replaces manual stream piping.
-- `00c1767` 2025-12-20 SVG detected on download; `Content-Type` taken from the DB `format`.
+- `384bcd7` 2025-12-02 CollectionPage split into `ShowHeroView` / `FilmHeroView` / `StandardCollectionView` with tests.
+- `d71d4e5` 2025-12-05 `appConfig` gains `getImageStoragePath` alongside HLS cache path.
+- `5e379a5` 2025-12-13 List views prefer landscape images (`Thumbnail > Backdrop > Poster`).
+- `db1dafa` 2025-12-15 Seasons fall back to the parent show's poster.
+- `4dc330d` 2025-12-15 `getImageStoragePath()` honours config when called with no argument.
+- `63d1d10` 2025-12-16 Hero backdrop fixed while content scrolls.
+- `f679405` 2025-12-19 `res.sendFile` replaces manual stream piping.
+- `056b695` 2025-12-20 SVG detected on download; `Content-Type` taken from the DB `format`.
 
 ## Known Limitations
 

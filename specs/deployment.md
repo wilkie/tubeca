@@ -30,7 +30,7 @@
 - **Config survives upgrades.** `/etc/tubeca/*` are declared in `backup=()` so pacman preserves
   edits; `post_remove` deliberately leaves config, database and data in place.
 - **Fast, unstripped packaging.** `options=('!strip' '!debug')` because `node_modules` holds
-  thousands of JS files and stripping was the dominant packaging cost (3d6b9a1, f68198a).
+  thousands of JS files and stripping was the dominant packaging cost (096cd7c, 461d160).
 - **Least-privilege runtime.** Units use `NoNewPrivileges`, `ProtectSystem=strict`,
   `ProtectHome`, `PrivateTmp` and enumerate `ReadWritePaths` explicitly.
 - **Minimal runtime toolchain.** Rather than fix the ESM output of `tsc`, the package runs the
@@ -43,13 +43,13 @@
 | `package.json` | Root scripts (`dev/build/lint/typecheck/test/clean` all delegate to `turbo`), `prepare: husky`, `engines.node >= 22`, `packageManager: pnpm@8.15.0`. |
 | `pnpm-workspace.yaml` | Workspace globs: `frontend/*`, `backend`, `packages/*`, `scrapers/*`. |
 | `turbo.json` | Pipeline: `build` depends on `^build` with `dist/**` outputs; `typecheck`/`test` depend on `^build`; `dev` is persistent, uncached and passes `PORT` through. |
-| `.husky/pre-commit` | `pnpm lint && pnpm typecheck` (bdf633a). |
-| `.nvmrc` | `22` (added with the Node 22 engine bump in 8d11854). |
+| `.husky/pre-commit` | `pnpm lint && pnpm typecheck` (c3a9f25). |
+| `.nvmrc` | `22` (added with the Node 22 engine bump in c95eedf). |
 | `packages/shared-types`, `packages/scraper-types` | `tsc` to `dist/`; consumed via `exports` -> `./dist/index.js` + `.d.ts`, so dependents cannot typecheck until they are built. |
 | `scrapers/tmdb`, `scrapers/tvdb` | Same pattern; `backend` depends on them with `workspace:*`. |
-| `backend/package.json` | `build: prisma generate && tsc`; `start: node dist/index.js` (not what production uses); `db:migrate: prisma migrate deploy` (fe6629b). |
-| `backend/prisma.config.ts` | Prisma 7 config; reads `DATABASE_URL` via `dotenv/config` at load time, which is why the PKGBUILD must write a `.env` before building (6b0643b, 9a0e494). |
-| `frontend/ui/package.json`, `vite.config.ts` | `build: tsc && vite build`; dev proxy `/api` -> `127.0.0.1:${PORT ?? 3000}` (8d11854, 64b1e52). |
+| `backend/package.json` | `build: prisma generate && tsc`; `start: node dist/index.js` (not what production uses); `db:migrate: prisma migrate deploy` (0a81375). |
+| `backend/prisma.config.ts` | Prisma 7 config; reads `DATABASE_URL` via `dotenv/config` at load time, which is why the PKGBUILD must write a `.env` before building (d7d16a2, af9bbfe). |
+| `frontend/ui/package.json`, `vite.config.ts` | `build: tsc && vite build`; dev proxy `/api` -> `127.0.0.1:${PORT ?? 3000}` (c95eedf, 6c12ed4). |
 | `PKGBUILD` | Arch package: `pkgver()`, `build()`, `package()`; embeds the production systemd units, sysusers.d and tmpfiles.d as heredocs. |
 | `tubeca.install` | pacman hooks `post_install`, `post_upgrade`, `pre_remove`, `post_remove`. |
 | `build-package.sh` | Wrapper: checks for `makepkg`/`pnpm`, cleans `src/ pkg/ *.pkg.tar.*`, runs `makepkg -sf`. |
@@ -80,37 +80,37 @@
 4. Frontend build is `tsc && vite build` -> `frontend/ui/dist/` (single hashed JS + CSS bundle
    and `index.html`). The API base is hard-coded as the relative path `/api`
    (`frontend/ui/src/api/client.ts:168`); there is no `VITE_*` override.
-5. The pre-commit hook (bdf633a) runs `pnpm lint && pnpm typecheck` through Turbo, so a commit
+5. The pre-commit hook (c3a9f25) runs `pnpm lint && pnpm typecheck` through Turbo, so a commit
    triggers library builds if `dist/` is stale. There is no CI; the hook is the only gate.
 6. `dev` passes `PORT` through (`turbo.json`), and Vite's proxy target reads the same `PORT`
-   (8d11854) so `PORT=4000 pnpm dev` moves both the backend listener
+   (c95eedf) so `PORT=4000 pnpm dev` moves both the backend listener
    (`backend/src/index.ts:32`) and the frontend proxy together.
 
 ### Arch package build (`PKGBUILD`)
 
 - `source=("tubeca::git+file://${startdir}")` — makepkg clones the *local repository* at HEAD.
   Uncommitted changes are not packaged. `pkgver()` tries `git describe --tags`; since the repo
-  has no tags it falls back to `1.0.0.r<commit-count>.<short-hash>` (39e0386).
+  has no tags it falls back to `1.0.0.r<commit-count>.<short-hash>` (0d48875).
 - `build()`: writes `backend/.env` with `DATABASE_URL="file:./prisma/build.db"` because
   `prisma.config.ts` calls `env("DATABASE_URL")` at import time and `prisma generate` fails
-  without it (6b0643b, 9a0e494); `pnpm install --frozen-lockfile || pnpm install`; then
-  `pnpm add serve` in `frontend/ui` (b0fb910) and `pnpm add tsx` in `backend` (1dc6505) so both
+  without it (d7d16a2, af9bbfe); `pnpm install --frozen-lockfile || pnpm install`; then
+  `pnpm add serve` in `frontend/ui` (8dec2d8) and `pnpm add tsx` in `backend` (ae6a201) so both
   runtime tools live in the package's own `node_modules/.bin`; then `pnpm build`.
 - `package()`: copies `backend/`, `frontend/`, `packages/`, `scrapers/` and the *entire root*
   `node_modules/` (dev dependencies included: jest, redocly, eslint, etc.) to `/opt/tubeca`;
   installs `backend/.env.example` as `/etc/tubeca/tubeca.env` and either the builder's
   `tubeca.config.json` or a default one with `imagePath`/`hlsCache.path` under `/var/lib/tubeca`
-  (1d11983, 75b5666); symlinks `/opt/tubeca/backend/.env` and `/opt/tubeca/tubeca.config.json`
+  (7aa555d, 7ab991b); symlinks `/opt/tubeca/backend/.env` and `/opt/tubeca/tubeca.config.json`
   to `/etc/tubeca/`; writes the two units, `sysusers.d/tubeca.conf` and `tmpfiles.d/tubeca.conf`;
   installs README, `systemd/README.md` and `nginx.conf.example` to `/usr/share/doc/tubeca/`.
 - `depends=('nodejs>=18' 'npm' 'redis' 'ffmpeg')`, `makedepends=('pnpm' 'git')`,
   `optdepends=('nginx')`. Note the `nodejs>=18` floor contradicts `engines.node >= 22` and
-  the Prisma 7 requirement recorded in 698db3b.
+  the Prisma 7 requirement recorded in 54e40a2.
 
 ### Install hooks (`tubeca.install`)
 
 `post_install`: `systemd-sysusers`, `systemd-tmpfiles --create`, `chown -R tubeca:tubeca
-/opt/tubeca /var/lib/tubeca`, config files to `root:tubeca 0640` (fb3eb0c), then
+/opt/tubeca /var/lib/tubeca`, config files to `root:tubeca 0640` (4500646), then
 `sudo -u tubeca npx prisma generate`, `npx prisma migrate deploy || npx prisma db push`,
 then generate `JWT_SECRET` with `openssl rand -hex 32` if the placeholder is present, then
 `sed` `NODE_ENV=development -> production` and `DATABASE_URL` `dev.db -> tubeca.db`. All Prisma
@@ -124,7 +124,7 @@ chmod, runs `prisma generate` + `migrate deploy`, and restarts whichever service
 |------|---------|
 | `/opt/tubeca` | Full workspace incl. `node_modules`, owned by `tubeca` |
 | `/etc/tubeca/tubeca.env` | `EnvironmentFile` for the backend (`PORT`, `DATABASE_URL`, `REDIS_*`, `JWT_SECRET`, `FILE_WATCHER_ENABLED`) |
-| `/etc/tubeca/tubeca.config.json` | App config, pointed to by `Environment=TUBECA_CONFIG_PATH=...` in the unit (fb3eb0c); resolved first by `backend/src/config/appConfig.ts:74` |
+| `/etc/tubeca/tubeca.config.json` | App config, pointed to by `Environment=TUBECA_CONFIG_PATH=...` in the unit (4500646); resolved first by `backend/src/config/appConfig.ts:74` |
 | `/opt/tubeca/backend/prisma/tubeca.db` | SQLite database (inside `/opt`, allowed via `ReadWritePaths=/opt/tubeca/backend/prisma`) |
 | `/var/lib/tubeca/images`, `/var/lib/tubeca/hls-cache` | Image store and HLS segment cache (0750, tmpfiles.d) |
 
@@ -135,7 +135,7 @@ chmod, runs `prisma generate` + `migrate deploy`, and restarts whichever service
   `After=network.target redis.service`, `Wants=redis.service`, `Restart=on-failure`,
   `NODE_ENV=production`. The backend handles `SIGTERM`/`SIGINT` for graceful shutdown
   (`backend/src/index.ts:720`). The unit does not set `UV_THREADPOOL_SIZE=24`, which the
-  `dev`/`start` scripts set (4abe949) to avoid DNS/threadpool starvation with network mounts.
+  `dev`/`start` scripts set (7052d0c) to avoid DNS/threadpool starvation with network mounts.
 - `tubeca-frontend.service`: `ExecStart=/opt/tubeca/frontend/ui/node_modules/.bin/serve -s dist
   -l 8080`, `After=tubeca-backend.service`. `serve -s` is an SPA fallback server with no proxy
   configuration (there is no `serve.json`). The backend does not serve the SPA either (no
@@ -147,7 +147,7 @@ chmod, runs `prisma generate` + `migrate deploy`, and restarts whichever service
 ### tsx in production
 
 `tsx` (an esbuild-based TS/ESM loader) is used to run the already-compiled `dist/index.js`
-purely because it tolerates extensionless ESM imports (1dc6505). Implications: the production
+purely because it tolerates extensionless ESM imports (ae6a201). Implications: the production
 process depends on a dev tool and on esbuild native binaries; each start pays the transform
 cost; stack traces go through tsx's loader; `pnpm add tsx` in `build()` mutates
 `backend/package.json` in the build tree, so the packaged manifest differs from git; and the
@@ -201,21 +201,21 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 ## History
 
 - `4946f1d` 2025-11-28 — Initial commit: pnpm workspace + Turborepo skeleton, `.gitignore` with `dist/`.
-- `bdf633a` 2025-12-02 — Husky pre-commit hook (`pnpm lint && pnpm typecheck`), `typecheck` task added to Turbo.
-- `81b08bf` 2025-12-02 — README rewritten with getting-started, config and script tables.
-- `7366e13` 2025-12-03 — `tubeca.config.json` removed from git and ignored; `tubeca.config.example.json` kept.
-- `a48672a` 2025-12-14 — systemd units, install/uninstall scripts, nginx example, `INSTALL.md`, first `PKGBUILD` + `tubeca.install`.
-- `39e0386` 2025-12-14 — `pkgver()` falls back to commit count + hash when there are no tags.
-- `9a0e494`, `6b0643b` 2025-12-14 — Set `DATABASE_URL` / write `backend/.env` in `build()` so `prisma generate` works.
-- `3d6b9a1` 2025-12-14, `f68198a` 2025-12-15 — `!strip` then `!debug` to stop makepkg crawling `node_modules`.
-- `b0fb910` 2025-12-14 — `serve` installed into the package instead of `npx serve` at runtime.
-- `1dc6505` 2025-12-14 — Backend `ExecStart` switched to `tsx dist/index.js` for ESM support.
-- `1d11983`, `fb3eb0c`, `75b5666` 2025-12-15 — Config files `root:tubeca 0640`, HLS cache and image paths under `/var/lib/tubeca`, `TUBECA_CONFIG_PATH` in the unit.
-- `fe6629b` 2025-12-19 — `db:migrate` becomes `prisma migrate deploy`; `db:migrate:dev` added.
-- `0263276`, `698db3b` 2025-12-19 — `prisma.config.ts` -> `.js` -> back to `.ts`, concluding Node 22 is required.
-- `64b1e52` 2025-12-19 — Vite proxy uses `127.0.0.1` instead of `localhost`.
-- `8d11854` 2026-07-01 — `PORT` passed through Turbo to the Vite proxy; `engines.node >= 22`; `.nvmrc`.
-- `4abe949` 2026-07-01 — `UV_THREADPOOL_SIZE=24` added to `dev`/`start` scripts (not to the systemd unit).
+- `c3a9f25` 2025-12-02 — Husky pre-commit hook (`pnpm lint && pnpm typecheck`), `typecheck` task added to Turbo.
+- `e9cd41c` 2025-12-02 — README rewritten with getting-started, config and script tables.
+- `363b909` 2025-12-03 — `tubeca.config.json` removed from git and ignored; `tubeca.config.example.json` kept.
+- `2e1be8d` 2025-12-14 — systemd units, install/uninstall scripts, nginx example, `INSTALL.md`, first `PKGBUILD` + `tubeca.install`.
+- `0d48875` 2025-12-14 — `pkgver()` falls back to commit count + hash when there are no tags.
+- `af9bbfe`, `d7d16a2` 2025-12-14 — Set `DATABASE_URL` / write `backend/.env` in `build()` so `prisma generate` works.
+- `096cd7c` 2025-12-14, `461d160` 2025-12-15 — `!strip` then `!debug` to stop makepkg crawling `node_modules`.
+- `8dec2d8` 2025-12-14 — `serve` installed into the package instead of `npx serve` at runtime.
+- `ae6a201` 2025-12-14 — Backend `ExecStart` switched to `tsx dist/index.js` for ESM support.
+- `7aa555d`, `4500646`, `7ab991b` 2025-12-15 — Config files `root:tubeca 0640`, HLS cache and image paths under `/var/lib/tubeca`, `TUBECA_CONFIG_PATH` in the unit.
+- `0a81375` 2025-12-19 — `db:migrate` becomes `prisma migrate deploy`; `db:migrate:dev` added.
+- `fdc9e93`, `54e40a2` 2025-12-19 — `prisma.config.ts` -> `.js` -> back to `.ts`, concluding Node 22 is required.
+- `6c12ed4` 2025-12-19 — Vite proxy uses `127.0.0.1` instead of `localhost`.
+- `c95eedf` 2026-07-01 — `PORT` passed through Turbo to the Vite proxy; `engines.node >= 22`; `.nvmrc`.
+- `7052d0c` 2026-07-01 — `UV_THREADPOOL_SIZE=24` added to `dev`/`start` scripts (not to the systemd unit).
 
 ## Known Limitations
 
@@ -258,7 +258,7 @@ the initial commit) is therefore already ignored and is simply leftover output; 
   non-Arch path stops drifting. (S)
 - **Prune the package**: `pnpm install --prod` after build, or `pnpm deploy --prod` into a
   staging dir, instead of copying the dev `node_modules`. (M)
-- **Add `UV_THREADPOOL_SIZE=24` (or the `start` script) to the backend unit** so the 4abe949 fix
+- **Add `UV_THREADPOOL_SIZE=24` (or the `start` script) to the backend unit** so the 7052d0c fix
   reaches deployments. (S)
 - **Align the Node floor** to 22 in `PKGBUILD depends`, `systemd/install.sh` and docs. (S)
 - **Tag releases** (`v1.0.0`) so `pkgver()` and `pkgrel` are meaningful, and enable the commented

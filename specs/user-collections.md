@@ -27,8 +27,8 @@
 - **Zero-setup personal lists.** System collections are created on first read
   (`getSystemCollection`, `userCollectionService.ts:415`), so there is no onboarding step and no
   migration to seed rows.
-- **One schema for everything list-like.** The commit sequence (d4dc400 -> 84d7bdb -> a67a00e
-  -> 70b750e) deliberately folded favorites, watch-later and the queue into `UserCollection`
+- **One schema for everything list-like.** The commit sequence (a801620 -> d98b923 -> 775a6e9
+  -> 3d28f43) deliberately folded favorites, watch-later and the queue into `UserCollection`
   rather than adding tables; the short-lived `isFavorites` boolean was replaced within hours by
   the generic `isSystem`/`systemType` pair.
 - **Heterogeneous membership.** An item may point at a `Media`, a `Collection` or another
@@ -94,7 +94,7 @@ Season, Film, Artist, Album, Generic) or other `UserCollection`s. `itemInclude` 
 shapes every item response: for a media item it pulls the media's primary image plus its parent
 collection (with images, `parent` for the show name, and `library` for `libraryType`) and
 season/episode or disc/track numbers; for a collection item it pulls primary Thumbnail/Backdrop/
-Poster images, `library`, and `media[0].id` (added in 7a46ade / 5cbbd47 so a Film collection is
+Poster images, `library`, and `media[0].id` (added in 5d8d37c / 62dafea so a Film collection is
 playable); for a nested user collection it pulls name, description, `_count.items` and owner.
 
 Only Favorites can hold a `UserCollection` reference: the `POST /favorites/toggle` route passes
@@ -154,7 +154,7 @@ optimistic order on screen.
   update another instance showing the same item.
 - `FavoritesPage`/`WatchLaterPage` remove an item by calling the *toggle* endpoint, then only
   prune local state if the response says it is now absent.
-- Favoriting a user collection (e55451d) is exposed on `UserCollectionsPage` cards (own and
+- Favoriting a user collection (a67dcbf) is exposed on `UserCollectionsPage` cards (own and
   public) and on `UserCollectionPage`; it stores an `itemUserCollectionId` in Favorites. Adding
   a system collection to itself is blocked (`'Cannot add a collection to itself'`).
 
@@ -214,21 +214,21 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 
 ## History
 
-- `d4dc400` 2025-12-03 — Initial `UserCollection`/`UserCollectionItem` tables (media + collection refs), service, routes, `AddToCollectionDialog`, `CreateCollectionDialog`, list/detail pages, quick-add on film hero.
-- `84d7bdb` 2025-12-04 — Favorites: first as an `isFavorites` boolean, replaced the same day by `isSystem`/`systemType`; `FavoriteButton`, `FavoritesPage`, `/favorites*` routes.
-- `a67a00e` 2025-12-04 — Watch Later as a second system type; generic `checkSystemCollectionItems`/`toggleSystemCollectionItem` helpers; `WatchLaterButton`, `WatchLaterPage`.
-- `ae3a327` 2025-12-04 — `CardQuickActions` overlay, sort/filter on `UserCollectionPage`, "+" menus on Show/Season/Media pages.
-- `70b750e` 2025-12-04 — `PlayerContext` and mini player; `PlaybackQueue` system type and `/queue*` routes added alongside.
-- `e55451d` 2025-12-04 — `itemUserCollectionId` column; Favorites may contain user collections; hearts on collection cards.
-- `0d41baf` 2025-12-05 — Page tests for Favorites/WatchLater/UserCollection(s) pages.
-- `42bbba0` 2025-12-07 — `QueuePage` with sidebar link.
-- `4c3a261` 2025-12-07 — `CardQuickActions` inline variant for list view.
-- `8ec0361` 2025-12-10 — `@dnd-kit` added; QueuePage converted to reorderable list (`MediaListItem`).
-- `7a46ade` 2025-12-10 — Queue rows show show name for episodes; Film items get `media[0]` and navigate to the film collection.
-- `914fd5d` 2025-12-11 — `collectionType` enum (`Set`/`Playlist`) with migration; type picker in create dialog.
-- `5cbbd47` 2025-12-13 — `SortableMediaListItem` extracted and shared; Playlist view with DnD and per-row play in `UserCollectionPage`; "Play" sets the queue from a playlist; previous-track navigation.
-- `a27f5f8` 2025-12-13 — `SelectionActionBar`; multi-select on LibraryPage; landscape images in list rows.
-- `6830b9a` 2025-12-14 — Multi-select and Select All on SearchPage.
+- `a801620` 2025-12-03 — Initial `UserCollection`/`UserCollectionItem` tables (media + collection refs), service, routes, `AddToCollectionDialog`, `CreateCollectionDialog`, list/detail pages, quick-add on film hero.
+- `d98b923` 2025-12-04 — Favorites: first as an `isFavorites` boolean, replaced the same day by `isSystem`/`systemType`; `FavoriteButton`, `FavoritesPage`, `/favorites*` routes.
+- `775a6e9` 2025-12-04 — Watch Later as a second system type; generic `checkSystemCollectionItems`/`toggleSystemCollectionItem` helpers; `WatchLaterButton`, `WatchLaterPage`.
+- `7685e01` 2025-12-04 — `CardQuickActions` overlay, sort/filter on `UserCollectionPage`, "+" menus on Show/Season/Media pages.
+- `3d28f43` 2025-12-04 — `PlayerContext` and mini player; `PlaybackQueue` system type and `/queue*` routes added alongside.
+- `a67dcbf` 2025-12-04 — `itemUserCollectionId` column; Favorites may contain user collections; hearts on collection cards.
+- `96d0eb6` 2025-12-05 — Page tests for Favorites/WatchLater/UserCollection(s) pages.
+- `8669ff9` 2025-12-07 — `QueuePage` with sidebar link.
+- `33b11fc` 2025-12-07 — `CardQuickActions` inline variant for list view.
+- `937eb01` 2025-12-10 — `@dnd-kit` added; QueuePage converted to reorderable list (`MediaListItem`).
+- `5d8d37c` 2025-12-10 — Queue rows show show name for episodes; Film items get `media[0]` and navigate to the film collection.
+- `6184e8d` 2025-12-11 — `collectionType` enum (`Set`/`Playlist`) with migration; type picker in create dialog.
+- `62dafea` 2025-12-13 — `SortableMediaListItem` extracted and shared; Playlist view with DnD and per-row play in `UserCollectionPage`; "Play" sets the queue from a playlist; previous-track navigation.
+- `5e379a5` 2025-12-13 — `SelectionActionBar`; multi-select on LibraryPage; landscape images in list rows.
+- `78d94c1` 2025-12-14 — Multi-select and Select All on SearchPage.
 
 ## Known Limitations
 

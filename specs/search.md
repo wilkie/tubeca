@@ -28,16 +28,16 @@
 - **Find-by-title fast enough for a personal library.** Every search path is a simple
   `contains` on `name`; the code never attempts relevance, tokenisation, or typo tolerance.
   This is adequate for hundreds-to-low-thousands of titles on SQLite.
-- **Never leak titles from inaccessible libraries.** d02715b added group-based library
+- **Never leak titles from inaccessible libraries.** 8143c03 added group-based library
   access at the same time as the enhanced search; the search route filters by
   `libraryId IN (...)` for non-admins.
 - **Consistent narrowing UX across list pages.** The same chip/autocomplete/sort widgets
   and the same query-string vocabulary (`excludedRatings`, `keywordIds`, `nameFilter`,
   `sortField`, `sortDirection`) are reused by the library listing and the search endpoint.
-- **Keyboard-first browsing.** 9117ccf's quick search lets a user start typing anywhere on
+- **Keyboard-first browsing.** 62dc88f's quick search lets a user start typing anywhere on
   a list page to filter it, with a floating overlay showing the query and `n of m` match
   count, without focusing an input.
-- **Search results are actionable.** 6830b9a made result cards multi-selectable so a search
+- **Search results are actionable.** 78d94c1 made result cards multi-selectable so a search
   can feed `SelectionActionBar` (add-to-user-collection) directly.
 
 ## Components
@@ -100,10 +100,10 @@
 - Any change to `q`, selected keywords or excluded ratings re-runs page 1 (a ref compares
   the serialised params to avoid duplicate fetches).
 - Results render as two sections, "Shows & Movies (n)" and "Episodes & Tracks (n)".
-  Selection mode (6830b9a) adds card checkboxes, separate collection/media id sets, Select
+  Selection mode (78d94c1) adds card checkboxes, separate collection/media id sets, Select
   All, and `SelectionActionBar` for add-to-collection. There are no sort controls.
 - Results, page, totals, filter options and query are cached under `search-<q>` via
-  `useCachedState`/`useScrollRestoration` (872e263); infinite scroll is suppressed for
+  `useCachedState`/`useScrollRestoration` (758f70f); infinite scroll is suppressed for
   500 ms after a restore.
 
 ### Quick search (`useQuickSearch`, `useDebouncedValue`, `QuickSearchOverlay`)
@@ -130,7 +130,7 @@
 - UserCollection/Favorites/WatchLater pages use the same controls purely client-side over
   their unpaginated item lists.
 - `FilterChips` models *exclusion*: filled chip = included, outlined/struck-through =
-  excluded; double-click (249008d) excludes every other option. `KeywordFilter` models
+  excluded; double-click (6f9e6c7) excludes every other option. `KeywordFilter` models
   *inclusion* with AND semantics on the server.
 
 ### People search
@@ -161,27 +161,27 @@ external scrapers and belongs to Metadata Scraping.
 
 ## History
 
-- `edd67c9` 2025-11-30 — People listing added, including `personService.searchByName` and
+- `a3f2f55` 2025-11-30 — People listing added, including `personService.searchByName` and
   `GET /api/persons/search` (already shadowed by `/:id`).
-- `5d54756` 2025-12-02 — Library sort controls (name/dateAdded/releaseDate/rating/runtime);
+- `f7f96fd` 2025-12-02 — Library sort controls (name/dateAdded/releaseDate/rating/runtime);
   backend returns sortable metadata fields.
-- `312e7c4` 2025-12-03 — Search page and `GET /api/search` added: name `contains` across
+- `fc8e567` 2025-12-03 — Search page and `GET /api/search` added: name `contains` across
   accessible libraries, root collections + non-film media.
-- `ae3a327` 2025-12-04 — `SortControls` and `FilterChips` extracted as reusable components;
+- `7685e01` 2025-12-04 — `SortControls` and `FilterChips` extracted as reusable components;
   applied to LibraryPage and UserCollectionPage; `contentRating` included for filtering.
-- `249008d` 2025-12-04 — Double-click a filter chip to "select only".
-- `287e01e` 2025-12-05 — `KeywordFilter` autocomplete, `/keywords` endpoint, keyword AND
+- `6f9e6c7` 2025-12-04 — Double-click a filter chip to "select only".
+- `68439dd` 2025-12-05 — `KeywordFilter` autocomplete, `/keywords` endpoint, keyword AND
   filtering in `getPaginatedCollections`, collapsible filter panel with badge.
-- `fb42fb2` 2025-12-05 — Infinite scroll for library and search; filter UX tweaks.
-- `0d41baf` 2025-12-05 — `SearchPage.test.tsx` added; filter toggle given an aria-label.
-- `d02715b` 2025-12-10 — Group-based library access; search made query-optional, paginated
+- `482f7af` 2025-12-05 — Infinite scroll for library and search; filter UX tweaks.
+- `96d0eb6` 2025-12-05 — `SearchPage.test.tsx` added; filter toggle given an aria-label.
+- `8143c03` 2025-12-10 — Group-based library access; search made query-optional, paginated
   with totals/`hasMore`, keyword + rating filters, media excluded when keyword-filtering.
-- `9117ccf` 2025-12-10 — Quick search: `useQuickSearch`, `useDebouncedValue`,
+- `62dc88f` 2025-12-10 — Quick search: `useQuickSearch`, `useDebouncedValue`,
   `QuickSearchOverlay`; server-side `nameFilter` for LibraryPage, client-side for
   CollectionPage.
-- `6830b9a` 2025-12-14 — Multi-select + Select All on Search page, feeding
+- `78d94c1` 2025-12-14 — Multi-select + Select All on Search page, feeding
   `SelectionActionBar`.
-- `872e263` 2025-12-20 — Scroll/state restoration for Search and Library pages.
+- `758f70f` 2025-12-20 — Scroll/state restoration for Search and Library pages.
 
 ## Known Limitations
 

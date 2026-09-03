@@ -25,7 +25,7 @@
 - **Stateless server.** Tokens are self-contained; nothing is stored per session, so there is no logout endpoint, revocation list or refresh flow.
 - **Work with plain browser media elements.** The query-string token is a deliberate trade-off so HLS playlists, sprite sheets and posters can be plain URLs.
 - **Coarse but predictable authorization.** Roles are a strict ladder; group access is library-granularity only and "no groups = public". The code optimises for being easy to reason about rather than fine-grained.
-- **Mockable for tests.** `AuthService` is a class with no side effects beyond Prisma, which is why it was the first thing to get backend unit tests (`583e5d7`).
+- **Mockable for tests.** `AuthService` is a class with no side effects beyond Prisma, which is why it was the first thing to get backend unit tests (`938e477`).
 
 ## Components
 
@@ -172,14 +172,14 @@ API calls return 403.
 - `4946f1d` 2025-11-28 Initial commit: `User` model with email, legacy `app.*` routes in `index.ts` that still exist without auth.
 - `5282cf0` 2025-11-28 Adds libraries, i18n, collections, library scan: introduces `AuthService`, `authenticate`/`requireRole`, `/api/auth` routes, `AuthContext`, `ProtectedRoute`, `LoginPage`, `SetupPage`; migrations `add_user_auth_and_roles`, `add_user_groups`, `remove_user_email` all land the same day.
 - `dd02263` 2025-11-28 Basic media streaming: first `?token=` stream URL helper in the client.
-- `bf45a3c` 2025-11-29 Image scraping and rendering: `imageAuth` query-token middleware and `getImageUrl`.
-- `fe77ae6`/`9600bde` 2025-11-29/30 Scrapers and metadata refresh: `requireRole('Editor')` applied to mutation routes.
-- `bb82089` 2025-12-01 Lint/semicolons, API docs: OpenAPI annotations added to auth/user routes.
-- `873077f` 2025-12-01 Adds CLAUDE.md and User admin page and routes: `routes/groups.ts`, `UsersPage`, `UserDialog`, `/users/:id/role` and `/users/:id/groups`.
-- `b891e80`, `5cccfaf`, `3ef372e` 2025-12-01 LoginPage/SetupPage/UsersPage/UserDialog tests.
-- `583e5d7` 2025-12-02 Backend Jest infrastructure with `authService.test.ts`.
-- `312e7c4` 2025-12-03 Search page; `d02715b` 2025-12-10 Library group access control: `getAccessibleLibraries`, `canUserAccessLibrary`, and the separate filter in `search.ts`.
-- `6888f86` 2025-12-05 HLS streaming: `streamAuth` extended to whole stream router; HLS URL helpers with token.
+- `b3fb3ee` 2025-11-29 Image scraping and rendering: `imageAuth` query-token middleware and `getImageUrl`.
+- `41cf2f0`/`3404584` 2025-11-29/30 Scrapers and metadata refresh: `requireRole('Editor')` applied to mutation routes.
+- `d7d4c32` 2025-12-01 Lint/semicolons, API docs: OpenAPI annotations added to auth/user routes.
+- `24d1114` 2025-12-01 Adds CLAUDE.md and User admin page and routes: `routes/groups.ts`, `UsersPage`, `UserDialog`, `/users/:id/role` and `/users/:id/groups`.
+- `5c31c21`, `710e51f`, `d37f069` 2025-12-01 LoginPage/SetupPage/UsersPage/UserDialog tests.
+- `938e477` 2025-12-02 Backend Jest infrastructure with `authService.test.ts`.
+- `fc8e567` 2025-12-03 Search page; `8143c03` 2025-12-10 Library group access control: `getAccessibleLibraries`, `canUserAccessLibrary`, and the separate filter in `search.ts`.
+- `d71d4e5` 2025-12-05 HLS streaming: `streamAuth` extended to whole stream router; HLS URL helpers with token.
 - No auth-specific commits since 2025-12-10.
 
 ## Known Limitations

@@ -15,10 +15,10 @@
 ## Goals
 
 - **Zero-configuration matching**: a freshly scanned library should get posters, descriptions, and cast without user input; the code optimises for "first search result is usually right" rather than for precision.
-- **Be gentle to third-party APIs**: single-concurrency workers with a limiter, HTTP keep-alive pooling, and skipping media-level scrapes in Film libraries (3ce0d93) all exist to reduce request volume.
-- **Survive a hostile network environment**: much of the recent work (3ce0d93, 4abe949) targets WSL2 + SMB mounts, where DNS lookups on the libuv threadpool stalled for 30-60 s; the TMDB plugin now uses c-ares DNS with a TTL cache and an undici `Agent` with explicit timeouts.
-- **Re-scrapability**: job IDs are timestamped so a full scan or a refresh can re-run on an item that was already scraped (3e84aa9), and details tables record `scraperId`/`externalId` so refreshes fetch by ID rather than re-searching.
-- **Correctable**: the Identify feature (e6afcca) and the cleaner title/year parsing (82f6d5c) exist because first-result matching is visibly wrong often enough to need a manual override.
+- **Be gentle to third-party APIs**: single-concurrency workers with a limiter, HTTP keep-alive pooling, and skipping media-level scrapes in Film libraries (ffb9d2d) all exist to reduce request volume.
+- **Survive a hostile network environment**: much of the recent work (ffb9d2d, 7052d0c) targets WSL2 + SMB mounts, where DNS lookups on the libuv threadpool stalled for 30-60 s; the TMDB plugin now uses c-ares DNS with a TTL cache and an undici `Agent` with explicit timeouts.
+- **Re-scrapability**: job IDs are timestamped so a full scan or a refresh can re-run on an item that was already scraped (40a84a0), and details tables record `scraperId`/`externalId` so refreshes fetch by ID rather than re-searching.
+- **Correctable**: the Identify feature (b088bdc) and the cleaner title/year parsing (27c0663) exist because first-result matching is visibly wrong often enough to need a manual override.
 - **Extensible provider set**: the plugin interface anticipates music (audio/artist/album) scrapers and multiple video providers, though only video is implemented today.
 
 ## Components
@@ -35,7 +35,7 @@
 | `backend/src/workers/collectionScrapeWorker.ts` | Worker for Show/Season/Film (Artist/Album stubbed). Writes `ShowDetails`/`SeasonDetails`/`FilmDetails`, `ShowCredit`/`FilmCredit`, `Keyword`, `Image`. |
 | `backend/src/queues/metadataScrapeQueue.ts` | `metadata-scrape` queue, `MetadataScrapeJobData`, bulk add, queue status. |
 | `backend/src/workers/metadataScrapeWorker.ts` | Worker for `Media` rows (Video and Audio). Writes `VideoDetails`/`AudioDetails`, `Credit`, `Image`; has `isRetryableError` gating BullMQ retries. |
-| `backend/src/utils/mediaParser.ts` | Filename heuristics: `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear` (82f6d5c), `getShowNameFromCollectionPath`. |
+| `backend/src/utils/mediaParser.ts` | Filename heuristics: `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear` (27c0663), `getShowNameFromCollectionPath`. |
 | `backend/src/routes/collections.ts` | `POST /api/collections/search` (`:223`), `POST /:id/refresh-metadata` (`:532`), `POST /:id/refresh-images` (`:623`), `POST /:id/identify` (`:730`). |
 | `backend/src/routes/media.ts` | `POST /api/media/:id/refresh-metadata` (`:136`), `POST /:id/refresh-images` (`:208`), `GET /scrapers/list` (`:274`), `GET /scrapers/queue-status` (Admin). |
 | `backend/src/workers/libraryScanWorker.ts` | Enqueues scrapes after a scan (`:103-190`); full-scan re-queue of existing items (`:381`, `:489`). |
@@ -76,7 +76,7 @@ Configuration lives in `tubeca.config.json` under `scrapers.tmdb` / `scrapers.tv
 
 ### Queues and workers
 
-Both queues share identical defaults (`collectionScrapeQueue.ts:29-43`, `metadataScrapeQueue.ts:26-40`): `attempts: 3`, exponential backoff starting at 5 s (5 s, 10 s, 20 s), completed jobs kept 24 h / 1000 jobs, failed jobs kept 7 days. Job IDs are `collection-scrape-<id>-<timestamp>` / `scrape-<id>-<timestamp>`; the timestamp (3e84aa9) prevents BullMQ's ID de-duplication from dropping re-scrapes of already-seen items.
+Both queues share identical defaults (`collectionScrapeQueue.ts:29-43`, `metadataScrapeQueue.ts:26-40`): `attempts: 3`, exponential backoff starting at 5 s (5 s, 10 s, 20 s), completed jobs kept 24 h / 1000 jobs, failed jobs kept 7 days. Job IDs are `collection-scrape-<id>-<timestamp>` / `scrape-<id>-<timestamp>`; the timestamp (40a84a0) prevents BullMQ's ID de-duplication from dropping re-scrapes of already-seen items.
 
 Both workers are constructed with `concurrency: 1` and `limiter: { max: 10, duration: 10000 }`, so each queue processes at most 10 jobs per 10 s. A single job may issue 2-4 TMDB calls plus N image downloads plus up to ~28 person photo downloads, so the effective request rate is well above 1/s but still far below TMDB's published limits.
 
@@ -87,7 +87,7 @@ Both workers are constructed with `concurrency: 1` and `limiter: { max: 10, dura
 1. Verify the collection still exists; dispatch on `collectionType`.
 2. **Show** (`:67`): if the job carries `scraperId` + `externalId` (refresh/identify), call `getSeriesMetadata` directly. Otherwise for each configured video scraper with `searchSeries` + `getSeriesMetadata`, search the raw `collectionName`, take `results[0]`, fetch details. Per-scraper exceptions are caught and logged; the loop moves on.
 3. **Season** (`:118`): needs `parentExternalId`/`parentScraperId`; if absent it reads them from the parent's `ShowDetails`. Calls `getSeasonMetadata` on the parent's scraper. No search fallback.
-4. **Film** (`:160`): same shape as Show but uses `parseTitleAndYear(collectionName)` (82f6d5c) for a clean query and `year ?? parsed.year` as a filter, with `videoType: 'movie'`.
+4. **Film** (`:160`): same shape as Show but uses `parseTitleAndYear(collectionName)` (27c0663) for a clean query and `year ?? parsed.year` as a filter, with `videoType: 'movie'`.
 5. **Artist / Album** (`:215-226`): return `{ success: false, error: '... not yet implemented' }` with a `TODO`.
 6. **Apply** (`applyShowMetadata :262`, `applySeasonMetadata`, `applyFilmMetadata :530`): upsert the details row (genres stored as a comma-joined string; `scraperId`/`externalId` recorded); download images unless `skipImages` is set *and* the entity already has at least one image; delete all existing `ShowCredit`/`FilmCredit` rows and recreate them one by one, calling `personService.findOrCreatePerson` and downloading a `Photo` for the person if none exists; upsert each keyword (lower-cased, trimmed) and connect it to the collection (`saveKeywords :232`, never disconnects stale keywords).
 7. `imagesOnly` short-circuits step 6 to just the image downloads (used by "Refresh images").
@@ -106,13 +106,13 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 
 ### What enqueues scrapes
 
-- **Library scan** (`libraryScanWorker.ts:103-190`): after a scan, new media get `metadata-scrape` jobs **unless the library type is Film** (3ce0d93: the Film collection already carries the metadata). New Show/Season/Film/Artist/Album collections get `collection-scrape` jobs via the bulk helper; Film jobs carry a `year` parsed with `parseMovieFromFilename`. With `fullScan: true` (3ce0d93), existing media and collections are pushed into the same "new" lists (`:381`, `:489`) and therefore re-scraped **with images re-downloaded** (no `skipImages`).
+- **Library scan** (`libraryScanWorker.ts:103-190`): after a scan, new media get `metadata-scrape` jobs **unless the library type is Film** (ffb9d2d: the Film collection already carries the metadata). New Show/Season/Film/Artist/Album collections get `collection-scrape` jobs via the bulk helper; Film jobs carry a `year` parsed with `parseMovieFromFilename`. With `fullScan: true` (ffb9d2d), existing media and collections are pushed into the same "new" lists (`:381`, `:489`) and therefore re-scraped **with images re-downloaded** (no `skipImages`).
 - **File watcher** (`fileWatcherService.ts:467-495`, `:555-581`): new files and directories are enqueued individually. Unlike the scan worker, the watcher does **not** skip media-level scrapes for Film libraries, so a film dropped into a running server gets both a collection scrape and a media scrape.
 - **Refresh metadata** (`collections.ts:532`, `media.ts:136`): Editor+; re-enqueues with the stored `scraperId`/`externalId` (collections only) and `skipImages: true`. The frontend fires the request and immediately clears its spinner; there is no completion feedback.
 - **Refresh images**: same with `imagesOnly: true`.
 - **Identify** (`collections.ts:730`): Editor+, Show/Film only. Deletes every `Image` row for the collection, upserts `ShowDetails`/`FilmDetails` with the chosen `scraperId`/`externalId`, and enqueues a collection scrape carrying both. `POST /api/collections/search` (`:223`) fans out to every configured scraper (`searchSeries` for Show, `searchVideo` with `year` and `videoType: 'movie'` for Film) and returns a flat list; unlike the dead `ScraperService.searchVideo`, it does not sort by confidence. `IdentifyDialog` pre-fills the query and year from `parseTitleAndYear(collectionName)` (frontend mirror), lets the user edit both, shows poster/title/year/overview per result, and on selection calls `identifyCollection` then `onIdentified()`, which reloads the page while the scrape is still queued.
 
-### Title parsing (82f6d5c)
+### Title parsing (27c0663)
 
 `parseTitleAndYear` prefers a bracketed year (`"Blade Runner 2049 (2017)"` keeps its digits) and falls back to a bare trailing year (`"Dune 2021"`). It is used in both workers and the dialog, replacing the earlier behaviour of sending `"Name (Year)"` verbatim to TMDB. `parseMovieFromFilename` (release-name oriented, strips quality tags) is still used by the scan worker and watcher to compute the `year` hint. The two parsers can disagree on the same string.
 
@@ -130,18 +130,18 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 
 ## History
 
-- `fe77ae6` 2025-11-29 — Adds scrapers and metadata for collections and media: plugin types, loader, TMDB/TVDB plugins, both queues/workers, `ScraperService`.
-- `bf45a3c` 2025-11-29 — Adds image scraping and rendering: `ImageService`, poster/backdrop downloads from workers.
-- `9600bde` 2025-11-30 — Adds image dialog and metadata refresh; `refresh-metadata`/`refresh-images` endpoints, `skipImages`/`imagesOnly` job flags.
-- `edd67c9` 2025-11-30 — Adds people listing and linking: `Person` model, `findOrCreatePerson`, credit-to-person linking and photo download in both workers.
-- `bb82089` 2025-12-01 — Lint (semicolons), API docs, file watcher that enqueues scrapes for new files/dirs.
-- `e6b594e` 2025-12-02 — Adds `FilmDetails`, `Keyword`; TMDB fetches keywords; collection worker stores film metadata and keywords.
-- `5d54756` 2025-12-02 — Library sorting and film user-rating fixes touching film metadata.
-- `3ce0d93` 2025-12-14 — Full scan option; skip media scrapes in Film libraries; TMDB retry/backoff and undici agent; `isRetryableError` gating in the media worker.
-- `3e84aa9` 2025-12-15 — Fix full scan not re-scraping: timestamped job IDs; delayed season jobs so parent shows finish first.
-- `e6afcca` 2025-12-15 — Identify feature: `POST /collections/search`, `POST /collections/:id/identify`, `IdentifyDialog`, menu item.
-- `4abe949` 2026-07-01 — DNS threadpool starvation fix: c-ares lookup with TTL cache in the TMDB agent; `UV_THREADPOOL_SIZE=24`.
-- `82f6d5c` 2026-09-02 — `parseTitleAndYear` for clean title/year in both workers and the Identify dialog pre-fill, with tests; frontend mirror in `utils/parseTitle.ts`.
+- `41cf2f0` 2025-11-29 — Adds scrapers and metadata for collections and media: plugin types, loader, TMDB/TVDB plugins, both queues/workers, `ScraperService`.
+- `b3fb3ee` 2025-11-29 — Adds image scraping and rendering: `ImageService`, poster/backdrop downloads from workers.
+- `3404584` 2025-11-30 — Adds image dialog and metadata refresh; `refresh-metadata`/`refresh-images` endpoints, `skipImages`/`imagesOnly` job flags.
+- `a3f2f55` 2025-11-30 — Adds people listing and linking: `Person` model, `findOrCreatePerson`, credit-to-person linking and photo download in both workers.
+- `d7d4c32` 2025-12-01 — Lint (semicolons), API docs, file watcher that enqueues scrapes for new files/dirs.
+- `a52dbe1` 2025-12-02 — Adds `FilmDetails`, `Keyword`; TMDB fetches keywords; collection worker stores film metadata and keywords.
+- `f7f96fd` 2025-12-02 — Library sorting and film user-rating fixes touching film metadata.
+- `ffb9d2d` 2025-12-14 — Full scan option; skip media scrapes in Film libraries; TMDB retry/backoff and undici agent; `isRetryableError` gating in the media worker.
+- `40a84a0` 2025-12-15 — Fix full scan not re-scraping: timestamped job IDs; delayed season jobs so parent shows finish first.
+- `b088bdc` 2025-12-15 — Identify feature: `POST /collections/search`, `POST /collections/:id/identify`, `IdentifyDialog`, menu item.
+- `7052d0c` 2026-07-01 — DNS threadpool starvation fix: c-ares lookup with TTL cache in the TMDB agent; `UV_THREADPOOL_SIZE=24`.
+- `27c0663` 2026-09-02 — `parseTitleAndYear` for clean title/year in both workers and the Identify dialog pre-fill, with tests; frontend mirror in `utils/parseTitle.ts`.
 
 ## Known Limitations
 
@@ -161,7 +161,7 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 - **No caching of provider responses**: every episode job re-fetches `/tv/{id}` for the show name, every show/film job re-fetches `/images`; refreshes redo full detail calls; a season's episodes each trigger a fresh series search.
 - **Sequential, non-transactional credit rewrite**: `deleteMany` then per-credit `create` (+ person lookup + photo fetch) runs outside a transaction; a crash mid-way leaves a collection with partial credits.
 - **Secrets in the repo**: `tubeca.config.json` at the repo root is committed with API keys.
-- **Tests**: only `mediaParser.test.ts` and `parseTitle.test.ts` (both from 82f6d5c) and a menu-visibility test in `CollectionOptionsMenu.test.tsx`. No tests for the plugins, loader, workers, queue helpers, `personService`, or the search/identify routes.
+- **Tests**: only `mediaParser.test.ts` and `parseTitle.test.ts` (both from 27c0663) and a menu-visibility test in `CollectionOptionsMenu.test.tsx`. No tests for the plugins, loader, workers, queue helpers, `personService`, or the search/identify routes.
 
 ## Opportunities
 

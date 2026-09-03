@@ -17,9 +17,9 @@
 ## Goals
 
 - **Zero-configuration import**: the only inputs are a path and a type; folder depth alone decides collection types (`libraryScanWorker.ts:212`). The commit history shows the scan being the first feature built (5282cf0) and everything else layering on it.
-- **Get scrapers a good query**: a large fraction of the code in this part exists to produce better search strings — using the film folder name instead of the file name (1af4a83), the Season/Show hierarchy for episodes, and most recently `parseTitleAndYear` (82f6d5c) so "Blade Runner 2049 (2017)" is searched as title+year rather than a raw string.
-- **Idempotent rescans**: media are keyed by absolute `path`, collections by `(libraryId, name, parentId)`, so re-running a scan creates nothing new; a "full scan" only changes what gets re-scraped (3ce0d93).
-- **Do not fight the host filesystem**: the design tolerates WSL2 and SMB/CIFS mounts (polling mode, 30 s poll interval, `UV_THREADPOOL_SIZE=24`, 4abe949), at the cost of slow change detection.
+- **Get scrapers a good query**: a large fraction of the code in this part exists to produce better search strings — using the film folder name instead of the file name (ac951c2), the Season/Show hierarchy for episodes, and most recently `parseTitleAndYear` (27c0663) so "Blade Runner 2049 (2017)" is searched as title+year rather than a raw string.
+- **Idempotent rescans**: media are keyed by absolute `path`, collections by `(libraryId, name, parentId)`, so re-running a scan creates nothing new; a "full scan" only changes what gets re-scraped (ffb9d2d).
+- **Do not fight the host filesystem**: the design tolerates WSL2 and SMB/CIFS mounts (polling mode, 30 s poll interval, `UV_THREADPOOL_SIZE=24`, 7052d0c), at the cost of slow change detection.
 - **Never block a scan on scraping**: scans return quickly and push work to rate-limited scrape queues rather than calling scrapers inline.
 
 ## Components
@@ -89,7 +89,7 @@ After the walk:
 - Media scrape jobs are bulk-added for all `newMediaIds` **unless the library is Film** (`libraryScanWorker.ts:104`): film metadata is attached to the Film collection, not the media. The watcher does not apply this rule and queues a media scrape for every new film file.
 - Collection scrape jobs are bulk-added for Show, Season, Film, Artist and Album collections, ordered Shows → Seasons → Films → Artists → Albums so a season's parent show is likely scraped first. Seasons carry `parentShowId` and `seasonNumber`; films carry `year`. Everything else about matching lives in [Metadata Scraping](metadata-scraping.md).
 
-Note that Film-library media names are the folder name, so a subsequent `parseTitleAndYear` in the scrape workers (82f6d5c) yields a clean title+year for both the collection and, in the watcher path, the media.
+Note that Film-library media names are the folder name, so a subsequent `parseTitleAndYear` in the scrape workers (27c0663) yields a clean title+year for both the collection and, in the watcher path, the media.
 
 ### File watcher
 
@@ -103,7 +103,7 @@ Enabled at boot if `FILE_WATCHER_ENABLED=true` or `fileWatcher.enabled` in `tube
 
 `sync()` is called after every library create/update and reconciles the watcher map against the DB. Changing a library's `path` while it is watched is not detected — `sync` only checks whether the id is present, so the old path stays watched until restart.
 
-### The DNS-threadpool / network-mount fix (4abe949)
+### The DNS-threadpool / network-mount fix (7052d0c)
 
 On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` for every watched file every cycle (1 s default, and 300 ms for "binary" files because `binaryInterval` was unset). Those slow CIFS stats saturated libuv's 4-thread pool, which is also where `dns.lookup` (getaddrinfo), `fs.writeFile` and sharp run — TMDB requests were observed blocking 30-60 s on DNS while image downloads still succeeded. The fix has three parts: (1) default `pollInterval` raised to 30 s and `binaryInterval` set to the same value (`fileWatcherService.ts:164-190`); (2) `UV_THREADPOOL_SIZE=24` in the backend `dev`/`start` scripts; (3) the TMDB scraper now resolves hosts with c-ares (`dns.resolve4`, event-loop based, IPv4 only, 5-minute cache, getaddrinfo fallback) through a pooled undici agent. The trade-off is that new files on a polled mount take up to 30 s plus the 2 s stability window and 2 s debounce to appear.
 
@@ -123,16 +123,16 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 
 - `5282cf0` 2025-11-28 — Libraries, collections, and the first library scan worker/queue, LibrariesPage and LibraryDialog.
 - `dd02263` 2025-11-28 — Basic streaming; scan starts recording what streaming needs.
-- `fe77ae6` 2025-11-29 — Scrapers added; `mediaParser.ts` created and scan begins enqueueing scrape jobs with filename hints.
-- `9600bde` 2025-11-30 — Metadata refresh; scan worker adjustments to hint plumbing.
-- `aaeb5ea` 2025-11-30 — `ffprobe.ts` gains full stream probing; scan stores `MediaStream` rows (audio track switching).
-- `bb82089` 2025-12-01 — File watcher service added (`watchForChanges` migration 20251130224247), semicolon lint, API docs.
-- `1af4a83` 2025-12-02 — Film media named after folder rather than file; trickplay fixes.
-- `e6b594e` 2025-12-02 — FilmDetails; scan skips media-scrape for Film libraries and passes film year to collection scrape.
-- `d02715b` 2025-12-10 — Group-based library access control (`getAccessibleLibraries`, group picker in dialog).
-- `3ce0d93` 2025-12-14 — "Full scan" option re-queues existing media/collections; cancel via job data flag; Quick/Full menu in UI.
-- `4abe949` 2026-07-01 — DNS-threadpool starvation fix: 30 s poll + `binaryInterval`, `UV_THREADPOOL_SIZE=24`, c-ares DNS in TMDB scraper.
-- `82f6d5c` 2026-09-02 — `parseTitleAndYear` (+ first parser tests) used by scrape workers and IdentifyDialog; frontend mirror in `utils/parseTitle.ts`.
+- `41cf2f0` 2025-11-29 — Scrapers added; `mediaParser.ts` created and scan begins enqueueing scrape jobs with filename hints.
+- `3404584` 2025-11-30 — Metadata refresh; scan worker adjustments to hint plumbing.
+- `78254a5` 2025-11-30 — `ffprobe.ts` gains full stream probing; scan stores `MediaStream` rows (audio track switching).
+- `d7d4c32` 2025-12-01 — File watcher service added (`watchForChanges` migration 20251130224247), semicolon lint, API docs.
+- `ac951c2` 2025-12-02 — Film media named after folder rather than file; trickplay fixes.
+- `a52dbe1` 2025-12-02 — FilmDetails; scan skips media-scrape for Film libraries and passes film year to collection scrape.
+- `8143c03` 2025-12-10 — Group-based library access control (`getAccessibleLibraries`, group picker in dialog).
+- `ffb9d2d` 2025-12-14 — "Full scan" option re-queues existing media/collections; cancel via job data flag; Quick/Full menu in UI.
+- `7052d0c` 2026-07-01 — DNS-threadpool starvation fix: 30 s poll + `binaryInterval`, `UV_THREADPOOL_SIZE=24`, c-ares DNS in TMDB scraper.
+- `27c0663` 2026-09-02 — `parseTitleAndYear` (+ first parser tests) used by scrape workers and IdentifyDialog; frontend mirror in `utils/parseTitle.ts`.
 
 ## Known Limitations
 
@@ -162,7 +162,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Tests for the untested parsers** (S): `parseEpisodeFromFilename` (`1x02`, `s1e2`, prefix show name, quality suffix), `parseMovieFromFilename` (the "2001 A Space Odyssey" case), `getShowNameFromCollectionPath`; and a worker test with an in-memory tree.
 - **Import subtitle sidecars** (M): `.srt`/`.vtt` next to a video could become `MediaStream` rows of type Subtitle with an external path, which the subtitle route in [Streaming & Transcoding](streaming-and-transcoding.md) could serve.
 - **Read audio tags with ffprobe `format.tags`** (M): the probe already runs; capturing title/artist/album/track would give the music library real names ahead of any scraper.
-- **Use `parseTitleAndYear` in the scan worker** (S): the worker still discards the parsed title and only forwards `year`; passing the clean title as `mediaName` would align it with the watcher and the 82f6d5c intent.
+- **Use `parseTitleAndYear` in the scan worker** (S): the worker still discards the parsed title and only forwards `year`; passing the clean title as `mediaName` would align it with the watcher and the 27c0663 intent.
 - **Per-library worker concurrency** (S): give the queue a `libraryId`-based group or raise `concurrency` to 2 so one long scan does not block the others.
 - **Directory-picker for `path`** (M): the dialog is a free-text field; a server-backed browse endpoint (admin-only) would prevent typos that are only caught by `existsSync`.
 - **Bounded `ScanResult` return value** (S): keep counts and errors in the job return, and drop `newMediaIds`/`newCollections` once the scrape jobs are enqueued.

@@ -139,8 +139,8 @@ inline handler with no role check, so a Viewer can rename the instance. See
 
 ### Secrets in history
 
-`tubeca.config.json` with live TMDB and TVDB API keys was committed in `fe77ae6` and
-`bb82089` before being removed in `7366e13`. The keys still in the working copy are the same
+`tubeca.config.json` with live TMDB and TVDB API keys was committed in `41cf2f0` and
+`d7d4c32` before being removed in `363b909`. The keys still in the working copy are the same
 ones, and they remain recoverable from git history. They should be rotated regardless of
 whether the history is rewritten. See [Metadata Scraping](metadata-scraping.md).
 
@@ -161,7 +161,7 @@ API, four BullMQ workers, the file watcher, encoder detection and FFmpeg supervi
 Node process. The scan uses synchronous `fs` calls, encoder detection runs synchronous test
 encodes at import time, and per-segment FFmpeg children have no timeout and are not killed on
 disconnect or shutdown. Three modules register competing SIGINT/SIGTERM handlers. Commit
-`4abe949` (DNS thread-pool starvation) was a symptom of this coupling, and its
+`7052d0c` (DNS thread-pool starvation) was a symptom of this coupling, and its
 `UV_THREADPOOL_SIZE=24` fix never reaches the systemd unit. See
 [Configuration](configuration.md), [Libraries](libraries-and-scanning.md),
 [Streaming](streaming-and-transcoding.md).

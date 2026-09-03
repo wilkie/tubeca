@@ -30,13 +30,13 @@
   a literal `dev-secret-change-in-production` JWT secret) so `pnpm dev` works with an empty `.env`.
 - **Keep secrets out of git.** `.env` and `tubeca.config.json` are git-ignored; only `.example`
   files are committed. The Arch package installs both under `/etc/tubeca` with `640 root:tubeca`
-  (fb3eb0c, 1d11983).
+  (4500646, 7aa555d).
 - **Deployment flexibility without code changes.** `TUBECA_CONFIG_PATH`, `PORT` (propagated to the
-  Vite proxy via `turbo.json passThroughEnv`, 8d11854), absolute or repo-relative `imagePath` and
+  Vite proxy via `turbo.json passThroughEnv`, c95eedf), absolute or repo-relative `imagePath` and
   `hlsCache.path`.
 - **Admin tunability at runtime.** Transcoding bitrates, presets, hardware acceleration and
-  concurrency are DB rows editable in the UI and picked up within 30 s without a restart (4f7410e,
-  6e311ec).
+  concurrency are DB rows editable in the UI and picked up within 30 s without a restart (b6003ef,
+  0fc5947).
 - **Single-process simplicity.** One `node`/`tsx` process runs API and workers; there is no
   separate worker deployment, no process manager beyond systemd.
 - **Self-documenting API.** Every route carries an `@openapi` JSDoc block; the spec is served live
@@ -85,7 +85,7 @@ startup summary. Notable defaults:
   uses it if defined, else `fileWatcher.enabled`, else `false`. `usePolling`/`pollInterval` come
   from the file only.
 - `UV_THREADPOOL_SIZE=24` is not read by code; it is baked into the `dev` and `start` scripts
-  (4abe949) so that chokidar polling on SMB mounts does not starve DNS lookups and sharp.
+  (7052d0c) so that chokidar polling on SMB mounts does not starve DNS lookups and sharp.
 
 ### Layer 2: `tubeca.config.json`
 
@@ -100,7 +100,7 @@ negative intervals pass straight through. `loadAppConfig()` re-reads the file fr
 call and is called at least five times at startup (`index.ts:644`, `HlsService` constructor x2,
 `HlsCacheCleanupService` constructor, first `getImageStoragePath()`), so the "Loaded configuration
 from" line appears repeatedly. Paths are memoised in module-level variables after first resolution
-(`imageStoragePath`, `hlsCachePath`); 5bfbb97 fixed callers that passed no `appConfig` and
+(`imageStoragePath`, `hlsCachePath`); 4dc330d fixed callers that passed no `appConfig` and
 previously fell back to the default `backend/data/*` paths.
 
 Keys in use: `imagePath`, `hlsCache.{path,maxSizeGB,segmentTTLHours,segmentDuration}`,
@@ -200,14 +200,14 @@ the stream goes to the journal.
 `backend/package.json` is `"type": "module"` and `tsconfig.json` uses `module: ESNext` with
 extensionless relative imports (only `./config/swagger.js` carries an extension). `tsc` emits
 `dist/index.js` verbatim, which plain `node` cannot resolve under ESM; production therefore runs
-`tsx dist/index.js` (1dc6505) while `systemd/tubeca-backend.service` and the `start` script still
+`tsx dist/index.js` (ae6a201) while `systemd/tubeca-backend.service` and the `start` script still
 say `node dist/index.js`. Prisma 7 requires a config file for the datasource URL; the CommonJS
-`prisma.config.js` workaround (0263276) was reverted to `prisma.config.ts` with a Node 22
-requirement (698db3b; `.nvmrc` and `engines.node >=22` followed in 8d11854). Because
+`prisma.config.js` workaround (fdc9e93) was reverted to `prisma.config.ts` with a Node 22
+requirement (54e40a2; `.nvmrc` and `engines.node >=22` followed in c95eedf). Because
 `prisma.config.ts` calls `env("DATABASE_URL")`, every `prisma` CLI invocation needs a `.env`;
-`PKGBUILD` writes a throwaway `DATABASE_URL="file:./prisma/build.db"` during packaging (6b0643b).
+`PKGBUILD` writes a throwaway `DATABASE_URL="file:./prisma/build.db"` during packaging (d7d16a2).
 `db:migrate` is `prisma migrate deploy` (non-interactive) and `db:migrate:dev` is `migrate dev`
-(fe6629b).
+(0a81375).
 
 ### API documentation pipeline
 
@@ -240,22 +240,22 @@ with different verbs and response shapes, the generated spec lists both.
 
 - `4946f1d` 2025-11-28 Initial commit: Express bootstrap, `database.ts`, `redis.ts`, inline
   `/api/settings` and `/api/jobs/*` handlers, `SettingsService`.
-- `fe77ae6` 2025-11-29 Scrapers added; `tubeca.config.json` and `appConfig.ts` introduced for API keys.
-- `bb82089` 2025-12-01 File watcher added with `FILE_WATCHER_ENABLED` env override of the config file.
-- `16d3a70` 2025-12-02 OpenAPI JSDoc on all endpoints; `config/swagger.ts`, `docs:generate`.
-- `583e5d7` 2025-12-02 Jest infrastructure (ESM preset); only `authService` covered.
-- `6888f86` 2025-12-05 HLS streaming; `hlsCache` config block, `getHlsCachePath()`, cleanup service.
-- `6b0643b`, `9a0e494` 2025-12-14 PKGBUILD writes a `.env` so `prisma generate` finds `DATABASE_URL`.
-- `1dc6505` 2025-12-14 Production runs `tsx dist/index.js` because plain `node` cannot load the ESM build.
-- `1d11983`, `fb3eb0c`, `75b5666` 2025-12-15 `/etc/tubeca` config permissions, `TUBECA_CONFIG_PATH` in the
+- `41cf2f0` 2025-11-29 Scrapers added; `tubeca.config.json` and `appConfig.ts` introduced for API keys.
+- `d7d4c32` 2025-12-01 File watcher added with `FILE_WATCHER_ENABLED` env override of the config file.
+- `e3c4915` 2025-12-02 OpenAPI JSDoc on all endpoints; `config/swagger.ts`, `docs:generate`.
+- `938e477` 2025-12-02 Jest infrastructure (ESM preset); only `authService` covered.
+- `d71d4e5` 2025-12-05 HLS streaming; `hlsCache` config block, `getHlsCachePath()`, cleanup service.
+- `d7d16a2`, `af9bbfe` 2025-12-14 PKGBUILD writes a `.env` so `prisma generate` finds `DATABASE_URL`.
+- `ae6a201` 2025-12-14 Production runs `tsx dist/index.js` because plain `node` cannot load the ESM build.
+- `7aa555d`, `4500646`, `7ab991b` 2025-12-15 `/etc/tubeca` config permissions, `TUBECA_CONFIG_PATH` in the
   systemd unit, `imagePath`/`hlsCache.path` defaults for packaged installs.
-- `5bfbb97` 2025-12-15 `getImageStoragePath()`/`getHlsCachePath()` load the config themselves when called without it.
-- `4f7410e` 2025-12-16 `TranscodingSettings` model, service, routes and Settings UI tab with hardware acceleration.
-- `6e311ec` 2025-12-19 `maxConcurrentTranscodes` setting; prefetch fix.
-- `fe6629b`, `0263276`, `698db3b` 2025-12-19 `migrate deploy`; `prisma.config.js` CommonJS detour; reverted to
+- `4dc330d` 2025-12-15 `getImageStoragePath()`/`getHlsCachePath()` load the config themselves when called without it.
+- `b6003ef` 2025-12-16 `TranscodingSettings` model, service, routes and Settings UI tab with hardware acceleration.
+- `0fc5947` 2025-12-19 `maxConcurrentTranscodes` setting; prefetch fix.
+- `0a81375`, `fdc9e93`, `54e40a2` 2025-12-19 `migrate deploy`; `prisma.config.js` CommonJS detour; reverted to
   `prisma.config.ts` requiring Node 22.
-- `8d11854` 2026-07-01 `PORT` passes through Turbo to the Vite proxy; `.nvmrc` 22; `engines.node >=22`.
-- `4abe949` 2026-07-01 `UV_THREADPOOL_SIZE=24` in scripts; poll interval default 30 s and `binaryInterval`.
+- `c95eedf` 2026-07-01 `PORT` passes through Turbo to the Vite proxy; `.nvmrc` 22; `engines.node >=22`.
+- `7052d0c` 2026-07-01 `UV_THREADPOOL_SIZE=24` in scripts; poll interval default 30 s and `binaryInterval`.
 
 ## Known Limitations
 

@@ -38,8 +38,8 @@
 - **Desktop-first "10-foot" feel.** Full-viewport fixed backdrops behind film and show detail
   (`HeroSection`), poster grids, hover overlays, keyboard type-to-filter. The commit history
   (Dec 2025) is almost entirely about making browsing feel like a media centre, not a CRUD app.
-- **Never lose the user's place.** Infinite scroll (fb42fb2) was followed within two weeks by a
-  scroll-restoration cache (872e263) because the back button reset the grid; filter changes keep
+- **Never lose the user's place.** Infinite scroll (482f7af) was followed within two weeks by a
+  scroll-restoration cache (758f70f) because the back button reset the grid; filter changes keep
   the old grid visible under an overlay rather than blanking it.
 - **Minimal dependencies.** No data-fetching library, no state manager, no router loaders; just
   `fetch`, `useState`/`useEffect`, and MUI. The API client is a single class so that the whole
@@ -126,7 +126,7 @@ defines the transcoding settings types locally (not in shared-types). The core i
 
 1. Read the JWT from `localStorage.token`, add `Authorization: Bearer` and
    `Content-Type: application/json`.
-2. `fetch('/api' + endpoint)`. If status is 204, return `{ data: undefined }` (bc1b575 fixed
+2. `fetch('/api' + endpoint)`. If status is 204, return `{ data: undefined }` (1cff894 fixed
    DELETE handlers crashing on `response.json()`).
 3. Otherwise parse JSON; if `!response.ok` return `{ error: data.error || 'An error occurred' }`,
    else `{ data }`. A thrown fetch returns `{ error: 'Network error' }`.
@@ -146,7 +146,7 @@ id is used synchronously; for `/collection/:id` and `/media/:id` it fires a *sec
 same record). `setActiveLibrary` lets `Header`/`Sidebar` pre-set the id before navigating to
 avoid a tab flash.
 
-**ScrollRestorationContext** (872e263) keeps a module-level `Map<string, {data, scrollY,
+**ScrollRestorationContext** (758f70f) keeps a module-level `Map<string, {data, scrollY,
 timestamp}>` with a 10-minute TTL swept every 60s. `useCachedState(key)` returns cached data only
 when `useNavigationType() === 'POP'`. `useScrollRestoration(key, getState)` installs a capturing
 document click listener that snapshots state whenever the user clicks an `<a>`, a
@@ -184,11 +184,11 @@ The page holds 25 `useState` hooks. The flow:
 5. Infinite scroll: an `IntersectionObserver` on a sentinel `div` below the grid calls
    `fetchCollections(page + 1, true)` when 10% visible and `hasMore`.
 6. Keywords are lazy-loaded on first open of the filter panel (`handleToggleFilters`).
-7. `viewMode` ('poster' | 'list', 4c3a261) is plain component state and resets on every visit.
-   Poster cards show a hover-only overlay with content rating and `★ 7.5` (347f98f) via a CSS
+7. `viewMode` ('poster' | 'list', 33b11fc) is plain component state and resets on every visit.
+   Poster cards show a hover-only overlay with content rating and `★ 7.5` (f2f8070) via a CSS
    `&:hover .rating-overlay` rule. List mode uses `MediaListItem` with an inline
    `CardQuickActions`.
-8. Selection mode (a27f5f8) toggles a checkbox per card, outlines selected cards, and shows
+8. Selection mode (5e379a5) toggles a checkbox per card, outlines selected cards, and shows
    `SelectionActionBar` for batch add-to-collection; `selectAll` selects only loaded items.
 9. The play button on a card (`handlePlay`) fetches the collection, and for shows fetches the
    name-sorted first season too, then `setPlaybackQueue` and navigates to `/play/:mediaId`.
@@ -207,9 +207,9 @@ Film library with media → `FilmHeroView`; `Show` → `ShowHeroView`; else `Sta
 (`DeleteCollectionDialog`, `ImagesDialog`, `AddToCollectionDialog`, `IdentifyDialog`) and the
 `CollectionOptionsMenu`; the views receive ~15 callback props each.
 
-`HeroSection` (d06b185) places the backdrop `<img>` and gradient with `position: fixed` covering
+`HeroSection` (63d1d10) places the backdrop `<img>` and gradient with `position: fixed` covering
 the viewport, and the content scrolls over it; a 32px gradient at the bottom fades into
-`background.default`. `StickyHeroBreadcrumbs` (cb615b8) uses negative margins (`mx: -3`,
+`background.default`. `StickyHeroBreadcrumbs` (1f595f9) uses negative margins (`mx: -3`,
 `mt: -38px`) to escape the container padding and swaps from transparent/light text to
 `background.paper` once `window.scrollY > 80`.
 
@@ -230,8 +230,8 @@ to English silently. There is no language switcher.
 
 ### Dev proxy, build, production
 
-`vite.config.ts` proxies `/api` to `http://127.0.0.1:${PORT ?? 3000}`; 64b1e52 switched from
-`localhost` to avoid IPv6 resolution stalls under WSL2, and 8d11854 made the port follow the
+`vite.config.ts` proxies `/api` to `http://127.0.0.1:${PORT ?? 3000}`; 6c12ed4 switched from
+`localhost` to avoid IPv6 resolution stalls under WSL2, and c95eedf made the port follow the
 backend's `PORT` (passed through by `turbo.json`). `pnpm build` runs `tsc && vite build`.
 The `PKGBUILD` does `pnpm add serve` in `frontend/ui`, and `tubeca-frontend.service` runs
 `serve -s dist -l 8080`; because `API_BASE` is the relative `/api`, that standalone mode only
@@ -242,7 +242,7 @@ proxies `/api` and `/api/stream/` to `:3000`). See [Deployment](deployment.md).
 
 `jest.config.cjs` uses ts-jest with jsdom, maps `.scss` to `identity-obj-proxy`, and matches
 `**/__tests__/**/*.test.{ts,tsx}`. `jest.setup.ts` polyfills `TextEncoder` and overrides
-`console.error` to throw (d8f1906). `test-utils.tsx` exports a `render` wrapped in
+`console.error` to throw (3d62f55). `test-utils.tsx` exports a `render` wrapped in
 `I18nextProvider`, a dark `ThemeProvider` and `MemoryRouter`, plus `createMockAuthContext`,
 `mockAdminUser`, `mockViewerUser`. Tests mock `../../api/client` wholesale (29 files) and often
 `react-router-dom` (16 files). There are 42 test files, 15,216 lines, 854 `it()` cases (pages
@@ -288,29 +288,29 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 - `4946f1d` 2025-11-28 Initial commit: Vite + React + MUI scaffold, `theme.ts`, `index.scss`.
 - `5072d20` / `5282cf0` 2025-11-28 Header, libraries, i18n (`en.json`), collections, `apiClient`.
-- `8ee3fba` / `3ef372e` 2025-12-01 Hero banner on collections; full-height show heroes; first frontend tests.
-- `13ef8db` 2025-12-01 Library tabs in the header (`ActiveLibraryContext`).
-- `873077f` 2025-12-01 `CLAUDE.md`, Users admin page, route restructure.
-- `bb82089` 2025-12-01 Lint forces semicolons; `bdf633a` 2025-12-02 husky pre-commit lint+typecheck.
-- `156d54b`…`bdf50de` 2025-12-01 Page-by-page test push (LibraryPage, MediaPage, PersonPage, UsersPage, Header, Sidebar, ImagesDialog, contexts).
-- `8371767` 2025-12-02 `CollectionPage` split into `FilmHeroView`/`ShowHeroView`/`StandardCollectionView`/`ChildCollectionGrid`/`MediaGrid`/`CollectionBreadcrumbs`/`CollectionOptionsMenu` with tests.
-- `5d54756` 2025-12-02 Library sorting.
-- `ae3a327` / `f4f613f` 2025-12-04 Sorting, filtering, `CardQuickActions` add-to-collection across views.
-- `bc1b575` 2025-12-04 API client returns `{ data: undefined }` on 204.
-- `cb615b8` 2025-12-04 `StickyHeroBreadcrumbs` with scroll-based background transition.
-- `d8f1906` 2025-12-04 `console.error` fails tests; tooltip-on-disabled-button fixes.
-- `fb42fb2` 2025-12-05 Infinite scroll via `IntersectionObserver`; server-side sort/filter; lazy keyword load.
-- `0d41baf` / `77a2f42` / `a34d24e` 2025-12-05 Coverage push: pages at 0%, components, player and `PlayerContext` tests; accessibility fixes.
-- `4c3a261` 2025-12-07 `ViewModeMenu` and list view; `MediaListItem` follows (`645aa93` 2025-12-08).
-- `347f98f` 2025-12-07 Hover rating / content-rating badges on library cards.
-- `9117ccf` 2025-12-10 `useQuickSearch` type-to-filter on library and collection pages.
-- `a27f5f8` 2025-12-13 Multi-select and `SelectionActionBar` on `LibraryPage`.
-- `e6afcca` 2025-12-15 Identify dialog wired into `CollectionOptionsMenu`.
-- `d06b185` 2025-12-16 Fixed hero backdrop with content scrolling over it.
-- `64b1e52` 2025-12-19 Vite proxy targets `127.0.0.1`.
-- `872e263` 2025-12-20 `ScrollRestorationContext` + `NavigationLoadingOverlay`.
-- `8d11854` 2026-07-01 Vite proxy follows `PORT`.
-- `82f6d5c` 2026-09-02 `parseTitle` util + test (working tree).
+- `322f4ef` / `d37f069` 2025-12-01 Hero banner on collections; full-height show heroes; first frontend tests.
+- `0229cc8` 2025-12-01 Library tabs in the header (`ActiveLibraryContext`).
+- `24d1114` 2025-12-01 `CLAUDE.md`, Users admin page, route restructure.
+- `d7d4c32` 2025-12-01 Lint forces semicolons; `c3a9f25` 2025-12-02 husky pre-commit lint+typecheck.
+- `68cf1ce`…`30f5a7a` 2025-12-01 Page-by-page test push (LibraryPage, MediaPage, PersonPage, UsersPage, Header, Sidebar, ImagesDialog, contexts).
+- `384bcd7` 2025-12-02 `CollectionPage` split into `FilmHeroView`/`ShowHeroView`/`StandardCollectionView`/`ChildCollectionGrid`/`MediaGrid`/`CollectionBreadcrumbs`/`CollectionOptionsMenu` with tests.
+- `f7f96fd` 2025-12-02 Library sorting.
+- `7685e01` / `ae10325` 2025-12-04 Sorting, filtering, `CardQuickActions` add-to-collection across views.
+- `1cff894` 2025-12-04 API client returns `{ data: undefined }` on 204.
+- `1f595f9` 2025-12-04 `StickyHeroBreadcrumbs` with scroll-based background transition.
+- `3d62f55` 2025-12-04 `console.error` fails tests; tooltip-on-disabled-button fixes.
+- `482f7af` 2025-12-05 Infinite scroll via `IntersectionObserver`; server-side sort/filter; lazy keyword load.
+- `96d0eb6` / `7addd1d` / `6a4f5a8` 2025-12-05 Coverage push: pages at 0%, components, player and `PlayerContext` tests; accessibility fixes.
+- `33b11fc` 2025-12-07 `ViewModeMenu` and list view; `MediaListItem` follows (`09e59e7` 2025-12-08).
+- `f2f8070` 2025-12-07 Hover rating / content-rating badges on library cards.
+- `62dc88f` 2025-12-10 `useQuickSearch` type-to-filter on library and collection pages.
+- `5e379a5` 2025-12-13 Multi-select and `SelectionActionBar` on `LibraryPage`.
+- `b088bdc` 2025-12-15 Identify dialog wired into `CollectionOptionsMenu`.
+- `63d1d10` 2025-12-16 Fixed hero backdrop with content scrolling over it.
+- `6c12ed4` 2025-12-19 Vite proxy targets `127.0.0.1`.
+- `758f70f` 2025-12-20 `ScrollRestorationContext` + `NavigationLoadingOverlay`.
+- `c95eedf` 2026-07-01 Vite proxy follows `PORT`.
+- `27c0663` 2026-09-02 `parseTitle` util + test (working tree).
 
 ## Known Limitations
 
