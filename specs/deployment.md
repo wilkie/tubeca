@@ -58,7 +58,8 @@
 | `backend/scripts/build.mjs` | esbuild: `src/index.ts` -> `dist/index.js` (ESM, node22 target, `packages: external`, sourcemap, `require` shim banner). |
 | `backend/src/runtime/role.ts`, `runtime/frontend.ts` | `TUBECA_ROLE` parsing (`api`/`worker`/`all`), and `mountFrontend()` which serves `FRONTEND_DIST` with immutable hashed assets, uncached `index.html` and a history fallback for non-API, non-file GETs. |
 | `Dockerfile`, `docker/entrypoint.sh`, `docker-compose.yml`, `.dockerignore` | Multi-stage image (build with pnpm; run on `node:22-bookworm-slim` + ffmpeg), `/data` volume for DB/config, entrypoint runs `prisma migrate deploy` then the role; compose wires api, worker and redis. |
-| `.github/workflows/ci.yml` | On push/PR: pnpm install, lint, typecheck, test (with a Redis service), build; then a Docker image build with layer caching. |
+| `.github/workflows/ci.yml` | On push/PR: pnpm install, lint, typecheck, test (with a Redis service), build; then a Docker image build with layer caching, pushed to `ghcr.io/wilkie/tubeca` as `edge` (main) or semver + `latest` (tags). |
+| `CHANGELOG.md` | Keep-a-Changelog file; a version section per tag. |
 | `backend/prisma.config.ts` | Prisma 7 config; reads `DATABASE_URL` via `dotenv/config` at load time, which is why the PKGBUILD must write a `.env` before building (d7d16a2, af9bbfe). |
 | `frontend/ui/package.json`, `vite.config.ts` | `build: tsc && vite build`; dev proxy `/api` -> `127.0.0.1:${PORT ?? 3000}` (c95eedf, 6c12ed4). |
 | `PKGBUILD` | Arch package: `pkgver()`, `build()`, `package()`; embeds the production systemd units, sysusers.d and tmpfiles.d as heredocs. |
@@ -191,9 +192,7 @@ anywhere in `backend/src`. This path has no `TUBECA_CONFIG_PATH`; config is foun
 
 ### What is not provided
 
-No release tags or changelog
-(`pkgver` fallback always applies; every package is `1.0.0.rN.hash`); no published image (CI
-builds it but does not push); no packaging for Debian,
+No packaging for Debian,
 Fedora, Homebrew, etc. beyond the generic shell script; no TLS/reverse-proxy automation beyond
 the nginx example; no backup or restore tooling for `tubeca.db`, `/var/lib/tubeca` or Redis;
 no data migration beyond `prisma migrate deploy`; no health-check endpoint wired into systemd;
@@ -245,6 +244,7 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 - 2026-09-03 — `tubeca.install` runs migrations after rewriting `DATABASE_URL`; Prisma stderr no longer hidden.
 - 2026-09-03 — `pnpm test` added to the pre-commit hook; backend Jest gets a migrated SQLite template per run.
 - 2026-09-03 — Backend bundled with esbuild (`node dist/index.js` works, `tsx` dev-only); `TUBECA_ROLE` splits API and worker processes; API serves the SPA (`serve`/port 8080 removed); units, PKGBUILD, install scripts and docs updated; `Dockerfile`, `docker-compose.yml`, entrypoint and CI workflow added; `video-processing` queue and worker deleted.
+- 2026-09-03 — Releases: `v1.0.0` tagged, `CHANGELOG.md` added, CI publishes `ghcr.io/wilkie/tubeca` (`edge` from `main`, semver + `latest` from tags); compose defaults to the published image.
 
 ## Known Limitations
 
@@ -264,8 +264,9 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 - **No backups, no upgrade notes**: `INSTALL.md` says "the package automatically runs database
   migrations on upgrade" but nothing snapshots `tubeca.db` first; the compose file has no backup
   sidecar either.
-- **CI is unverified**: the workflow was written without a GitHub run; the Docker image was
-  built locally.
+- **CI and publishing are unverified on GitHub**: the workflow was written without a GitHub
+  run; the Docker image was built and booted locally. The first tag push will exercise the
+  GHCR publish path (it needs the repository's package visibility set as desired).
 - **Database lives under `/opt/tubeca/backend/prisma`**, mixed with code, and `post_remove`
   leaves it there while `pacman -R` deletes the surrounding tree's ownership context.
 - `DATA_DIR` written by `systemd/install.sh` is unused by the backend; `LICENSE` referenced by
@@ -282,7 +283,6 @@ the initial commit) is therefore already ignored and is simply leftover output; 
   `prisma/` and production `node_modules` into the runtime image. (M)
 - **Pass `--enable-source-maps`** in the units and entrypoint so bundle stack traces map to
   source. (S)
-- **Publish the image** from CI on tags (GHCR) once releases are tagged. (S)
 - **Tag releases** (`v1.0.0`) so `pkgver()` and `pkgrel` are meaningful, and enable the commented
   GitHub tarball `source=` line. (S)
 - **Move the SQLite file to `/var/lib/tubeca`** and add a pre-upgrade `sqlite3 .backup` in

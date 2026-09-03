@@ -167,6 +167,16 @@ JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
 The UI and API are on http://localhost:3000. Media is bind-mounted read-only at `/media`
 inside the containers, so library paths start with `/media/...`. Migrations run on start.
 
+The compose file pulls the published image `ghcr.io/wilkie/tubeca` (`latest` = newest release
+tag, `edge` = current `main`, plus `1.2.3` / `1.2` version tags). Set `TUBECA_IMAGE=tubeca:local`
+and add `--build` to run from a checkout instead.
+
+## Releases
+
+Versions are git tags of the form `v1.2.3`. Tagging does three things: `pkgver()` in the
+PKGBUILD produces `1.2.3` instead of a commit-count fallback, CI publishes the container image
+under that version and `latest`, and `CHANGELOG.md` gets a dated section.
+
 ---
 
 ## Troubleshooting
