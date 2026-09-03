@@ -170,7 +170,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Tests for the untested parsers** (S): `parseEpisodeFromFilename` (`1x02`, `s1e2`, prefix show name, quality suffix) and `getShowNameFromCollectionPath` directly; the scan is now covered against a temp tree.
 - **Import subtitle sidecars** (M): `.srt`/`.vtt` next to a video could become `MediaStream` rows of type Subtitle with an external path, which the subtitle route in [Streaming & Transcoding](streaming-and-transcoding.md) could serve.
 - **Read audio tags with ffprobe `format.tags`** (M): the probe already runs; capturing title/artist/album/track would give the music library real names ahead of any scraper.
-- **Use `parseTitleAndYear` in the scan worker** (S): the worker still discards the parsed title and only forwards `year`; passing the clean title as `mediaName` would align it with the watcher and the 27c0663 intent.
+
 - **Per-library worker concurrency** (S): give the queue a `libraryId`-based group or raise `concurrency` to 2 so one long scan does not block the others.
 - **Directory-picker for `path`** (M): the dialog is a free-text field; a server-backed browse endpoint (admin-only) would prevent typos that are only caught by `existsSync`.
 - **Bounded `ScanResult` return value** (S): keep counts and errors in the job return, and drop `newMediaIds`/`newCollections` once the scrape jobs are enqueued.

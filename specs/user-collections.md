@@ -287,8 +287,7 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `utils/userCollectionItem.ts` and reuse across the four pages and the row component. (M)
 - **Client-side favorites/watch-later store** (context keyed by id, hydrated by bulk `/check`)
   so all buttons for one item stay in sync and hero pages stop double-fetching. (M)
-- **Library-access filtering on public collections** once library ACLs are enforced elsewhere:
-  filter `items` in `getCollectionById` by the viewer's accessible libraries. (M)
+
 - **Queue semantics**: consume-on-play (or a `currentIndex` on the queue row) and "Play next"
   (insert after current) alongside "Play after current" (append); the data model already supports
   both with `position`. (M)

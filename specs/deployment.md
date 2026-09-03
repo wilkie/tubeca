@@ -290,10 +290,9 @@ the initial commit) is therefore already ignored and is simply leftover output; 
   `--platform`, and the `prisma` CLI could be swapped for a lighter migration runner. (M)
 - **Pass `--enable-source-maps`** in the units and entrypoint so bundle stack traces map to
   source. (S)
-- **Tag releases** (`v1.0.0`) so `pkgver()` and `pkgrel` are meaningful, and enable the commented
-  GitHub tarball `source=` line. (S)
+
 - **Move the SQLite file to `/var/lib/tubeca`** and add a pre-upgrade `sqlite3 .backup` in
   `post_upgrade`, plus a documented restore procedure. (S)
-- **Remove the stray root `dist/`** and consider a `pnpm clean` that also removes it. (S)
+
 - **Add a `/health` endpoint** and use it in the unit (`ExecStartPost` or a watchdog) so systemd
   restarts on Redis/Prisma failure rather than only on process exit. (M)

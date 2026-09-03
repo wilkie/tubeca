@@ -255,6 +255,54 @@ Drawn from the Opportunities sections after the first nine items landed.
 5. ~~**Slim the package and image**~~ Done 2026-09-03: `pnpm deploy --prod` trees, OpenAPI
    generated at build time ([Deployment](deployment.md)).
 
+### Third round
+
+Ranked 2026-09-03 from the roughly 120 items still open in the specs' Opportunities sections.
+Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
+
+1. **Fix library sorting across pages** (M): release date, rating and runtime sorts are applied
+   per page in memory, so infinite scroll shows a globally wrong order. A failing-by-design
+   test already pins it; push the sort into SQL (denormalise onto `Collection` or use a
+   relation `orderBy`) and the same fix serves search. ([Content Model](content-model.md),
+   [Search](search.md))
+2. **Playback quality of life** (S each, one batch): real keyboard shortcuts, bounded error
+   recovery with a visible error state, flush progress on tab close, skip watched episodes in
+   Up Next, quality preference stored by height, the audio double-play fix, and the Media
+   Session API for OS controls. ([Playback](playback.md))
+3. **Token hardening** (M): short-lived media-scoped tokens for image and stream URLs so the
+   24-hour login JWT stops travelling in query strings; token versioning so role changes and
+   deletions take effect immediately; central 401 handling in the client; login rate limiting;
+   last-admin guard; self-service password change. ([Auth](auth-and-users.md),
+   [Images](images.md), [Streaming](streaming-and-transcoding.md))
+4. **Scrape follow-through** (M): Identify cascades to seasons and episodes, season jobs
+   depend on the show job instead of a timer, full scans skip re-downloading unchanged images,
+   provider responses cached, language/region passed through from config, and the two workers'
+   apply/download/credit code unified. ([Metadata Scraping](metadata-scraping.md))
+5. **Streaming responsiveness** (S/M): cancel in-flight prefetches on seek and give live
+   requests priority in the transcode semaphore, detect encoders asynchronously after listen,
+   validate the transcoding settings body, purge the cache when segment duration changes, and
+   finish VAAPI. ([Streaming](streaming-and-transcoding.md))
+6. **Frontend data layer** (M to L): adopt a query library to replace the copy-pasted
+   fetch/cancel patterns and the five "add to recent collection" copies, split the
+   1000-line `LibraryPage`, lazy-load routes, and persist view mode and sort per library.
+   ([Frontend App](frontend-app.md))
+7. **Import polish** (S batch, plus M for sidecars): async `fs` in the scan, symlink cycle guard
+   and depth cap, handle chokidar `change`, re-watch on library path change, per-library scan
+   concurrency, dry-run for removals; then subtitle sidecar import and a directory picker.
+   ([Libraries](libraries-and-scanning.md))
+8. **Search depth** (M): SQLite FTS5 over titles, keywords and people, people results on the
+   search page, server-served filter options, live search. ([Search](search.md))
+9. **Images** (M): resize on ingest with a size parameter, download hardening (timeouts, size
+   and content-type limits), candidate galleries with set-primary, user upload.
+   ([Images](images.md))
+10. **Operations** (S batch): health endpoint wired into the units, SQLite backup before
+    upgrade migrations, `--enable-source-maps`, a single source for the unit files, install
+    failing on migration errors, per-request caching of group ids. ([Deployment](deployment.md),
+    [Configuration](configuration.md), [Auth](auth-and-users.md))
+
+Deferred beyond this round: music support (product decision), multi-arch images, plugin
+discovery, per-library group permissions, fMP4/CMAF segments, and the second locale.
+
 ## Conventions for Maintaining These Specs
 
 - When a change alters behaviour described in a spec, update the spec in the same commit.

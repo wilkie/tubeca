@@ -368,9 +368,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   `ass`, `webvtt`, `mov_text`) are convertible; write the VTT next to the HLS cache.
 - **Re-probe on file change and on demand** (S): the watcher already sees modifications; expose a
   "refresh streams" action.
-- **Either implement or delete the video worker** (S to delete, M to implement): the `analyze` stub
-  is actively harmful; if kept, `thumbnail` could generate trickplay sprites natively (sharp is
-  already a dependency) so `Media.thumbnails` no longer depends on Jellyfin.
+
 - **fMP4/CMAF segments with `#EXT-X-MAP`** (M): enables HEVC/AV1 passthrough in `original`, native
   Safari playback of more codecs, and removes the MPEG-TS remux overhead.
 - **Async encoder detection** (S): run detection with `execFile` after the server starts listening,
