@@ -63,6 +63,7 @@ import type {
   TrickplayResolution,
   TrickplayInfoResponse,
   SearchResponse,
+  SearchFacetsResponse,
   UserCollection,
   UserCollectionItem,
   UserCollectionItemCollection,
@@ -158,6 +159,7 @@ export type {
   TrickplayResolution,
   TrickplayInfoResponse,
   SearchResponse,
+  SearchFacetsResponse,
   UserCollection,
   UserCollectionItem,
   UserCollectionItemCollection,
@@ -770,6 +772,16 @@ class ApiClient {
   // Person methods
   async getPerson(id: string): Promise<ApiResponse<PersonResponse>> {
     return this.request<PersonResponse>(`/persons/${id}`);
+  }
+
+  /** Filter options for the search page, across every accessible library. */
+  async getSearchFacets(): Promise<ApiResponse<SearchFacetsResponse>> {
+    return this.request<SearchFacetsResponse>('/search/facets');
+  }
+
+  /** Rebuild the full-text search index. Admin only. */
+  async reindexSearch(): Promise<ApiResponse<{ collections: number; media: number }>> {
+    return this.request<{ collections: number; media: number }>('/search/reindex', { method: 'POST' });
   }
 
   async searchPersons(query: string): Promise<ApiResponse<PersonsResponse>> {

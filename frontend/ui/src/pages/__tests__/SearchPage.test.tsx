@@ -33,6 +33,8 @@ afterAll(() => {
 jest.mock('../../api/client', () => ({
   apiClient: {
     search: jest.fn(),
+    getSearchFacets: jest.fn(),
+    searchPersons: jest.fn(),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
   },
 }));
@@ -103,6 +105,11 @@ describe('SearchPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSearchParams = new URLSearchParams();
+    // Filter options come from the server now.
+    mockApiClient.getSearchFacets.mockResolvedValue({
+      data: { keywords: [{ id: 'k1', name: 'action' }], contentRatings: ['R'] },
+    });
+    mockApiClient.searchPersons.mockResolvedValue({ data: { persons: [] } });
     mockApiClient.search.mockResolvedValue({
       data: {
         collections: mockCollections as Collection[],
@@ -259,12 +266,75 @@ describe('SearchPage', () => {
         expect(screen.getByText('The Matrix')).toBeInTheDocument();
       });
 
-      // Click the filter toggle button (now accessible)
-      await user.click(screen.getByRole('button', { name: /toggle filters/i }));
+      // The filter options arrive from the server, so the button appears with them.
+      await user.click(await screen.findByRole('button', { name: /toggle filters/i }));
 
       // Rating filter should be visible
       await waitFor(() => {
         expect(screen.getByText('R')).toBeInTheDocument();
+      });
+    });
+
+    it('offers every keyword the server knows, not just those on this page', async () => {
+      const user = userEvent.setup();
+      mockApiClient.getSearchFacets.mockResolvedValue({
+        data: { keywords: [{ id: 'k1', name: 'heist' }], contentRatings: ['G', 'R'] },
+      });
+
+      render(<SearchPage />);
+      await user.click(await screen.findByRole('button', { name: /toggle filters/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('G')).toBeInTheDocument();
+      });
+      expect(mockApiClient.getSearchFacets).toHaveBeenCalled();
+    });
+  });
+
+  describe('people', () => {
+    it('shows a people section for a name that matches', async () => {
+      mockApiClient.searchPersons.mockResolvedValue({
+        data: { persons: [{ id: 'p1', name: 'Al Pacino' }] },
+      } as never);
+      mockSearchParams = new URLSearchParams({ q: 'pacino' });
+
+      render(<SearchPage />);
+
+      expect(await screen.findByText('Al Pacino')).toBeInTheDocument();
+      expect(mockApiClient.searchPersons).toHaveBeenCalledWith('pacino');
+    });
+
+    it('does not look up people for a one-letter query', async () => {
+      mockSearchParams = new URLSearchParams({ q: 'a' });
+
+      render(<SearchPage />);
+
+      await waitFor(() => expect(mockApiClient.search).toHaveBeenCalled());
+      expect(mockApiClient.searchPersons).not.toHaveBeenCalled();
+    });
+
+    it('still says nothing was found when neither titles nor people match', async () => {
+      mockApiClient.search.mockResolvedValue({
+        data: { collections: [], media: [], totalCollections: 0, totalMedia: 0, page: 1, hasMore: false },
+      });
+      mockApiClient.searchPersons.mockResolvedValue({ data: { persons: [] } });
+      mockSearchParams = new URLSearchParams({ q: 'nothing' });
+
+      render(<SearchPage />);
+
+      expect(await screen.findByText(/no results/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('live search', () => {
+    it('searches once typing pauses, without pushing a history entry per keystroke', async () => {
+      const user = userEvent.setup();
+
+      render(<SearchPage />);
+      await user.type(screen.getByRole('textbox'), 'heat');
+
+      await waitFor(() => {
+        expect(mockSetSearchParams).toHaveBeenCalledWith({ q: 'heat' }, { replace: true });
       });
     });
   });

@@ -24,9 +24,16 @@ All notable changes to Tubeca are recorded here. The format follows
   how many items are missing, which is safer on a network share that comes and goes.
 - Subtitle files sitting next to a video are imported and offered in the player, including the
   language, forced and hearing-impaired markers their filenames carry.
+- Search finds a title by its cast, its tags, its description or its original title, not just
+  its name, and ranks the closest match first.
+- Search results appear as you type, and the search page has a People section.
+- Admins can rebuild the search index from the API when it looks stale.
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- Searching for an accented title works without the accents, and a partly typed word matches.
+- The search page's filter options now cover every library rather than whatever happened to be
+  on the first page of results.
 - Re-encoding a file in place now updates its length and its audio and subtitle tracks, instead
   of leaving the player offering tracks that are no longer there.
 - Editing a watched library's path or type rebuilds its watcher, rather than watching the old

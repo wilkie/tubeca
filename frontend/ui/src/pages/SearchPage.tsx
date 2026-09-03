@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCachedState, useScrollRestoration } from '../context/ScrollRestorationContext';
+import { useApiQuery } from '../hooks/useApiQuery';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import {
   Box,
   Container,
@@ -22,7 +24,19 @@ import {
   Tooltip,
   Badge,
 } from '@mui/material';
-import { Search, Movie, Tv, Album, VideoFile, AudioFile, FilterList, Clear, CheckBox, CheckBoxOutlineBlank } from '@mui/icons-material';
+import {
+  Search,
+  Movie,
+  Tv,
+  Album,
+  VideoFile,
+  AudioFile,
+  FilterList,
+  Clear,
+  CheckBox,
+  CheckBoxOutlineBlank,
+  Person as PersonIcon,
+} from '@mui/icons-material';
 import { apiClient, type Collection, type Media, type Keyword } from '../api/client';
 import { FilterChips } from '../components/FilterChips';
 import { KeywordFilter } from '../components/KeywordFilter';
@@ -38,8 +52,6 @@ interface CachedSearchState {
   hasMore: boolean;
   totalCollections: number;
   totalMedia: number;
-  allContentRatings: string[];
-  allKeywords: Keyword[];
   query: string;
 }
 
@@ -74,8 +86,21 @@ export function SearchPage() {
   const [totalMedia, setTotalMedia] = useState(cachedState?.totalMedia ?? 0);
 
   // Available filters (populated from first unfiltered load, persists for the session)
-  const [allContentRatings, setAllContentRatings] = useState<string[]>(cachedState?.allContentRatings ?? []);
-  const [allKeywords, setAllKeywords] = useState<Keyword[]>(cachedState?.allKeywords ?? []);
+  // Filter options come from the server, so they cover every library rather
+  // than whatever happened to be on the first page of results.
+  const { data: facets } = useApiQuery(['search-facets'], () => apiClient.getSearchFacets());
+  const allContentRatings = useMemo(() => {
+    const order = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
+    return [...(facets?.contentRatings ?? [])].sort((a, b) => {
+      const aIndex = order.indexOf(a);
+      const bIndex = order.indexOf(b);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [facets]);
+  const allKeywords: Keyword[] = facets?.keywords ?? [];
 
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -93,10 +118,8 @@ export function SearchPage() {
     hasMore,
     totalCollections,
     totalMedia,
-    allContentRatings,
-    allKeywords,
     query,
-  }), [collections, media, page, hasMore, totalCollections, totalMedia, allContentRatings, allKeywords, query]);
+  }), [collections, media, page, hasMore, totalCollections, totalMedia, query]);
 
   // Scroll restoration - handles saving state and restoring scroll position
   useScrollRestoration(cacheKey, getCurrentState);
@@ -164,39 +187,6 @@ export function SearchPage() {
       setHasMore(result.data.hasMore);
       setPage(pageNum);
 
-      // When loading first page without filters, update available filter options
-      const filtersApplied = currentSearchParams.keywordIds.length > 0 || currentSearchParams.excludedRatings.length > 0;
-      if (isFirstPage && !filtersApplied) {
-        // Extract content ratings from results
-        const ratings = new Set<string>();
-        result.data.collections.forEach((c) => {
-          if (c.filmDetails?.contentRating) {
-            ratings.add(c.filmDetails.contentRating);
-          }
-        });
-        const ratingOrder = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
-        const sortedRatings = Array.from(ratings).sort((a, b) => {
-          const aIndex = ratingOrder.indexOf(a);
-          const bIndex = ratingOrder.indexOf(b);
-          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-          if (aIndex !== -1) return -1;
-          if (bIndex !== -1) return 1;
-          return a.localeCompare(b);
-        });
-        setAllContentRatings(sortedRatings);
-
-        // Extract keywords from results
-        const keywordMap = new Map<string, Keyword>();
-        result.data.collections.forEach((c) => {
-          c.keywords?.forEach((k) => {
-            if (!keywordMap.has(k.id)) {
-              keywordMap.set(k.id, k);
-            }
-          });
-        });
-        const sortedKeywords = Array.from(keywordMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-        setAllKeywords(sortedKeywords);
-      }
     }
 
     setIsLoading(false);
@@ -252,13 +242,28 @@ export function SearchPage() {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedQuery = query.trim();
-    if (trimmedQuery) {
-      setSearchParams({ q: trimmedQuery });
-    } else {
-      // Clear query param to show all results
-      setSearchParams({});
-    }
+    setSearchParams(trimmedQuery ? { q: trimmedQuery } : {});
   };
+
+  // Live search: the box drives the query string once typing pauses. Replacing
+  // rather than pushing keeps one history entry per search rather than one per
+  // keystroke, so Back leaves the page instead of retyping it backwards.
+  const debouncedQuery = useDebouncedValue(query, 400);
+  useEffect(() => {
+    const trimmed = debouncedQuery.trim();
+    if (trimmed === initialQuery.trim()) return;
+    setSearchParams(trimmed ? { q: trimmed } : {}, { replace: true });
+  }, [debouncedQuery, initialQuery, setSearchParams]);
+
+  // People are searched separately: they belong to no library, and the endpoint
+  // is a name lookup rather than part of the content index.
+  const personQuery = debouncedQuery.trim();
+  const { data: personResults } = useApiQuery(
+    ['person-search', personQuery],
+    () => apiClient.searchPersons(personQuery),
+    { enabled: personQuery.length >= 2 }
+  );
+  const persons = personResults?.persons ?? [];
 
   const handleCollectionClick = (collectionId: string) => {
     navigate(`/collection/${collectionId}`);
@@ -445,8 +450,54 @@ export function SearchPage() {
         </Alert>
       )}
 
-      {!isLoading && totalResults === 0 && (
+      {!isLoading && totalResults === 0 && persons.length === 0 && (
         <Alert severity="info">{t('search.noResults')}</Alert>
+      )}
+
+      {persons.length > 0 && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            {t('search.people', 'People')} ({persons.length})
+          </Typography>
+          <Grid container spacing={2}>
+            {persons.map((person) => {
+              const photo = person.images?.[0];
+              return (
+                <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={person.id}>
+                  <Card sx={{ height: '100%' }}>
+                    <CardActionArea onClick={() => navigate(`/person/${person.id}`)}>
+                      {photo ? (
+                        <CardMedia
+                          component="img"
+                          image={apiClient.getImageUrl(photo.id)}
+                          alt={person.name}
+                          sx={{ aspectRatio: '2/3', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            aspectRatio: '2/3',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            bgcolor: 'action.hover',
+                          }}
+                        >
+                          <PersonIcon sx={{ fontSize: 64, color: 'text.secondary' }} />
+                        </Box>
+                      )}
+                      <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                        <Typography variant="body2" noWrap title={person.name}>
+                          {person.name}
+                        </Typography>
+                      </CardContent>
+                    </CardActionArea>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </Box>
       )}
 
       {!isLoading && collections.length > 0 && (

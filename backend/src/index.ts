@@ -9,6 +9,7 @@ import { redisConnection } from './config/redis';
 import { swaggerSpec } from './config/swagger.js';
 import { hlsCacheCleanupService } from './services/hlsCacheCleanupService';
 import { detectBestEncoderAsync } from './utils/hwaccel';
+import { searchIndexService } from './services/searchIndexService';
 import { shutdownHlsService } from './services/hlsService';
 import { getRole, runsApi, runsWorkers } from './runtime/role';
 import { mountFrontend, resolveFrontendDist } from './runtime/frontend';
@@ -140,6 +141,20 @@ async function startWorkers(appConfig: ReturnType<typeof loadAppConfig>): Promis
   }
 }
 
+/** Populate the search index on first boot after it was introduced. */
+async function buildSearchIndexIfEmpty(): Promise<void> {
+  try {
+    if ((await searchIndexService.size()) > 0) return;
+    console.log('🔎 Building the search index for the first time...');
+    const result = await searchIndexService.rebuild((done, total) => {
+      if (total > 0) console.log(`🔎 Indexed ${done}/${total}`);
+    });
+    console.log(`🔎 Search index ready: ${result.collections} collections, ${result.media} media`);
+  } catch (error) {
+    console.warn('Could not build the search index; search will fall back to substring matching:', error);
+  }
+}
+
 /** Bind the HTTP server, serving the SPA when its build output is present. */
 function startApi(): Server {
   const distDir = resolveFrontendDist();
@@ -159,6 +174,11 @@ function startApi(): Server {
     void detectBestEncoderAsync().catch((error) => {
       console.warn('Encoder detection failed; falling back to software encoding:', error);
     });
+
+    // A library that predates the search index has none, and search would fall
+    // back to a substring match until something rewrote every row. Build it
+    // once, in the background, so the first upgrade needs no admin action.
+    void buildSearchIndexIfEmpty();
   });
 }
 

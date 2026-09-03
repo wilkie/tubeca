@@ -595,6 +595,12 @@ export interface Person {
   imdbId: string | null
   createdAt: string
   updatedAt: string
+  /** Present on search results: the primary photo, when there is one. */
+  images?: Array<{
+    id: string
+    imageType: string
+    isPrimary: boolean
+  }>
 }
 
 export interface PersonFilmographyShow {
@@ -691,6 +697,12 @@ export interface PersonsResponse {
 // ============================================
 // Search Types
 // ============================================
+
+/** Filter options across every library the caller can see. */
+export interface SearchFacetsResponse {
+  keywords: Keyword[]
+  contentRatings: string[]
+}
 
 export interface SearchResponse {
   collections: Collection[]

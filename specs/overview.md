@@ -288,8 +288,9 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
    watchers rebuilt when a library's path or type changes, scan concurrency raised to two, a
    dry-run scan that removes nothing, subtitle sidecars imported as external streams, and a
    folder picker for the library path ([Libraries](libraries-and-scanning.md)).
-8. **Search depth** (M): SQLite FTS5 over titles, keywords and people, people results on the
-   search page, server-served filter options, live search. ([Search](search.md))
+8. ~~**Search depth**~~ Done 2026-09-03: an FTS5 index over titles, alternative titles,
+   descriptions, keywords and cast with `bm25` ranking, people results on the search page,
+   filter options served from the server, and live search ([Search](search.md)).
 9. **Images** (M): resize on ingest with a size parameter, download hardening (timeouts, size
    and content-type limits), candidate galleries with set-primary, user upload.
    ([Images](images.md))

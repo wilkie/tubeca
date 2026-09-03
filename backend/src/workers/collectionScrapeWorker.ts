@@ -9,6 +9,7 @@ import type { CollectionScrapeJobData } from '../queues/collectionScrapeQueue';
 import type { SeriesMetadata, SeasonMetadata, VideoMetadata } from '@tubeca/scraper-types';
 import { parseTitleAndYear } from '../utils/mediaParser';
 import { syncCollectionSortFields } from '../services/collectionSortFields';
+import { searchIndexService } from '../services/searchIndexService';
 import {
   resolveByIdentity,
   resolveBySearch,
@@ -354,8 +355,10 @@ async function applyShowMetadata(
     await saveKeywords(collectionId, metadata.keywords);
   }
 
-  // Keep the denormalised sort keys in step with the details row just written.
+  // Keep the denormalised sort keys and the search index in step with the
+  // details row just written.
   await syncCollectionSortFields(collectionId);
+  await searchIndexService.indexCollection(collectionId);
 }
 
 /**
@@ -400,8 +403,10 @@ async function applySeasonMetadata(
     });
   }
 
-  // Keep the denormalised sort keys in step with the details row just written.
+  // Keep the denormalised sort keys and the search index in step with the
+  // details row just written.
   await syncCollectionSortFields(collectionId);
+  await searchIndexService.indexCollection(collectionId);
 }
 
 /**
@@ -469,8 +474,10 @@ async function applyFilmMetadata(
     await saveKeywords(collectionId, metadata.keywords);
   }
 
-  // Keep the denormalised sort keys in step with the details row just written.
+  // Keep the denormalised sort keys and the search index in step with the
+  // details row just written.
   await syncCollectionSortFields(collectionId);
+  await searchIndexService.indexCollection(collectionId);
 }
 
 // Worker event handlers

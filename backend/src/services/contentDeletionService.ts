@@ -3,6 +3,7 @@ import * as path from 'path';
 import { prisma } from '../config/database';
 import { getImageStoragePath } from '../config/appConfig';
 import { evictMediaCache } from './hlsCache';
+import { searchIndexService } from './searchIndexService';
 
 /**
  * Remove an image file (and its directory if that leaves it empty). Errors are
@@ -86,6 +87,7 @@ export class ContentDeletionService {
     for (const file of files) deleteImageFile(this.storageRoot, file);
     evictMediaCache(mediaId);
     await prisma.media.delete({ where: { id: mediaId } });
+    await searchIndexService.remove(mediaId);
     return true;
   }
 
@@ -113,6 +115,9 @@ export class ContentDeletionService {
       // Children cascade from the root in the database.
       prisma.collection.delete({ where: { id: rootId } }),
     ]);
+
+    // The search index has no foreign keys to cascade through.
+    for (const id of [...collectionIds, ...mediaIds]) await searchIndexService.remove(id);
 
     return { collections: collectionIds.length, media: mediaIds.length };
   }

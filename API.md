@@ -752,6 +752,58 @@ Refresh person metadata from scrapers. **Requires Editor role.**
 
 ---
 
+## Search Endpoints
+
+### GET /search
+
+Search every library the caller can see. Matching runs against a full-text index over titles,
+alternative titles, descriptions, keywords and cast, ranked best first. With no query, returns
+everything, paginated.
+
+**Query Parameters:**
+- `q` - search text; the last word is matched as a prefix
+- `page` - page number, default 1
+- `limit` - results per list per page, default 50, maximum 100
+- `keywordIds` - comma-separated keyword ids; a result must carry all of them
+- `excludedRatings` - comma-separated content ratings to leave out
+
+**Response:**
+```json
+{
+  "collections": [],
+  "media": [],
+  "totalCollections": 0,
+  "totalMedia": 0,
+  "page": 1,
+  "hasMore": false
+}
+```
+
+### GET /search/facets
+
+Filter options across every accessible library, for the search page's filter panel.
+
+**Response:**
+```json
+{
+  "keywords": [{ "id": "string", "name": "heist" }],
+  "contentRatings": ["PG", "R"]
+}
+```
+
+### POST /search/reindex
+
+Rebuild the full-text index from the database. **Requires Admin role.** The index is maintained
+by the scan and scrape workers and built automatically on first boot; this is for after a
+restore.
+
+**Response:**
+```json
+{ "collections": 0, "media": 0 }
+```
+
+---
+
 ## Image Endpoints
 
 ### GET /images/:id/file

@@ -4,6 +4,7 @@ import { prisma } from '../config/database';
 import { scraperManager } from '../plugins/scraperLoader';
 import { applyCredits, downloadArtwork, shouldDownloadArtwork } from '../services/scrapeApply';
 import { cachedCall, scrapeCacheKey } from '../services/scrapeCache';
+import { searchIndexService } from '../services/searchIndexService';
 import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue';
 import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types';
 import { parseTitleAndYear } from '../utils/mediaParser';
@@ -240,6 +241,9 @@ async function applyVideoMetadata(mediaId: string, metadata: VideoMetadata, scra
       });
     }
   }
+
+  // The episode title, description and cast just changed; search should see it.
+  await searchIndexService.indexMedia(mediaId);
 }
 
 /**
@@ -279,6 +283,7 @@ async function applyAudioMetadata(mediaId: string, metadata: AudioMetadata, scra
 
   // Download album art if available
   await downloadArtwork({ mediaId }, metadata, scraperId);
+  await searchIndexService.indexMedia(mediaId);
 }
 
 /**

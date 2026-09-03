@@ -4,8 +4,9 @@
 > the hierarchy. It consists of one global `GET /api/search` endpoint plus a dedicated Search
 > page, a keyboard-driven "quick search" overlay on the Library and Collection pages, and the
 > shared sort / rating / keyword filter controls that those pages (and the user-collection
-> pages) use to narrow a listing. All matching is SQLite `LIKE '%q%'` on a single `name`
-> column; there is no ranking, fuzzy matching, or full-text index.
+> pages) use to narrow a listing. Free-text matching runs against an SQLite FTS5 index over
+> titles, alternative titles, descriptions, keywords and cast, ranked with `bm25()`; the
+> narrowing controls on list pages still use `LIKE` on `name`.
 
 ## Responsibilities
 
@@ -25,9 +26,13 @@
 
 ## Goals
 
-- **Find-by-title fast enough for a personal library.** Every search path is a simple
-  `contains` on `name`; the code never attempts relevance, tokenisation, or typo tolerance.
-  This is adequate for hundreds-to-low-thousands of titles on SQLite.
+- **Find a title by anything you remember about it.** The index covers the title, the
+  original title, the description, the keywords and the cast, so an actor's name or a plot
+  word finds the film. Matching is token-based with a prefix on the last word, and diacritics
+  are folded, so "amelie" finds "Amélie" and "blade runn" finds Blade Runner while you type.
+- **Never regress into a worse search.** The index is rebuilt on first boot after upgrading
+  and kept current by the workers, but a search still falls back to the old `contains` match
+  whenever the index is empty, so a server mid-rebuild is not a server without search.
 - **Never leak titles from inaccessible libraries.** 8143c03 added group-based library
   access at the same time as the enhanced search; the search route filters by
   `libraryId IN (...)` for non-admins.
@@ -44,7 +49,9 @@
 
 | File | Role |
 |------|------|
-| `backend/src/routes/search.ts` | `GET /api/search` — the only global search endpoint; builds two Prisma queries (collections, media) with access, keyword and rating filters |
+| `backend/src/routes/search.ts` | `GET /api/search` (global search), `GET /api/search/facets` (filter options), `POST /api/search/reindex` (Admin) |
+| `backend/src/services/searchIndexService.ts` | The FTS5 index: `indexCollection`/`indexMedia`/`remove`/`rebuild`/`search`, and `toMatchQuery` which turns typed text into an FTS5 query |
+| `backend/prisma/migrations/20260903200000_search_index/` | Creates the `search_index` virtual table |
 | `backend/src/services/collectionService.ts` (`getPaginatedCollections`, `getKeywordsByLibrary`) | Library listing with `nameFilter`, rating/keyword filters, sorting; powers Library-page quick search and the keyword list |
 | `backend/src/routes/collections.ts` (`GET /library/:libraryId`, `GET /library/:libraryId/keywords`) | Route wrappers for the above |
 | `backend/src/routes/persons.ts` (`GET /search`) + `personService.searchByName` | Person name search (currently unreachable, see Limitations) |
@@ -141,6 +148,30 @@
 test but no UI caller; PersonPage has no search. `POST /api/collections/search` (identification) queries
 external scrapers and belongs to Metadata Scraping.
 
+### The full-text index
+
+`search_index` is an FTS5 virtual table holding one row per collection and per media item:
+`entityId`, `entityType`, `libraryId` and `contentRating` as UNINDEXED columns for filtering,
+then `name`, `altNames`, `description`, `keywords` and `people` as the indexed text. The
+tokenizer is `unicode61 remove_diacritics 2`.
+
+Rows are written where the text is written: `ImportService` indexes a media item or collection
+as it is created or moved, the scrape workers re-index after applying metadata, and
+`ContentDeletionService` removes rows it deletes. Nothing reads the index as a source of truth,
+so a stale one is repaired by `POST /api/search/reindex` rather than being a data problem. The
+API process builds the index once on boot when it is empty, in the background.
+
+`toMatchQuery` turns what someone typed into an FTS5 query: the text is split on anything that
+is not a letter or digit, each token is quoted as a literal (so a title containing `NOT`, `-`
+or `*` cannot become syntax), and the last token gets a prefix match. Ranking is `bm25()` with
+the title weighted highest, then alternative titles, keywords, people and finally the
+description, so a title match beats a mention in a plot summary.
+
+Access and rating filters are applied inside the FTS query through the UNINDEXED columns, so
+the page of ids it returns is the page to render. Prisma then loads those rows and the route
+puts them back into rank order. A keyword-id filter still goes through the Prisma path, since
+the index holds keyword names rather than ids.
+
 ## Interactions
 
 - **Depends on:** [Auth & Users](auth-and-users.md) (JWT `authenticate`, `req.user.role`,
@@ -161,6 +192,11 @@ external scrapers and belongs to Metadata Scraping.
 
 ## History
 
+- 2026-09-03 — FTS5 `search_index` over titles, alternative titles, descriptions, keywords and
+  cast, written by the importer and the scrape workers and rebuilt on first boot; `bm25`
+  ranking with access and rating filters applied inside the query; `GET /api/search/facets`
+  and `POST /api/search/reindex`; live search, a people section and server-served filter
+  options on the Search page.
 - `a3f2f55` 2025-11-30 — People listing added, including `personService.searchByName` and
   `GET /api/persons/search` (shadowed by `/:id` until 2026-09-03).
 - `f7f96fd` 2025-12-02 — Library sort controls (name/dateAdded/releaseDate/rating/runtime);
@@ -187,56 +223,48 @@ external scrapers and belongs to Metadata Scraping.
 
 ## Known Limitations
 
-- **Name-only matching.** Search ignores descriptions, `originalTitle`, keyword names,
-  person names, season names and file paths. Typing a tag name or an actor into the search
-  box finds nothing; keywords are only usable via the id-based filter.
-- **Substring `LIKE` with no index, no FTS, no ranking.** Every search is a full table scan
-  of `Collection` then `Media`, results are alphabetical rather than by relevance, and
-  "Matrix Reloaded" does not match "matrix reloded". Case-insensitivity is ASCII-only.
-- **`/api/persons/search` has no UI.** The endpoint works but `apiClient.searchPersons` is
-  dead code and PersonPage/SearchPage have no people search.
+- **No typo tolerance.** Matching is token-based with a prefix on the last word, so
+  "matrix reloded" still finds nothing; FTS5 has no built-in edit distance.
+- **File paths are still not searched**, and the quick-search filters on list pages remain
+  `LIKE` on `name` rather than going through the index.
+- **The index is only as fresh as its writers.** A row edited by a path that does not
+  re-index it, or a restore from a database backup, leaves it stale until a reindex; nothing
+  detects that automatically.
+- **People are matched with `LIKE`.** The content index knows cast names, so a film is found
+  by its actor, but the people section itself is a substring match on `Person.name` with no
+  ranking, no diacritic folding and no library scoping.
 - **Pagination is two parallel offsets** (up to `2 * limit` per page, `hasMore` true for an
   empty tail page).
-- **Search page filter options are sampled from page 1.** Keywords/ratings not present in
-  the first 50 unfiltered, alphabetically-first collections are never offered, and the
-  option list is not rebuilt when `q` changes after the first load of the session cache.
 - **Search itself offers no sort control** (always `name` ascending), though the columns the
   library view sorts on (`sortReleaseDate`, `sortRating`, `sortRuntime`) are now on `Collection`
   and available to it.
 - **Quick search cannot type non-ASCII or punctuation** (accents, CJK, `-`, `'`), and it
   captures keys on any focused non-input element with no opt-out beyond dialogs.
-- **Search page has no sort, no live search, no library/type facet**, and no way to
-  restrict to a single library or to seasons/episodes only.
+- **Search page has no sort and no library/type facet**, and no way to restrict to a single
+  library or to seasons/episodes only. Results are ordered by relevance with no way to change
+  it.
 - **Duplication.** The rating `OR`, keyword `AND` and name `contains` clauses are hand-built
   in both `search.ts` and `getPaginatedCollections`; the MPAA order and filter-badge UI are
   copied between SearchPage and LibraryPage; `mediaService.searchMedia` is an unused copy.
-- **Tests.** No backend tests for `search.ts`, `getPaginatedCollections`, or persons
-  search. Frontend has `SearchPage.test.tsx` (render, navigation, filter toggle only — no
+- **Tests.** `search.ts` and `searchIndexService` are covered; there are none for
+  `getPaginatedCollections` or persons search. Frontend has `SearchPage.test.tsx` (render, navigation, filter toggle only — no
   pagination, selection, or filter-application assertions) and `KeywordFilter.test.tsx`;
   there are no tests for `useQuickSearch`, `useDebouncedValue`, `QuickSearchOverlay`,
   `FilterChips`, `SortControls`, or LibraryPage/CollectionPage quick-search behaviour.
 
 ## Opportunities
 
-- **Wire `searchPersons` into the Search page** as a third result section now that the
-  endpoint is reachable. S.
 - **Extract a shared `buildCollectionWhere({ nameFilter, keywordIds, excludedRatings,
   libraryIds })`** used by both the search route and `getPaginatedCollections`, plus a
   shared rating-order constant on the frontend. S–M.
-- **Add SQLite FTS5 virtual tables** for `Collection.name`/`Media.name`/`Person.name`
-  (plus description and original title) maintained by triggers or the scan/scrape workers,
-  with `bm25()` ranking and a single merged, cursor-paginated result list. Removes the full
-  scan and adds token/prefix matching and Unicode-insensitive search. L.
-- **Search keyword names and people** in the same query (`keywords.some.name contains`,
-  credits via `Person.name`) so free-text search covers tags and cast; the `Keyword` table
-  also makes a "browse by tag" page and library/type/year facets natural. M.
+- **Index people as their own entity** (S): the people section is still a `LIKE` on
+  `Person.name`; putting them in `search_index` would give it the same prefix, diacritic and
+  ranking behaviour, and let it be scoped to the libraries a viewer can see.
+- **A merged, ranked result list** (M): collections and media are two lists with two offsets;
+  one list ordered by score across both would page correctly and read better.
+- **A Header search box** that submits to `/search?q=` (S), now that the page searches live.
 - **Offer the library's sort fields on the Search page** by ordering on the denormalised
   `sortReleaseDate` / `sortRating` / `sortRuntime` columns, as the library view already does. S.
-- **Serve Search-page filter options from the server** (a global `/keywords` and a
-  distinct-ratings endpoint, or `facets` in the search response) rather than sampling page
-  1. S.
-- **Live search on the Search page** using the existing `useDebouncedValue` hook, and a
-  Header search box that submits to `/search?q=`. S.
 - **Broaden `useQuickSearch` key acceptance** to `/\p{L}|\p{N}|[\s'\-:]/u` and add an
   opt-out attribute for components that handle their own keys. S.
 - **Tests:** supertest coverage for `GET /api/search` (access filtering, keyword AND,

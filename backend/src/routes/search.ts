@@ -1,7 +1,8 @@
 import { Router, type Request } from 'express';
 import { prisma } from '../config/database';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 import { LibraryService } from '../services/libraryService';
+import { searchIndexService } from '../services/searchIndexService';
 
 const router = Router();
 const libraryService = new LibraryService();
@@ -112,8 +113,27 @@ router.get('/', async (req: Request, res) => {
       parentId: null,
     };
 
-    // Add name search if query provided
-    if (searchQuery) {
+    // Full-text hits, when there is something to search for and an index to
+    // search. An empty index (a server that has not rebuilt yet) falls back to
+    // the substring match this endpoint has always done.
+    const useIndex = Boolean(searchQuery) && (await searchIndexService.size()) > 0;
+
+    let rankedCollectionIds: string[] | null = null;
+    let indexedCollectionTotal = 0;
+
+    if (useIndex && searchQuery) {
+      const hits = await searchIndexService.search({
+        query: searchQuery,
+        entityType: 'collection',
+        libraryIds: accessibleLibraryIds,
+        excludedRatings: excludedRatingList,
+        limit: resultLimit,
+        offset: skip,
+      });
+      rankedCollectionIds = hits.ids;
+      indexedCollectionTotal = hits.total;
+      collectionWhere.id = { in: hits.ids };
+    } else if (searchQuery) {
       collectionWhere.name = { contains: searchQuery };
     }
 
@@ -124,8 +144,8 @@ router.get('/', async (req: Request, res) => {
       }));
     }
 
-    // Add content rating exclusion filter
-    if (excludedRatingList.length > 0) {
+    // Add content rating exclusion filter (the index applied it already)
+    if (excludedRatingList.length > 0 && !rankedCollectionIds) {
       collectionWhere.OR = [
         { filmDetails: null },
         { filmDetails: { contentRating: null } },
@@ -134,10 +154,12 @@ router.get('/', async (req: Request, res) => {
     }
 
     // Get total count for pagination
-    const totalCollections = await prisma.collection.count({ where: collectionWhere });
+    const totalCollections = rankedCollectionIds
+      ? indexedCollectionTotal
+      : await prisma.collection.count({ where: collectionWhere });
 
     // Search collections (shows, films, albums, etc.)
-    const collections = await prisma.collection.findMany({
+    const collectionRows = await prisma.collection.findMany({
       where: collectionWhere,
       include: {
         library: {
@@ -180,10 +202,16 @@ router.get('/', async (req: Request, res) => {
           },
         },
       },
-      orderBy: { name: 'asc' },
-      skip,
-      take: resultLimit,
+      ...(rankedCollectionIds ? {} : { orderBy: { name: 'asc' }, skip, take: resultLimit }),
     });
+
+    // The index returned them best-first; Prisma returns them in whatever
+    // order it likes, so put them back.
+    const collections = rankedCollectionIds
+      ? rankedCollectionIds
+          .map((id) => collectionRows.find((row) => row.id === id))
+          .filter((row): row is (typeof collectionRows)[number] => row !== undefined)
+      : collectionRows;
 
     // When filtering by keywords, don't search media (media items don't have keywords)
     let media: Awaited<ReturnType<typeof prisma.media.findMany>> = [];
@@ -201,16 +229,27 @@ router.get('/', async (req: Request, res) => {
         },
       };
 
-      // Add name search if query provided
-      if (searchQuery) {
+      let rankedMediaIds: string[] | null = null;
+      if (useIndex && searchQuery) {
+        const hits = await searchIndexService.search({
+          query: searchQuery,
+          entityType: 'media',
+          libraryIds: accessibleLibraryIds,
+          limit: resultLimit,
+          offset: skip,
+        });
+        rankedMediaIds = hits.ids;
+        totalMedia = hits.total;
+        mediaWhere.id = { in: hits.ids };
+      } else if (searchQuery) {
         mediaWhere.name = { contains: searchQuery };
       }
 
       // Get total count for media
-      totalMedia = await prisma.media.count({ where: mediaWhere });
+      if (!rankedMediaIds) totalMedia = await prisma.media.count({ where: mediaWhere });
 
       // Search media (episodes, tracks, etc.) - exclude film media since films are shown as collections
-      media = await prisma.media.findMany({
+      const mediaRows = await prisma.media.findMany({
         where: mediaWhere,
       include: {
         collection: {
@@ -251,10 +290,14 @@ router.get('/', async (req: Request, res) => {
           },
         },
       },
-      orderBy: { name: 'asc' },
-      skip,
-      take: resultLimit,
+      ...(rankedMediaIds ? {} : { orderBy: { name: 'asc' }, skip, take: resultLimit }),
     });
+
+      media = rankedMediaIds
+        ? rankedMediaIds
+            .map((id) => mediaRows.find((row) => row.id === id))
+            .filter((row): row is (typeof mediaRows)[number] => row !== undefined)
+        : mediaRows;
     }
 
     const totalResults = totalCollections + totalMedia;
@@ -271,6 +314,103 @@ router.get('/', async (req: Request, res) => {
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/search/facets:
+ *   get:
+ *     tags:
+ *       - Search
+ *     summary: Filter options for the search page
+ *     description: >
+ *       Every keyword and content rating present in the libraries this user can see,
+ *       so the filter panel offers the whole set rather than whatever happened to be
+ *       on the first page of results.
+ *     responses:
+ *       200:
+ *         description: Filter options
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 keywords:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Keyword'
+ *                 contentRatings:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ */
+router.get('/facets', async (req: Request, res) => {
+  try {
+    const isAdmin = req.user!.role === 'Admin';
+    const accessibleLibraryIds = isAdmin
+      ? undefined
+      : (await libraryService.getAccessibleLibraries(req.user!.userId, false)).map((l) => l.id);
+    const libraryFilter = accessibleLibraryIds ? { libraryId: { in: accessibleLibraryIds } } : {};
+
+    const [keywords, ratingRows] = await Promise.all([
+      prisma.keyword.findMany({
+        where: { collections: { some: libraryFilter } },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.filmDetails.findMany({
+        where: { NOT: { contentRating: null }, collection: libraryFilter },
+        select: { contentRating: true },
+        distinct: ['contentRating'],
+      }),
+    ]);
+
+    res.json({
+      keywords,
+      contentRatings: ratingRows
+        .map((row) => row.contentRating)
+        .filter((rating): rating is string => Boolean(rating))
+        .sort((a, b) => a.localeCompare(b)),
+    });
+  } catch (error) {
+    console.error('Search facets error:', error);
+    res.status(500).json({ error: 'Failed to load filter options' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/search/reindex:
+ *   post:
+ *     tags:
+ *       - Search
+ *     summary: Rebuild the search index
+ *     description: >
+ *       Rebuild the full-text index from the database (Admin only). The index is kept
+ *       up to date by the scan and scrape workers; this is for after a restore, or
+ *       after the first upgrade to a version that has one.
+ *     responses:
+ *       200:
+ *         description: Index rebuilt
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 collections:
+ *                   type: integer
+ *                 media:
+ *                   type: integer
+ */
+router.post('/reindex', requireRole('Admin'), async (_req, res) => {
+  try {
+    const result = await searchIndexService.rebuild();
+    console.log(`🔎 Search index rebuilt: ${result.collections} collections, ${result.media} media`);
+    res.json(result);
+  } catch (error) {
+    console.error('Search reindex error:', error);
+    res.status(500).json({ error: 'Failed to rebuild the search index' });
   }
 });
 

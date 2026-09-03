@@ -406,13 +406,15 @@ export class PersonService {
   /**
    * Search for persons by name
    */
-  async searchByName(query: string, limit = 20): Promise<Person[]> {
+  async searchByName(query: string, limit = 20) {
     return prisma.person.findMany({
       where: {
         name: {
           contains: query,
         },
       },
+      // The photo, so a result list can show a face rather than a name.
+      include: { images: { where: { imageType: 'Photo', isPrimary: true }, take: 1 } },
       take: limit,
       orderBy: { name: 'asc' },
     });

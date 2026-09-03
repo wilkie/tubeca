@@ -5,6 +5,7 @@ import { prisma } from '../config/database';
 import { probeMediaFile, type StreamInfo } from '../utils/ffprobe';
 import { VIDEO_EXTENSIONS, getCollectionType } from '../utils/libraryLayout';
 import { listDirectory, matchSidecars } from '../utils/subtitleSidecars';
+import { searchIndexService } from './searchIndexService';
 import {
   parseEpisodeFromFilename,
   parseTitleAndYear,
@@ -189,6 +190,7 @@ export class ImportService {
         select: { id: true, collectionType: true },
       });
       created = true;
+      await searchIndexService.indexCollection(collection.id);
     } else if (collection.collectionType !== collectionType) {
       collection = await prisma.collection.update({
         where: { id: collection.id },
@@ -277,6 +279,7 @@ export class ImportService {
       });
       // The old location's sidecars are gone; this one's apply now.
       if (mediaType === 'Video') await this.syncExternalSubtitles(moved.id, filePath, directoryEntries);
+      await searchIndexService.indexMedia(moved.id);
       return { mediaId: moved.id, created: false, moved: true, scrapeStatus: moved.scrapeStatus, hints };
     }
 
@@ -326,6 +329,7 @@ export class ImportService {
         select: { id: true },
       });
       if (mediaType === 'Video') await this.syncExternalSubtitles(media.id, filePath, directoryEntries);
+      await searchIndexService.indexMedia(media.id);
       return { mediaId: media.id, created: true, moved: false, scrapeStatus: null, hints: hintsFor(media.id) };
     } catch (error) {
       // Unique violation: someone (the watcher, another scan) imported it first.
