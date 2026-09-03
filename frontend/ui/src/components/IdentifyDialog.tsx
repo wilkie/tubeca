@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import { Search, Movie, Tv } from '@mui/icons-material';
 import { apiClient } from '../api/client';
+import { parseTitleAndYear } from '../utils/parseTitle';
 
 interface SearchResult {
   externalId: string;
@@ -59,8 +60,12 @@ function IdentifyDialogContent({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const [query, setQuery] = useState(collectionName);
-  const [yearFilter, setYearFilter] = useState(year?.toString() || '');
+  // Pre-fill from the presumed title/year parsed out of the folder name, e.g.
+  // "Blade Runner (1982)" -> query "Blade Runner", year "1982". Prefer an
+  // already-known year (from existing details) over the parsed one.
+  const parsed = parseTitleAndYear(collectionName);
+  const [query, setQuery] = useState(parsed.title);
+  const [yearFilter, setYearFilter] = useState((year ?? parsed.year)?.toString() || '');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [identifying, setIdentifying] = useState(false);

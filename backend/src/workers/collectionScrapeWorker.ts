@@ -6,6 +6,7 @@ import { ImageService } from '../services/imageService';
 import { PersonService } from '../services/personService';
 import type { CollectionScrapeJobData } from '../queues/collectionScrapeQueue';
 import type { SeriesMetadata, SeasonMetadata, VideoMetadata } from '@tubeca/scraper-types';
+import { parseTitleAndYear } from '../utils/mediaParser';
 
 const imageService = new ImageService();
 const personService = new PersonService();
@@ -176,9 +177,12 @@ async function scrapeFilmMetadata(job: Job<CollectionScrapeJobData>): Promise<Sc
     return { success: false, error: 'No video scrapers configured' };
   }
 
-  // Parse the movie title from the collection name (remove year if present)
-  const titleMatch = collectionName.match(/^(.+?)\s*\(?\d{4}\)?$/);
-  const searchTitle = titleMatch ? titleMatch[1].trim() : collectionName;
+  // Parse a clean title (and year) from the collection name, e.g.
+  // "Blade Runner (1982)" -> title "Blade Runner", year 1982. Passing the raw
+  // "Name (Year)" string to the scraper hurts matching.
+  const parsed = parseTitleAndYear(collectionName);
+  const searchTitle = parsed.title;
+  const searchYear = year ?? parsed.year;
 
   // Try to find a match
   for (const scraper of scrapers) {
@@ -186,7 +190,7 @@ async function scrapeFilmMetadata(job: Job<CollectionScrapeJobData>): Promise<Sc
 
     try {
       const searchResults = await scraper.searchVideo(searchTitle, {
-        year,
+        year: searchYear,
         videoType: 'movie',
       });
 

@@ -6,6 +6,7 @@ import { ImageService } from '../services/imageService';
 import { PersonService } from '../services/personService';
 import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue';
 import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types';
+import { parseTitleAndYear } from '../utils/mediaParser';
 
 const imageService = new ImageService();
 const personService = new PersonService();
@@ -103,8 +104,10 @@ async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<Scr
           metadata = await scraper.getEpisodeMetadata(bestMatch.externalId, season!, episode!);
         }
       } else if (scraper.searchVideo && scraper.getVideoMetadata) {
-        // Search for movie/video
-        const results = await scraper.searchVideo(mediaName, { year });
+        // Search for movie/video. Strip a "(Year)" from the name so the query is
+        // the clean title, and use the parsed year when none was provided.
+        const parsed = parseTitleAndYear(mediaName);
+        const results = await scraper.searchVideo(parsed.title, { year: year ?? parsed.year });
 
         if (results.length > 0) {
           // Use the best match (results should be sorted by confidence)

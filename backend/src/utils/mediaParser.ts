@@ -129,6 +129,38 @@ export function parseMovieFromFilename(filename: string): ParsedMovie {
 }
 
 /**
+ * Parse a title and optional year from a collection/folder-style name.
+ *
+ * Unlike parseMovieFromFilename (tuned for release-style file names with quality
+ * tags), this targets clean library folder names shaped "Name (Year)" and
+ * tolerates trailing tags after the year:
+ *   - "Blade Runner (1982)"          -> { title: "Blade Runner", year: 1982 }
+ *   - "The Batman (2022) [1080p]"    -> { title: "The Batman",   year: 2022 }
+ *   - "Blade Runner 2049 (2017)"     -> { title: "Blade Runner 2049", year: 2017 }
+ *   - "Only Murders in the Building" -> { title: "Only Murders in the Building" }
+ *
+ * A parenthesised/bracketed year is strongly preferred (so digits that are part
+ * of the title are preserved); a bare trailing year is only a best-effort fallback.
+ */
+export function parseTitleAndYear(name: string): ParsedMovie {
+  const cleaned = name.replace(/[._]/g, ' ').trim();
+
+  // Prefer a year in parentheses or brackets.
+  const paren = cleaned.match(/^(.*?)[([]\s*((?:19|20)\d{2})\s*[)\]]/);
+  if (paren && paren[1].trim()) {
+    return { title: paren[1].trim(), year: parseInt(paren[2], 10) };
+  }
+
+  // Fallback: a bare 4-digit year at the very end ("Dune 2021").
+  const bare = cleaned.match(/^(.*\S)\s+((?:19|20)\d{2})\s*$/);
+  if (bare) {
+    return { title: bare[1].trim(), year: parseInt(bare[2], 10) };
+  }
+
+  return { title: cleaned };
+}
+
+/**
  * Determine the likely show name from collection hierarchy
  * For a path like /shows/Betty/Season 1/episode.mkv:
  *   - If parent collection is "Season X", use grandparent
