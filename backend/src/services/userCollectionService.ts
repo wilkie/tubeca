@@ -118,6 +118,35 @@ const itemInclude = {
   },
 } as const;
 
+/** The shape `filterItemsByLibraryAccess` needs from an item; matches `itemInclude`. */
+interface ScopedItem {
+  collection?: { library: { id: string } } | null
+  media?: { collection: { library: { id: string } } | null } | null
+}
+
+/**
+ * Drop items whose underlying collection or media lives in a library the
+ * viewer cannot access (`undefined` scope = admin, nothing dropped). Items
+ * that reference another user collection are kept. `_count.items` is
+ * adjusted so the UI's totals match what it renders.
+ */
+export function filterItemsByLibraryAccess<
+  T extends { items: ScopedItem[]; _count?: { items: number } },
+>(collection: T, accessibleLibraryIds: string[] | undefined): T {
+  if (!accessibleLibraryIds) return collection;
+  const allowed = new Set(accessibleLibraryIds);
+  const items = collection.items.filter((item) => {
+    if (item.collection) return allowed.has(item.collection.library.id);
+    if (item.media) return item.media.collection ? allowed.has(item.media.collection.library.id) : false;
+    return true;
+  });
+  return {
+    ...collection,
+    items,
+    ...(collection._count ? { _count: { ...collection._count, items: items.length } } : {}),
+  };
+}
+
 export class UserCollectionService {
   /**
    * Get all collections owned by a user (excluding system collections)

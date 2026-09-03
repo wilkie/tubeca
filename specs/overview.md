@@ -123,13 +123,13 @@ Favorites and Watch Later lists). See [Content Model](content-model.md).
 These themes recur across several specs. Detailed items live in each spec's Known
 Limitations and Opportunities sections; the pointers here are the entry points.
 
-### Access control now covers content, with two gaps
+### Access control covers content
 
-Since 2026-09-03 one rule in `LibraryService` decides library visibility, and a
+Since 2026-09-03 one rule in `LibraryService` decides library visibility. A
 `requireLibraryAccess` middleware applies it to every entity-addressed route on the collections,
-media, images and stream routers, plus search. What remains: persons and user-collection listings
-can still name titles from restricted libraries, and the same 24-hour login JWT is embedded in
-every image and stream URL as a query parameter. See [Auth](auth-and-users.md).
+media, images and stream routers; search, person filmographies and user-collection items apply
+it as a query scope. What remains: the same 24-hour login JWT is embedded in every image and
+stream URL as a query parameter. See [Auth](auth-and-users.md).
 
 ### Secrets were in history
 
@@ -250,8 +250,8 @@ Drawn from the Opportunities sections after the first nine items landed.
    ([Libraries](libraries-and-scanning.md)).
 3. ~~**Release tagging and image publishing**~~ Done 2026-09-03: `v1.0.0` tag, changelog,
    GHCR publish job ([Deployment](deployment.md)).
-4. **Remaining access gaps** (S): person filmographies and public user collections still
-   name titles from restricted libraries. ([Auth](auth-and-users.md))
+4. ~~**Remaining access gaps**~~ Done 2026-09-03: filmographies and user-collection items
+   scoped to accessible libraries ([Auth](auth-and-users.md)).
 5. **Slim the package and image** (M): production-only `node_modules`, OpenAPI generated at
    build time. ([Deployment](deployment.md))
 

@@ -167,7 +167,13 @@ export class PersonService {
   /**
    * Get a person by ID with their filmography
    */
-  async getPersonById(id: string): Promise<PersonWithFilmography | null> {
+  /**
+   * A person with their filmography. When `accessibleLibraryIds` is given,
+   * credits on titles outside those libraries are omitted so a viewer never
+   * learns what a restricted library holds.
+   */
+  async getPersonById(id: string, accessibleLibraryIds?: string[]): Promise<PersonWithFilmography | null> {
+    const libraryScope = accessibleLibraryIds ? { libraryId: { in: accessibleLibraryIds } } : {};
     const person = await prisma.person.findUnique({
       where: { id },
       include: {
@@ -187,7 +193,7 @@ export class PersonService {
 
     // Get show credits (ShowCredit -> ShowDetails -> Collection with collectionType='Show')
     const showCredits = await prisma.showCredit.findMany({
-      where: { personId: id },
+      where: { personId: id, showDetails: { collection: libraryScope } },
       include: {
         showDetails: {
           include: {
@@ -207,7 +213,7 @@ export class PersonService {
 
     // Get film credits (FilmCredit -> FilmDetails -> Collection with collectionType='Film')
     const filmCredits = await prisma.filmCredit.findMany({
-      where: { personId: id },
+      where: { personId: id, filmDetails: { collection: libraryScope } },
       include: {
         filmDetails: {
           include: {
@@ -231,7 +237,10 @@ export class PersonService {
 
     // Get video credits (Credit -> VideoDetails -> Media) for episodes
     const videoCredits = await prisma.credit.findMany({
-      where: { personId: id },
+      where: {
+        personId: id,
+        ...(accessibleLibraryIds ? { videoDetails: { media: { collection: libraryScope } } } : {}),
+      },
       include: {
         videoDetails: {
           include: {

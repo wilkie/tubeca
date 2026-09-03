@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, requireRole } from '../middleware/auth';
+import { resolveAccessibleLibraryIds } from '../middleware/libraryAccess';
 import { PersonService } from '../services/personService';
 import { scraperManager } from '../plugins/scraperLoader';
 import { ImageService } from '../services/imageService';
@@ -91,7 +92,8 @@ router.get('/search', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    let person = await personService.getPersonById(req.params.id);
+    const accessibleLibraryIds = await resolveAccessibleLibraryIds(req.user);
+    let person = await personService.getPersonById(req.params.id, accessibleLibraryIds);
     if (!person) {
       return res.status(404).json({ error: 'Person not found' });
     }
@@ -153,7 +155,7 @@ router.get('/:id', async (req, res) => {
         }
 
         // Refresh person data after update
-        person = await personService.getPersonById(req.params.id);
+        person = await personService.getPersonById(req.params.id, accessibleLibraryIds);
         if (!person) {
           return res.status(404).json({ error: 'Person not found' });
         }
@@ -200,7 +202,7 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/:id/refresh', requireRole('Editor'), async (req, res) => {
   try {
-    const person = await personService.getPersonById(req.params.id);
+    const person = await personService.getPersonById(req.params.id, await resolveAccessibleLibraryIds(req.user));
     if (!person) {
       return res.status(404).json({ error: 'Person not found' });
     }

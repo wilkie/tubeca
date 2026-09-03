@@ -21,6 +21,19 @@ export type LibraryResolution =
 
 export type LibraryResolver = (req: Request) => Promise<LibraryResolution>;
 
+/**
+ * Library ids the caller may see, or `undefined` for admins (no restriction).
+ * For list endpoints that embed content from many libraries (person
+ * filmographies, user collections), where a per-entity middleware cannot apply.
+ */
+export async function resolveAccessibleLibraryIds(
+  user: { userId: string; role: string } | undefined
+): Promise<string[] | undefined> {
+  if (!user) return [];
+  if (user.role === 'Admin') return undefined;
+  return (await libraryService.getAccessibleLibraries(user.userId, false)).map((l) => l.id);
+}
+
 const missing: LibraryResolution = { kind: 'missing' };
 const unscoped: LibraryResolution = { kind: 'unscoped' };
 const orphan: LibraryResolution = { kind: 'orphan' };

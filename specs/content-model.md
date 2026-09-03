@@ -308,9 +308,9 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 
 ## Known Limitations
 
-- **Persons are not library-scoped.** `persons.ts` only requires authentication, so a person's
-  filmography can list titles from libraries the viewer cannot open. Collections and media routes
-  are guarded by `requireLibraryAccess` since 2026-09-03.
+- **Person rows themselves are visible to everyone** (name, biography, photo); only the
+  filmography is scoped to the viewer's libraries. A person credited solely in restricted
+  libraries still resolves at `/api/persons/:id`, with an empty filmography.
 - **Sort by releaseDate/rating/runtime is per-page only.** SQL orders by `createdAt`, then the
   50-item page is sorted in memory (`collectionService.ts:242-277`), so infinite scroll shows
   each page internally sorted but globally unordered.
@@ -350,8 +350,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 
 ## Opportunities
 
-- **Filter person filmographies by accessible library** (S): apply the same `where` the search
-  route uses when loading credits for `GET /persons/:id`.
 - **Push relation sorts into SQL**: either denormalise `releaseDate`/`rating`/`runtime` onto
   `Collection` (updated by the scrape workers) or use `orderBy: { filmDetails: { releaseDate } }`
   with nulls-last, so pagination is globally ordered. (M)

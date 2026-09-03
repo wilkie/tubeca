@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { authenticate } from '../middleware/auth';
-import { UserCollectionService } from '../services/userCollectionService';
+import { resolveAccessibleLibraryIds } from '../middleware/libraryAccess';
+import { UserCollectionService, filterItemsByLibraryAccess } from '../services/userCollectionService';
 
 const router = Router();
 const userCollectionService = new UserCollectionService();
@@ -93,7 +94,10 @@ router.get('/public', async (req: Request, res) => {
  */
 router.get('/favorites', async (req: Request, res) => {
   try {
-    const userCollection = await userCollectionService.getFavoritesCollection(req.user!.userId);
+    const userCollection = filterItemsByLibraryAccess(
+      await userCollectionService.getFavoritesCollection(req.user!.userId),
+      await resolveAccessibleLibraryIds(req.user)
+    );
     res.json({ userCollection });
   } catch {
     res.status(500).json({ error: 'Failed to fetch favorites' });
@@ -248,7 +252,10 @@ router.post('/favorites/toggle', async (req: Request, res) => {
  */
 router.get('/watch-later', async (req: Request, res) => {
   try {
-    const userCollection = await userCollectionService.getWatchLaterCollection(req.user!.userId);
+    const userCollection = filterItemsByLibraryAccess(
+      await userCollectionService.getWatchLaterCollection(req.user!.userId),
+      await resolveAccessibleLibraryIds(req.user)
+    );
     res.json({ userCollection });
   } catch {
     res.status(500).json({ error: 'Failed to fetch watch later' });
@@ -387,7 +394,10 @@ router.post('/watch-later/toggle', async (req: Request, res) => {
  */
 router.get('/queue', async (req: Request, res) => {
   try {
-    const userCollection = await userCollectionService.getPlaybackQueue(req.user!.userId);
+    const userCollection = filterItemsByLibraryAccess(
+      await userCollectionService.getPlaybackQueue(req.user!.userId),
+      await resolveAccessibleLibraryIds(req.user)
+    );
     res.json({ userCollection });
   } catch {
     res.status(500).json({ error: 'Failed to fetch playback queue' });
@@ -563,13 +573,14 @@ router.delete('/queue', async (req: Request, res) => {
  */
 router.get('/:id', async (req: Request, res) => {
   try {
-    const userCollection = await userCollectionService.getCollectionById(
+    const found = await userCollectionService.getCollectionById(
       req.params.id,
       req.user!.userId
     );
-    if (!userCollection) {
+    if (!found) {
       return res.status(404).json({ error: 'Collection not found' });
     }
+    const userCollection = filterItemsByLibraryAccess(found, await resolveAccessibleLibraryIds(req.user));
     res.json({ userCollection });
   } catch {
     res.status(500).json({ error: 'Failed to fetch collection' });

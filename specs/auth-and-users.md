@@ -153,8 +153,13 @@ One rule, in `LibraryService.getAccessibleLibraries` / `canUserAccessLibrary`
   `collectionId`/`mediaId`/`libraryId` in a JSON body (used by `POST /collections` and
   `POST /images/download`). Denials are 404s. Admins skip the lookup entirely.
 
-Still outside the rule: `/api/persons/*` (people are not library-scoped) and the user-collections
-endpoints, which can surface items from libraries the viewer cannot otherwise open.
+List endpoints that embed content from many libraries use the same rule as a query scope
+instead of the middleware: `resolveAccessibleLibraryIds(req.user)` (in `libraryAccess.ts`)
+returns the caller's library ids (or `undefined` for admins), `PersonService.getPersonById`
+applies it as a `where` on show, film and episode credits, and the user-collection detail,
+favorites, watch-later and queue routes pass their result through
+`filterItemsByLibraryAccess`, which drops items whose collection or media sits in another
+library (and orphaned media) and corrects `_count.items`. Nested user-collection items are kept.
 
 ### Frontend role gating
 
@@ -187,13 +192,14 @@ API calls return 403.
 - 2026-09-03 Stop-the-bleeding batch: `resolveJwtSecret()` refuses placeholder/missing secrets in production (with tests); legacy unauthenticated handlers removed from `index.ts`; `PATCH /api/settings` added to the router behind `requireRole('Admin')`.
 - 2026-09-03 Middleware tests (`middleware/__tests__/auth.test.ts`), `libraryService` group-access tests and `/api/libraries` route tests added.
 - 2026-09-03 `requireLibraryAccess` middleware added and applied to collections, media, images and stream routes; search now uses `LibraryService` for its scope.
+- 2026-09-03 Person filmographies and user-collection items scoped to accessible libraries (`resolveAccessibleLibraryIds`, `filterItemsByLibraryAccess`).
 
 ## Known Limitations
 
 - Outside production a missing `JWT_SECRET` still falls back to a public constant; a `NODE_ENV` left at `development` on a real deployment would sign forgeable tokens.
 - Tokens are bearer secrets placed in URLs (`?token=`), so they end up in server logs, browser history, referrer headers and any shared link. The same 24h token is used for both API and media URLs; there is no short-lived, scoped media token.
 - No revocation: role changes, password changes and user deletion do not invalidate existing tokens (`authenticate` never hits the DB). No refresh, so users are logged out every 24h regardless of activity.
-- Group access is not applied to `/api/persons/*` or to user-collection items, so a public user collection or a person's filmography can still name titles from a restricted library. Each access check costs one or two extra queries per request; the user's group ids are not cached.
+- Each access check costs one or two extra queries per request; the user's group ids are not cached, and list endpoints resolve the accessible-library list once per request on top of that. `GET /api/user-collections/public` still exposes public collections' item counts (not titles).
 - No rate limiting, lockout, or password requirements on `/api/auth/login` or `/api/auth/setup`; `cors()` is wide open (`index.ts:36`).
 - Setup race: `createInitialAdmin` does count-then-create without a transaction or unique constraint on "first admin".
 - Admin can demote or delete the last Admin (only self-delete is blocked), and can lock themselves out by demoting themselves.
@@ -205,7 +211,6 @@ API calls return 403.
 
 ## Opportunities
 
-- **Filter user-collection items and person filmographies by library access** (M): the middleware only guards entity-addressed routes; list endpoints that embed other entities need the same rule applied as a `where` clause.
 - **Cache group ids per request** (S): `canUserAccessLibrary` re-reads the user's groups on every call; attach them to `req.user` once in `authenticate` or memoise per request.
 - **Short-lived, media-scoped tokens for query-string URLs** (M): sign a separate `{ userId, scope: 'media' }` token with a short TTL from a dedicated endpoint, so leaked URLs cannot drive the admin API; would also let the 24h API token move to an `httpOnly` cookie.
 - **Token freshness / revocation** (M): add `tokenVersion` (or `updatedAt` check) on `User` and verify it in `authenticate`; bumps on password/role change and deletion. Requires one DB read per request, or a small in-memory cache.

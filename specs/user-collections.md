@@ -229,14 +229,16 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 - `62dafea` 2025-12-13 — `SortableMediaListItem` extracted and shared; Playlist view with DnD and per-row play in `UserCollectionPage`; "Play" sets the queue from a playlist; previous-track navigation.
 - `5e379a5` 2025-12-13 — `SelectionActionBar`; multi-select on LibraryPage; landscape images in list rows.
 - `78d94c1` 2025-12-14 — Multi-select and Select All on SearchPage.
+- 2026-09-03 Items outside the viewer's accessible libraries are dropped from collection detail, favorites, watch-later and queue responses.
 
 ## Known Limitations
 
 - **Sharing is read-only visibility, not collaboration.** `isPublic` lets any authenticated user
   view a collection and favorite it; there is no per-user/group sharing, no collaborative editing,
-  and no "copy to my collections". Public collections are also not filtered by library access:
-  `getCollectionById` returns item names and image ids regardless of which libraries the viewer
-  can see.
+  and no "copy to my collections". Items in libraries the viewer cannot access are filtered out
+  of every item-returning response (`filterItemsByLibraryAccess`), so a public collection can
+  look shorter to one viewer than to its owner; the public listing's `_count.items` is the
+  owner's count.
 - **The queue is not consumed on playback**, and Watch Later is a manual list; neither reacts
   to the `WatchProgress` rows that playback now writes (see [Playback](playback.md)).
 - **Set vs Playlist is UI-only.** The backend never reads `collectionType`; a `Set` still has
