@@ -188,12 +188,13 @@ the home page has a Continue Watching strip. Episode lists, cards and the media 
 show progress or watched badges, and there is no mark-watched control. See
 [Playback](playback.md).
 
-### Music is declared but unimplemented
+### Music is hidden
 
-`LibraryType.Music`, Artist/Album collections and the audio detail tables exist and are
-scanned, but no scraper populates them, no tags are read from files, and the audio playback
-path double-plays through two elements. See [Libraries](libraries-and-scanning.md),
-[Playback](playback.md).
+Decided 2026-09-03: `LibraryType.Music`, Artist/Album collections and the audio detail tables
+stay in the schema, but the library picker no longer offers Music, the API refuses to create
+new Music libraries, and scans no longer queue the stub Artist/Album/Audio scrapes. Existing
+Music libraries still render and play (with the double-play bug). Reviving it means tag
+reading, a music scraper and an audio player; see [Libraries](libraries-and-scanning.md).
 
 ### Deployment is now one port, one binary
 
@@ -237,7 +238,8 @@ Ordered by leverage. Each item's details are in the linked spec.
    `TUBECA_ROLE` api/worker split, SPA served by the API, Docker image, compose file and CI
    workflow. Release tagging and image publishing are the follow-ups
    ([Deployment](deployment.md)).
-9. **Decide on Music** (S to hide, L to implement). ([Libraries](libraries-and-scanning.md))
+9. ~~**Decide on Music**~~ Hidden 2026-09-03; schema kept for a future implementation
+   ([Libraries](libraries-and-scanning.md)).
 
 ## Conventions for Maintaining These Specs
 

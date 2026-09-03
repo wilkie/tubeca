@@ -71,10 +71,10 @@ describe('buildCollectionHints', () => {
 });
 
 describe('shouldScrapeMedia', () => {
-  it('skips media scrapes for Film libraries only', () => {
+  it('scrapes media only for Television libraries', () => {
     expect(shouldScrapeMedia('Film')).toBe(false);
     expect(shouldScrapeMedia('Television')).toBe(true);
-    expect(shouldScrapeMedia('Music')).toBe(true);
+    expect(shouldScrapeMedia('Music')).toBe(false);
   });
 });
 
@@ -146,12 +146,14 @@ describe('ImportService', () => {
     ]);
   });
 
-  it('queues collection scrapes parents first and skips Generic', async () => {
+  it('queues collection scrapes parents first and skips Generic, Artist and Album', async () => {
     await service.queueCollectionScrapes([
       buildCollectionHints('s1', 'Season 1', 'Season', 'show'),
       buildCollectionHints('x', 'Extras', 'Generic', 'show'),
       buildCollectionHints('show', 'Betty', 'Show', null),
       buildCollectionHints('f', 'Dune (2021)', 'Film', null),
+      buildCollectionHints('artist', 'Radiohead', 'Artist', null),
+      buildCollectionHints('album', 'OK Computer', 'Album', 'artist'),
     ]);
     const jobs = (queueCollectionScrapes.mock.calls[0] as unknown[])[0] as Array<{ collectionId: string; parentShowId?: string; year?: number }>;
     expect(jobs.map((j) => j.collectionId)).toEqual(['show', 's1', 'f']);

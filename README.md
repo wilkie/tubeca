@@ -1,10 +1,10 @@
 # Tubeca
 
-A self-hosted media streaming platform for managing and streaming personal media libraries (TV shows, films, music).
+A self-hosted media streaming platform for managing and streaming personal media libraries (TV shows and films).
 
 ## Features
 
-- **Multi-library support** - Organize media into separate libraries by type (Television, Film, Music)
+- **Multi-library support** - Organize media into separate libraries by type (Television, Film)
 - **Automatic metadata scraping** - Fetches metadata from TMDB and TVDB
 - **Video streaming** - HLS streaming with on-the-fly transcoding via FFmpeg
 - **Trickplay previews** - Video thumbnail previews on seek bar hover
@@ -205,11 +205,14 @@ npx prisma migrate reset --force
 
 ## Library Types
 
-Tubeca supports three types of media libraries:
+Tubeca supports two types of media libraries:
 
 - **Television** - TV shows organized by Show → Season → Episode
 - **Film** - Movies with optional special features
-- **Music** - Artists and albums (audio files)
+
+A `Music` type (Artists → Albums → tracks) exists in the schema but is hidden from the
+library picker: there is no music metadata scraper or audio player yet. See
+`specs/libraries-and-scanning.md` for the decision and what implementing it would take.
 
 ## Available Scripts
 

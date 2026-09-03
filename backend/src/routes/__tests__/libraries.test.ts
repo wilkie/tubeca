@@ -67,13 +67,15 @@ describe('POST /api/libraries', () => {
     expect(res.status).toBe(403);
   });
 
-  it('rejects an unknown library type', async () => {
+  it('rejects unknown and hidden library types', async () => {
     const { authHeader } = await createUser({ role: 'Admin' });
-    const res = await request(app)
-      .post('/api/libraries')
-      .set('Authorization', authHeader)
-      .send({ name: 'X', path: '/tmp', libraryType: 'Podcast' });
-    expect(res.status).toBe(400);
+    for (const libraryType of ['Podcast', 'Music']) {
+      const res = await request(app)
+        .post('/api/libraries')
+        .set('Authorization', authHeader)
+        .send({ name: 'X', path: '/tmp', libraryType });
+      expect(res.status).toBe(400);
+    }
   });
 
   it('creates a library for an Admin', async () => {

@@ -1,6 +1,6 @@
 # Libraries, Scanning & File Import
 
-> A Library is an admin-configured root folder on disk typed as Television, Film or Music, optionally restricted to user groups. This part owns the Library CRUD API and admin UI, the BullMQ scan job that walks a library folder and turns directories into `Collection` rows and media files into `Media` rows (probing each file with ffprobe), the chokidar file watcher that does the same incrementally, and the filename/folder-name parsers that produce the hints (show name, season/episode, title, year) handed to the scrape queues. It exists so that a user's on-disk folder layout becomes the browsable content tree without any manual data entry.
+> A Library is an admin-configured root folder on disk typed as Television or Film (a Music type exists in the schema but is hidden, see below), optionally restricted to user groups. This part owns the Library CRUD API and admin UI, the BullMQ scan job that walks a library folder and turns directories into `Collection` rows and media files into `Media` rows (probing each file with ffprobe), the chokidar file watcher that does the same incrementally, and the filename/folder-name parsers that produce the hints (show name, season/episode, title, year) handed to the scrape queues. It exists so that a user's on-disk folder layout becomes the browsable content tree without any manual data entry.
 
 ## Responsibilities
 
@@ -82,7 +82,7 @@ For each file whose lower-cased extension is in the library's list:
 - A sibling `<basename>.trickplay` directory is stored as `Media.thumbnails` (consumed by [Streaming & Transcoding](streaming-and-transcoding.md)).
 - Existing files are counted in `filesProcessed` and otherwise untouched (no re-probe); in full-scan mode their hints are re-added to `mediaToScrape` so they get re-scraped. A renamed file is a new path: it is imported fresh and the old row is removed by reconciliation at the end of the scan.
 
-Music libraries go through exactly the same path (Artist/Album folders, Audio media, ffprobe streams), but the downstream `collectionScrapeWorker` logs "Artist/Album scraping not yet implemented" and `scrapeAudioMetadata` depends on a scraper exposing `searchAudio`, which neither bundled plugin does. So music imports produce a browsable tree with durations and no metadata.
+Music libraries (the type is hidden since 2026-09-03: `LibraryDialog` does not offer it and `POST /api/libraries` rejects it, but libraries created earlier still exist) go through the same walk (Artist/Album folders, Audio media, ffprobe streams). `ImportService` no longer queues Artist/Album collection scrapes or Audio media scrapes, since no bundled plugin implements them; music imports produce a browsable tree with durations and no metadata.
 
 ### Scrape hints and enqueueing
 
@@ -141,6 +141,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - `27c0663` 2026-09-02 — `parseTitleAndYear` (+ first parser tests) used by scrape workers and IdentifyDialog; frontend mirror in `utils/parseTitle.ts`.
 - 2026-09-03 `getCollectionType` and media extension lists extracted to `utils/libraryLayout.ts` (with tests) and used by both the scan worker and file watcher.
 - 2026-09-03 Import integrity: `ImportService`, `LibraryScanService` and `ContentDeletionService` extracted; scanner and watcher share one import path; `Media.path` unique with a dedupe migration; orphan reconciliation after each complete scan; library, collection and media deletes clean artwork files.
+- 2026-09-03 Music hidden: removed from the library picker and the create-route allow-list; scans stop queueing Artist/Album/Audio scrapes. Schema and existing libraries untouched.
 
 ## Known Limitations
 
@@ -153,7 +154,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Cancellation granularity is one directory**, and a cancelled scan still leaves everything created so far (no rollback); the job is marked failed with "Scan cancelled by user".
 - **Progress is approximate and non-monotonic.**
 - **Library `path` edits are not applied to a running watcher**, and changing `libraryType` does not re-type existing collections until the next scan.
-- **Music is import-only**: correct tree and durations, but no tag reading (ID3/Vorbis) and no scraper implementation.
+- **Music is hidden and import-only**: existing Music libraries get a correct tree and durations, but no tag reading (ID3/Vorbis), no scraper, and no audio player beyond the progressive route. Reviving the type means: read `format.tags` at import, a MusicBrainz-style scraper implementing `searchAudio`/`getAudioMetadata` and the Artist/Album branches of `collectionScrapeWorker`, an audio player path in `PlayerContext`, and re-adding `Music` to `LibraryDialog` and the create-route allow-list.
 - **Single global scan concurrency** means one huge library blocks scans of every other library.
 
 ## Opportunities

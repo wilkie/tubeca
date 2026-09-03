@@ -62,12 +62,17 @@ export interface ImportServiceDeps {
   deletion: ContentDeletionService
 }
 
-const SCRAPEABLE_TYPES: CollectionType[] = ['Show', 'Season', 'Film', 'Artist', 'Album'];
-const SCRAPE_ORDER: CollectionType[] = ['Show', 'Season', 'Film', 'Artist', 'Album'];
+// Artist and Album are deliberately absent: there is no music scraper, so queueing them only
+// produced "not yet implemented" jobs (see specs/metadata-scraping.md).
+const SCRAPEABLE_TYPES: CollectionType[] = ['Show', 'Season', 'Film'];
+const SCRAPE_ORDER: CollectionType[] = ['Show', 'Season', 'Film'];
 
-/** Film metadata is attached to the Film collection, not the media file, so film media is not scraped. */
+/**
+ * Film metadata is attached to the Film collection, not the media file, so film media is not
+ * scraped; Music has no audio scraper, so its media is not scraped either.
+ */
 export function shouldScrapeMedia(libraryType: LibraryType): boolean {
-  return libraryType !== 'Film';
+  return libraryType === 'Television';
 }
 
 /**

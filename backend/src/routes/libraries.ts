@@ -160,8 +160,10 @@ router.post('/', requireRole('Admin'), async (req, res) => {
       return res.status(400).json({ error: 'Name, path, and libraryType are required' });
     }
 
-    if (!['Television', 'Film', 'Music'].includes(libraryType)) {
-      return res.status(400).json({ error: 'Invalid libraryType. Must be Television, Film, or Music' });
+    if (!['Television', 'Film'].includes(libraryType)) {
+      // Music exists in the schema but has no scraper or audio player yet; refuse new ones
+      // so users are not handed an empty experience. Existing Music libraries keep working.
+      return res.status(400).json({ error: 'Invalid libraryType. Must be Television or Film' });
     }
 
     const library = await libraryService.createLibrary({

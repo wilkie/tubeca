@@ -1,6 +1,6 @@
 # Tubeca
 
-A self-hosted media streaming platform for managing and streaming personal media libraries (TV shows, films, music).
+A self-hosted media streaming platform for managing and streaming personal media libraries (TV shows and films; a Music type exists but is hidden).
 
 ## Project Structure
 
@@ -65,7 +65,7 @@ Import in backend: `import type { ... } from '@tubeca/shared-types'`
 Prisma with SQLite. Key models:
 - `User` - Auth users with roles (Admin, Editor, Viewer)
 - `Group` - User groups for library access control
-- `Library` - Media libraries (Television, Film, Music)
+- `Library` - Media libraries (Television, Film; Music is defined but hidden from the UI)
 - `Collection` - Hierarchical content (Shows, Seasons, Films, Artists, Albums)
 - `Media` - Individual media files (Video, Audio)
 - `Image` - Associated artwork (Poster, Backdrop, Logo, etc.)

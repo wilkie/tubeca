@@ -34,7 +34,9 @@ interface LibraryDialogProps {
   onSave: () => void;
 }
 
-const LIBRARY_TYPES: LibraryType[] = ['Television', 'Film', 'Music'];
+// Music is hidden from the picker: the type exists in the schema and existing music libraries
+// still render, but scraping and playback for audio are not implemented (specs/libraries-and-scanning.md).
+const LIBRARY_TYPES: LibraryType[] = ['Television', 'Film'];
 
 export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogProps) {
   const { t } = useTranslation();
