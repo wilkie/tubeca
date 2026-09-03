@@ -1,8 +1,6 @@
 import { prisma } from '../config/database';
 import { Media, MediaType } from '@prisma/client';
 import { Video, Audio, CreateVideoInput, CreateAudioInput, isVideo, isAudio } from '../types/media';
-import { addTranscodeJob, addThumbnailJob, addAnalyzeJob } from '../queues/videoQueue';
-import type { TranscodeJobData, ThumbnailJobData, AnalyzeJobData } from '../queues/videoQueue';
 import { contentDeletionService } from './contentDeletionService';
 
 export class MediaService {
@@ -173,41 +171,5 @@ export class MediaService {
     }
 
     return 'Unknown media type';
-  }
-
-  // Queue a transcode job for a video
-  async queueTranscode(data: TranscodeJobData) {
-    const media = await this.getMediaById(data.mediaId);
-    if (!media) {
-      throw new Error('Media not found');
-    }
-    if (!isVideo(media)) {
-      throw new Error('Media is not a video');
-    }
-    return await addTranscodeJob(data);
-  }
-
-  // Queue a thumbnail generation job
-  async queueThumbnail(data: ThumbnailJobData) {
-    const media = await this.getMediaById(data.mediaId);
-    if (!media) {
-      throw new Error('Media not found');
-    }
-    if (!isVideo(media)) {
-      throw new Error('Media is not a video');
-    }
-    return await addThumbnailJob(data);
-  }
-
-  // Queue a video analysis job
-  async queueAnalyze(data: AnalyzeJobData) {
-    const media = await this.getMediaById(data.mediaId);
-    if (!media) {
-      throw new Error('Media not found');
-    }
-    if (!isVideo(media)) {
-      throw new Error('Media is not a video');
-    }
-    return await addAnalyzeJob(data);
   }
 }

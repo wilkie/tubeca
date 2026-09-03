@@ -1,0 +1,49 @@
+# Single-host deployment: one API process serving the SPA, one worker process
+# for scanning/scraping/watching, and Redis for the job queues.
+#
+#   JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+#
+# Put your media under ./media (or change the bind mount) and, optionally, a
+# tubeca.config.json with scraper API keys under ./data.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  api:
+    build: .
+    image: tubeca:latest
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      TUBECA_ROLE: api
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (e.g. openssl rand -hex 32)}
+      REDIS_HOST: redis
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+      - ./media:/media:ro
+
+  worker:
+    image: tubeca:latest
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - api
+    environment:
+      TUBECA_ROLE: worker
+      TUBECA_MIGRATE: "0"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (e.g. openssl rand -hex 32)}
+      REDIS_HOST: redis
+      # Polling suits bind mounts and network shares; see specs/libraries-and-scanning.md
+      FILE_WATCHER_ENABLED: "true"
+    volumes:
+      - ./data:/data
+      - ./media:/media:ro
+
+volumes:
+  redis-data:

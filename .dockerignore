@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+backend/data
+backend/prisma/*.db*
+backend/.env
+tubeca.config.json
+.git
+.claude
+*.log

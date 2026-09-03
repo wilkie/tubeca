@@ -45,17 +45,17 @@ fi
 # Stop services
 log_info "Stopping services..."
 systemctl stop tubeca-backend.service 2>/dev/null || true
-systemctl stop tubeca-frontend.service 2>/dev/null || true
+systemctl stop tubeca-worker.service 2>/dev/null || true
 
 # Disable services
 log_info "Disabling services..."
 systemctl disable tubeca-backend.service 2>/dev/null || true
-systemctl disable tubeca-frontend.service 2>/dev/null || true
+systemctl disable tubeca-worker.service 2>/dev/null || true
 
 # Remove service files
 log_info "Removing service files..."
 rm -f /etc/systemd/system/tubeca-backend.service
-rm -f /etc/systemd/system/tubeca-frontend.service
+rm -f /etc/systemd/system/tubeca-worker.service
 
 # Reload systemd
 systemctl daemon-reload

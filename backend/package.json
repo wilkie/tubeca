@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "UV_THREADPOOL_SIZE=24 tsx watch src/index.ts",
-    "build": "prisma generate && tsc",
+    "build": "prisma generate && tsc --noEmit && node scripts/build.mjs",
     "start": "UV_THREADPOOL_SIZE=24 node dist/index.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -18,7 +18,9 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "docs:generate": "tsx src/swagger.ts && redocly build-docs openapi.json --output docs/api.html",
-    "docs:serve": "redocly preview-docs openapi.json"
+    "docs:serve": "redocly preview-docs openapi.json",
+    "start:worker": "TUBECA_ROLE=worker UV_THREADPOOL_SIZE=24 node dist/index.js",
+    "start:api": "TUBECA_ROLE=api UV_THREADPOOL_SIZE=24 node dist/index.js"
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
@@ -53,6 +55,7 @@
     "@types/swagger-ui-express": "^4.1.6",
     "@typescript-eslint/eslint-plugin": "^8.48.0",
     "@typescript-eslint/parser": "^8.48.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.1",
     "globals": "^16.5.0",
     "jest": "^30.2.0",

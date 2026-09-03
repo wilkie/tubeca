@@ -34,7 +34,7 @@ sudo pacman -U tubeca-*.pkg.tar.zst
 sudo systemctl enable --now redis
 
 # Enable and start Tubeca
-sudo systemctl enable --now tubeca-backend tubeca-frontend
+sudo systemctl enable --now tubeca-backend tubeca-worker
 ```
 
 ### Configuration
@@ -59,23 +59,26 @@ Key settings:
 
 ### Access the Application
 
-- **Frontend**: http://localhost:8080
-- **Backend API**: http://localhost:3000
+- **Web UI and API**: http://localhost:3000 (the API process serves the built frontend)
 - **API Documentation**: http://localhost:3000/api-docs
+
+Two services run: `tubeca-backend` (HTTP API + web UI) and `tubeca-worker` (library scans,
+metadata scraping, file watching). Both run the same `dist/index.js` with a different
+`TUBECA_ROLE`; a single process can do everything with `TUBECA_ROLE=all`.
 
 ### Service Management
 
 ```bash
 # Check status
 sudo systemctl status tubeca-backend
-sudo systemctl status tubeca-frontend
+sudo systemctl status tubeca-worker
 
 # View logs
 sudo journalctl -u tubeca-backend -f
-sudo journalctl -u tubeca-frontend -f
+sudo journalctl -u tubeca-worker -f
 
 # Restart after configuration changes
-sudo systemctl restart tubeca-backend tubeca-frontend
+sudo systemctl restart tubeca-backend tubeca-worker
 ```
 
 ### Updating
@@ -138,21 +141,31 @@ See [systemd/README.md](systemd/README.md) for detailed manual installation inst
 
 ## Production Deployment with nginx
 
-For production deployments, it's recommended to use nginx as a reverse proxy to:
+The API process already serves the web UI, so nginx is optional. Use it to:
 - Serve on standard HTTP (80) / HTTPS (443) ports
 - Handle SSL/TLS termination
-- Efficiently serve static frontend files
-- Provide caching and compression
+- Add compression and edge caching
 
 An example nginx configuration is provided at:
 - Arch: `/usr/share/doc/tubeca/nginx.conf.example`
 - Other: `systemd/nginx.conf.example`
 
-When using nginx, disable the frontend service:
+The example proxies everything to port 3000; the backend keeps serving the static files.
+
+---
+
+## Docker
+
+A multi-stage `Dockerfile` and a `docker-compose.yml` (API, worker and Redis) are in the
+repository root:
 
 ```bash
-sudo systemctl disable --now tubeca-frontend
+mkdir -p data media            # SQLite DB + optional tubeca.config.json; your media
+JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
 ```
+
+The UI and API are on http://localhost:3000. Media is bind-mounted read-only at `/media`
+inside the containers, so library paths start with `/media/...`. Migrations run on start.
 
 ---
 

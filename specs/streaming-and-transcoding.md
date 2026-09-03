@@ -6,8 +6,8 @@
 > run the first time it is requested (or prefetched), then cached on disk. Around that core sit a
 > legacy progressive `/video/:id` endpoint, subtitle extraction to WebVTT, serving of pre-existing
 > trickplay sprite sheets, ffprobe-based stream discovery at scan time, hardware-encoder detection,
-> an admin-editable `TranscodingSettings` singleton, and a TTL cache sweeper. A BullMQ
-> `video-processing` queue exists but its three job types are stubs.
+> an admin-editable `TranscodingSettings` singleton, and a TTL/size cache sweeper. (A stub
+> `video-processing` queue existed until 2026-09-03; it was deleted.)
 
 ## Responsibilities
 
@@ -66,7 +66,6 @@
 | `backend/src/utils/hwaccel.ts` | `detectBestEncoder()` (runs `ffmpeg -encoders` then a 1-frame `lavfi` test encode per candidate) and `getEncoderArgs()` (per-encoder rate-control/profile args plus the scale+pad filter). |
 | `backend/src/utils/ffprobe.ts` | `probeMediaFile()` -> `{ duration, streams[] }` from `ffprobe -print_format json -show_format -show_streams`; `getMediaDuration()` legacy helper. |
 | `backend/src/workers/libraryScanWorker.ts`, `backend/src/services/fileWatcherService.ts` | Callers of `probeMediaFile`; write `Media.duration`, `Media.thumbnails` and `MediaStream` rows. |
-| `backend/src/queues/videoQueue.ts`, `backend/src/workers/videoWorker.ts` | BullMQ `video-processing` queue with `transcode`/`thumbnail`/`analyze` job types; all three handlers are `TODO` placeholders that sleep and bump progress. |
 | `backend/src/config/appConfig.ts` | `hlsCache` block of `tubeca.config.json`: `path`, `maxSizeGB`, `segmentTTLHours`, `segmentDuration`; creates the cache directory. |
 | `backend/src/index.ts` | Mounts `/api/stream`, starts/stops the cleanup service and video worker. |
 | `backend/prisma/schema.prisma` | `Media.duration`, `Media.thumbnails`, `MediaStream`, `TranscodingSettings`. |
@@ -246,20 +245,7 @@ manifest read.
 
 ### The video worker
 
-`videoQueue.ts` defines `TranscodeJobData { mediaId, inputPath, outputPath, resolution?, format? }`,
-`ThumbnailJobData { mediaId, videoPath, thumbnailPath, timestamp? }` and `AnalyzeJobData { mediaId,
-filePath }`, with priorities thumbnail(1) < transcode(2) < analyze(3), 3 attempts with exponential
-backoff, and retention of 1000/24 h completed and 7 d failed jobs. `videoWorker.ts` runs at
-concurrency 2 with a 10/s limiter. All three handlers are placeholders from the initial commit: they
-`console.log` their inputs, `setTimeout` for 1-4 s while stepping `job.updateProgress`, and
-`prisma.media.update` with only `updatedAt`; `processAnalyze` writes a hardcoded `duration: 120`
-into the real `Media` row, which would corrupt playlists if any producer ever enqueued an
-`analyze` job. The intended designs are legible from the data shapes: `transcode` was to
-pre-encode a file to a target resolution/container on disk (superseded by on-demand HLS),
-`thumbnail` was to grab a poster frame at `timestamp` (superseded by scraped images and external
-trickplay), and `analyze` was to do what `probeMediaFile` now does inline at scan time. Nothing
-enqueues these jobs any more: the unauthenticated `POST /api/jobs/*` routes that used to were
-removed on 2026-09-03, so the worker is now unreachable dead code.
+The `video-processing` queue and `videoWorker.ts` (three placeholder jobs: `transcode`, `thumbnail`, `analyze`, the last of which overwrote `Media.duration` with a constant) were deleted on 2026-09-03 along with the `MediaService.queue*` helpers; nothing had enqueued to them since the legacy `/api/jobs/*` routes were removed. Trickplay sprites therefore still come only from pre-existing `.trickplay` folders.
 
 ### Frontend protocol summary (see playback.md)
 
@@ -358,8 +344,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Trickplay is external only**; the `thumbnail` job that might have generated sprites is a stub,
   and the reported interval is hardcoded.
 - **Blocking boot**: encoder detection uses `execSync` with up to ~55 s of worst-case timeouts.
-- **The `video-processing` worker is dead code** with a harmful `analyze` stub (overwrites
-  `Media.duration` with 120); nothing enqueues to it since the job endpoints were removed.
 - **Tests cover playlists, direct-play eligibility, segment de-duplication, timeout and shutdown
   (against a fake `child_process`), and the cache helpers**; FFmpeg argument construction, the
   semaphore, probing and most stream routes are untested.

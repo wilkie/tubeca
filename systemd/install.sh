@@ -135,7 +135,7 @@ chmod 600 "$INSTALL_DIR/backend/.env"
 # Install systemd service files
 log_info "Installing systemd service files..."
 cp "$SCRIPT_DIR/tubeca-backend.service" /etc/systemd/system/
-cp "$SCRIPT_DIR/tubeca-frontend.service" /etc/systemd/system/
+cp "$SCRIPT_DIR/tubeca-worker.service" /etc/systemd/system/
 
 # Reload systemd
 systemctl daemon-reload
@@ -143,7 +143,7 @@ systemctl daemon-reload
 # Enable services
 log_info "Enabling services..."
 systemctl enable tubeca-backend.service
-systemctl enable tubeca-frontend.service
+systemctl enable tubeca-worker.service
 
 log_info ""
 log_info "Installation complete!"
@@ -157,18 +157,17 @@ log_info "     sudo nano $INSTALL_DIR/backend/.env"
 log_info ""
 log_info "  3. Start the services:"
 log_info "     sudo systemctl start tubeca-backend"
-log_info "     sudo systemctl start tubeca-frontend"
+log_info "     sudo systemctl start tubeca-worker"
 log_info ""
 log_info "  4. Check service status:"
 log_info "     sudo systemctl status tubeca-backend"
-log_info "     sudo systemctl status tubeca-frontend"
+log_info "     sudo systemctl status tubeca-worker"
 log_info ""
 log_info "  5. View logs:"
 log_info "     sudo journalctl -u tubeca-backend -f"
-log_info "     sudo journalctl -u tubeca-frontend -f"
+log_info "     sudo journalctl -u tubeca-worker -f"
 log_info ""
 log_info "Access the application:"
-log_info "  Backend API: http://localhost:3000"
-log_info "  Frontend:    http://localhost:8080"
+log_info "  http://localhost:3000  (web UI, API and /api-docs on one port)"
 log_info ""
 log_warn "For production, consider using nginx as a reverse proxy."

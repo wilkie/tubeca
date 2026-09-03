@@ -7,7 +7,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/wilkie/tubeca"
 license=('MIT')
 depends=(
-    'nodejs>=18'
+    'nodejs>=22'
     'npm'
     'redis'
     'ffmpeg'
@@ -56,16 +56,6 @@ ENVEOF
 
     # Install dependencies
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
-
-    # Install serve for frontend static file serving
-    cd frontend/ui
-    pnpm add serve
-    cd ../..
-
-    # Install tsx for backend ESM support in production
-    cd backend
-    pnpm add tsx
-    cd ..
 
     # Build all packages
     pnpm build
@@ -126,10 +116,10 @@ CONFIGEOF
     ln -sf /etc/tubeca/tubeca.env "${pkgdir}/opt/tubeca/backend/.env"
     ln -sf /etc/tubeca/tubeca.config.json "${pkgdir}/opt/tubeca/tubeca.config.json"
 
-    # Install systemd service files (modified for Arch)
+    # Install systemd service files (Arch layout: /etc/tubeca, /var/lib/tubeca)
     install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/tubeca-backend.service" << 'EOF'
 [Unit]
-Description=Tubeca Backend API Server
+Description=Tubeca API server (serves the web UI and the HTTP API)
 Documentation=https://github.com/wilkie/tubeca
 After=network.target redis.service
 Wants=redis.service
@@ -140,7 +130,7 @@ User=tubeca
 Group=tubeca
 WorkingDirectory=/opt/tubeca/backend
 EnvironmentFile=/etc/tubeca/tubeca.env
-ExecStart=/opt/tubeca/backend/node_modules/.bin/tsx dist/index.js
+ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -156,25 +146,29 @@ ReadWritePaths=/var/lib/tubeca
 
 # Environment
 Environment=NODE_ENV=production
+Environment=TUBECA_ROLE=api
+Environment=UV_THREADPOOL_SIZE=24
 Environment=TUBECA_CONFIG_PATH=/etc/tubeca/tubeca.config.json
+Environment=FRONTEND_DIST=/opt/tubeca/frontend/ui/dist
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/tubeca-frontend.service" << 'EOF'
+    install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/tubeca-worker.service" << 'EOF'
 [Unit]
-Description=Tubeca Frontend Web Server
+Description=Tubeca worker (library scans, metadata scraping, file watching)
 Documentation=https://github.com/wilkie/tubeca
-After=network.target tubeca-backend.service
-Wants=tubeca-backend.service
+After=network.target redis.service
+Wants=redis.service
 
 [Service]
 Type=simple
 User=tubeca
 Group=tubeca
-WorkingDirectory=/opt/tubeca/frontend/ui
-ExecStart=/opt/tubeca/frontend/ui/node_modules/.bin/serve -s dist -l 8080
+WorkingDirectory=/opt/tubeca/backend
+EnvironmentFile=/etc/tubeca/tubeca.env
+ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -185,9 +179,14 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=/opt/tubeca/backend/prisma
+ReadWritePaths=/var/lib/tubeca
 
 # Environment
 Environment=NODE_ENV=production
+Environment=TUBECA_ROLE=worker
+Environment=UV_THREADPOOL_SIZE=24
+Environment=TUBECA_CONFIG_PATH=/etc/tubeca/tubeca.config.json
 
 [Install]
 WantedBy=multi-user.target

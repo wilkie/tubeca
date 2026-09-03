@@ -4,8 +4,9 @@
 > from `backend/.env` by dotenv), a JSON application config file (`tubeca.config.json`, located via
 > `TUBECA_CONFIG_PATH` or the repo root), and two singleton Prisma tables (`Settings`,
 > `TranscodingSettings`) edited from the frontend Settings page. This part also covers the server
-> bootstrap in `backend/src/index.ts`: a single Node process that hosts the Express API, Swagger UI,
-> all four BullMQ workers, the file watcher and the HLS cache janitor, and tears them down on
+> bootstrap in `backend/src/index.ts`: one entry point that, depending on `TUBECA_ROLE`, hosts the
+> Express API, Swagger UI, the SPA and the HLS cache janitor (`api`), the three BullMQ workers
+> and the file watcher (`worker`), or both (`all`, the default), and tears down what it owns on
 > SIGINT/SIGTERM.
 
 ## Responsibilities
@@ -38,8 +39,9 @@
 - **Admin tunability at runtime.** Transcoding bitrates, presets, hardware acceleration and
   concurrency are DB rows editable in the UI and picked up within 30 s without a restart (b6003ef,
   0fc5947).
-- **Single-process simplicity.** One `node`/`tsx` process runs API and workers; there is no
-  separate worker deployment, no process manager beyond systemd.
+- **One binary, optional split.** The same `dist/index.js` runs as one process (`TUBECA_ROLE=all`)
+  for development and small installs, or as separate `api` and `worker` services in production;
+  there is no process manager beyond systemd or compose.
 - **Self-documenting API.** Every route carries an `@openapi` JSDoc block; the spec is served live
   and exportable.
 
@@ -151,9 +153,10 @@ which is hard-coded per worker (video 2, all others 1).
 
 ### Server bootstrap (`index.ts`)
 
-1. Module evaluation: importing `./workers/*` constructs four `new Worker(...)` instances
-   immediately (e.g. `videoWorker.ts:7`), so workers connect to Redis and start consuming before
-   `startServer()` runs and regardless of whether the HTTP server ever listens. Importing
+1. Module evaluation: the role is parsed first (`getRole()`, which throws on an unknown value).
+   Workers are no longer imported at module load; `startWorkers()` dynamically imports the three
+   worker modules and the file watcher only when the role includes `worker`, so an API process
+   never constructs a BullMQ `Worker`. Importing
    `routes/stream.ts` constructs an `HlsService`, whose constructor runs `ffmpeg -encoders` and a
    test encode per candidate hardware encoder synchronously via `execSync` (`hwaccel.ts:29,66`,
    10 s timeout each), blocking module evaluation.
@@ -199,9 +202,10 @@ the stream goes to the journal.
 
 `backend/package.json` is `"type": "module"` and `tsconfig.json` uses `module: ESNext` with
 extensionless relative imports (only `./config/swagger.js` carries an extension). `tsc` emits
-`dist/index.js` verbatim, which plain `node` cannot resolve under ESM; production therefore runs
-`tsx dist/index.js` (ae6a201) while `systemd/tubeca-backend.service` and the `start` script still
-say `node dist/index.js`. Prisma 7 requires a config file for the datasource URL; the CommonJS
+`dist/index.js` verbatim, which plain `node` cannot resolve under ESM; since 2026-09-03 the build
+therefore type-checks with `tsc --noEmit` and bundles with esbuild (`scripts/build.mjs`) into a
+single `dist/index.js` that `node` runs directly, and `tsx` is used only for `pnpm dev`. Prisma 7
+requires a config file for the datasource URL; the CommonJS
 `prisma.config.js` workaround (fdc9e93) was reverted to `prisma.config.ts` with a Node 22
 requirement (54e40a2; `.nvmrc` and `engines.node >=22` followed in c95eedf). Because
 `prisma.config.ts` calls `env("DATABASE_URL")`, every `prisma` CLI invocation needs a `.env`;
@@ -256,6 +260,7 @@ outputs are git-ignored.
 - `c95eedf` 2026-07-01 `PORT` passes through Turbo to the Vite proxy; `.nvmrc` 22; `engines.node >=22`.
 - `7052d0c` 2026-07-01 `UV_THREADPOOL_SIZE=24` in scripts; poll interval default 30 s and `binaryInterval`.
 - 2026-09-03 Legacy inline handlers removed from `index.ts`; `PATCH /api/settings` added to the router (Admin); `JWT_SECRET` validated at startup in production.
+- 2026-09-03 `TUBECA_ROLE` (`api`/`worker`/`all`) and `FRONTEND_DIST` env vars; workers loaded lazily by role; esbuild bundle replaces `tsx` at runtime.
 
 ## Known Limitations
 
@@ -273,8 +278,6 @@ outputs are git-ignored.
 - `console.*` logging with no levels; Prisma query logging floods development output.
 - `hlsCache.maxSizeGB` is documented in the type but never enforced.
 - `swagger.servers` and the `docs:generate` output are pinned to `localhost:3000`.
-- `start` script and `systemd/tubeca-backend.service` use `node dist/index.js`, which fails under
-  ESM; only the PKGBUILD path (`tsx`) works.
 - Transcoding tab strings use inline i18n fallbacks; `en.json` only defines the six General keys.
 - Tests: no backend tests for `appConfig`, settings routes, transcoding settings or bootstrap;
   `SettingsPage.test.tsx` covers only the General tab.
@@ -297,8 +300,6 @@ outputs are git-ignored.
   separate `worker.ts` entry so packaged installs can run them as a second unit. (M)
 - Adopt a structured logger (pino) with levels, and gate Prisma query logging behind its own flag.
   (M)
-- Fix the ESM build so `node dist/index.js` works (emit `.js` extensions or bundle with tsup/esbuild)
-  and drop the runtime `tsx` dependency; update `systemd/tubeca-backend.service` to match. (M)
 - Expose file-backed settings (scraper keys, watcher, paths) read-only in the Settings UI, and
   consider moving scraper keys to `SCRAPER_<ID>_API_KEY` env vars so all secrets live in `.env`. (M)
 - Either enforce `hlsCache.maxSizeGB` in `HlsCacheCleanupService` or remove it from the type. (S)

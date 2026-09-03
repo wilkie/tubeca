@@ -4,16 +4,14 @@ import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
 import { prisma } from './config/database';
 import { loadAppConfig, getScraperConfigs } from './config/appConfig';
-import { videoWorker } from './workers/videoWorker';
-import { libraryScanWorker } from './workers/libraryScanWorker';
-import { metadataScrapeWorker } from './workers/metadataScrapeWorker';
-import { collectionScrapeWorker } from './workers/collectionScrapeWorker';
 import { loadScrapers } from './plugins/scraperLoader';
 import { redisConnection } from './config/redis';
 import { swaggerSpec } from './config/swagger.js';
-import { fileWatcherService } from './services/fileWatcherService';
 import { hlsCacheCleanupService } from './services/hlsCacheCleanupService';
 import { shutdownHlsService } from './services/hlsService';
+import { getRole, runsApi, runsWorkers } from './runtime/role';
+import { mountFrontend, resolveFrontendDist } from './runtime/frontend';
+import type { Server } from 'http';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import groupRoutes from './routes/groups';
@@ -30,6 +28,7 @@ import watchRoutes from './routes/watch';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const role = getRole();
 
 app.use(cors());
 app.use(express.json());
@@ -105,39 +104,73 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// Initialize scrapers and start server
-async function startServer() {
-  // Load application configuration
-  const appConfig = loadAppConfig();
+interface Closable {
+  close(): Promise<unknown> | void
+}
 
-  // Initialize scraper plugins
-  const scraperConfigs = getScraperConfigs(appConfig);
-  await loadScrapers(scraperConfigs);
+/** Worker-role resources, populated only when this process runs workers. */
+const workerHandles: Closable[] = [];
+let fileWatcher: Closable | null = null;
 
-  // Start file watcher service (optional - can be controlled via config or env var)
+/**
+ * Load the BullMQ workers and the file watcher. Imported lazily so an
+ * API-only process never opens worker connections or starts chokidar.
+ */
+async function startWorkers(appConfig: ReturnType<typeof loadAppConfig>): Promise<void> {
+  const [scan, metadata, collection, watcher] = await Promise.all([
+    import('./workers/libraryScanWorker'),
+    import('./workers/metadataScrapeWorker'),
+    import('./workers/collectionScrapeWorker'),
+    import('./services/fileWatcherService'),
+  ]);
+  workerHandles.push(scan.libraryScanWorker, metadata.metadataScrapeWorker, collection.collectionScrapeWorker);
+
   // Environment variable takes precedence over config file
   const watcherEnabled = process.env.FILE_WATCHER_ENABLED !== undefined
     ? process.env.FILE_WATCHER_ENABLED === 'true'
     : appConfig.fileWatcher?.enabled ?? false;
   if (watcherEnabled) {
-    await fileWatcherService.start({
+    await watcher.fileWatcherService.start({
       usePolling: appConfig.fileWatcher?.usePolling,
       pollInterval: appConfig.fileWatcher?.pollInterval,
     });
+    fileWatcher = { close: () => watcher.fileWatcherService.stop() };
+    console.log('📁 File watcher is enabled');
+  }
+}
+
+/** Bind the HTTP server, serving the SPA when its build output is present. */
+function startApi(): Server {
+  const distDir = resolveFrontendDist();
+  if (mountFrontend(app, distDir)) {
+    console.log(`🖥️  Serving frontend from ${distDir}`);
+  } else {
+    console.log('ℹ️  Frontend build not found; serving API only (set FRONTEND_DIST to change)');
   }
 
-  // Start HLS cache cleanup service
   hlsCacheCleanupService.start();
 
-  // Start HTTP server
-  const server = app.listen(PORT, () => {
+  return app.listen(PORT, () => {
     console.log(`🚀 Backend server running on http://localhost:${PORT}`);
-    if (watcherEnabled) {
-      console.log(`📁 File watcher is enabled`);
-    }
   });
+}
 
-  return server;
+// Initialize scrapers and start whatever this role runs
+async function startServer(): Promise<Server | null> {
+  console.log(`🧩 Role: ${role}`);
+
+  // Load application configuration
+  const appConfig = loadAppConfig();
+
+  // Initialize scraper plugins (used by workers and by the Identify search endpoint)
+  const scraperConfigs = getScraperConfigs(appConfig);
+  await loadScrapers(scraperConfigs);
+
+  if (runsWorkers(role)) {
+    await startWorkers(appConfig);
+  }
+
+  return runsApi(role) ? startApi() : null;
 }
 
 const serverPromise = startServer();
@@ -146,36 +179,30 @@ const serverPromise = startServer();
 async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
 
-  // Wait for server to be initialized, then close it
+  // Wait for startup to finish, then stop accepting requests
   const server = await serverPromise;
-  server.close(() => {
+  server?.close(() => {
     console.log('✅ Express server closed');
   });
 
   // Close workers
-  await videoWorker.close();
-  console.log('✅ Video worker closed');
-
-  await libraryScanWorker.close();
-  console.log('✅ Library scan worker closed');
-
-  await metadataScrapeWorker.close();
-  console.log('✅ Metadata scrape worker closed');
-
-  await collectionScrapeWorker.close();
-  console.log('✅ Collection scrape worker closed');
+  for (const worker of workerHandles) {
+    await worker.close();
+  }
+  if (workerHandles.length > 0) {
+    console.log('✅ Workers closed');
+  }
 
   // Stop file watcher
-  await fileWatcherService.stop();
-  console.log('✅ File watcher stopped');
+  if (fileWatcher) {
+    await fileWatcher.close();
+    console.log('✅ File watcher stopped');
+  }
 
-  // Stop HLS cache cleanup service
+  // Stop HLS cache cleanup service and any FFmpeg still encoding
   hlsCacheCleanupService.stop();
-  console.log('✅ HLS cache cleanup service stopped');
-
-  // Kill any FFmpeg still encoding
   shutdownHlsService();
-  console.log('✅ FFmpeg processes stopped');
+  console.log('✅ HLS services stopped');
 
   // Close Redis connection
   await redisConnection.quit();

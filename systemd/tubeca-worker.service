@@ -1,5 +1,5 @@
 [Unit]
-Description=Tubeca API server (serves the web UI and the HTTP API)
+Description=Tubeca worker (library scans, metadata scraping, file watching)
 Documentation=https://github.com/wilkie/tubeca
 After=network.target redis.service
 Wants=redis.service
@@ -26,9 +26,8 @@ ReadWritePaths=/opt/tubeca/data
 
 # Environment
 Environment=NODE_ENV=production
-Environment=TUBECA_ROLE=api
+Environment=TUBECA_ROLE=worker
 Environment=UV_THREADPOOL_SIZE=24
-Environment=FRONTEND_DIST=/opt/tubeca/frontend/ui/dist
 
 [Install]
 WantedBy=multi-user.target

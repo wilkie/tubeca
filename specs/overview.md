@@ -42,13 +42,13 @@ backlog; `overview.md` (this file) rolls them up into themes.
 
 ```
 ┌──────────────────────────────┐        ┌──────────────────────────────────────────┐
-│  Browser                     │  HTTP  │  Backend (Express, single Node process)  │
-│  React 19 + MUI 7 + HLS.js   │◄──────►│  /api/* routers  ─►  services  ─►  Prisma │
-│  frontend/ui                 │        │       │                          (SQLite) │
+│  Browser                     │  HTTP  │  Backend (Express; role api|worker|all)  │
+│  React 19 + MUI 7 + HLS.js   │◄──────►│  SPA + /api/* routers ─► services ─► Prisma│
+│  served by the api role      │        │       │                          (SQLite) │
 └──────────────────────────────┘        │       ▼                                   │
-                                        │  BullMQ queues ──► in-process workers     │
+                                        │  BullMQ queues ──► workers (worker role)  │
                                         │  (Redis)     scan / collection-scrape /   │
-                                        │              metadata-scrape / video      │
+                                        │              metadata-scrape              │
                                         │       │                  │                │
                                         │       ▼                  ▼                │
                                         │  scraper plugins    FFmpeg / ffprobe      │
@@ -74,12 +74,16 @@ files (auth service, media parser). The backend is effectively untested.
 
 ### Runtime processes
 
-In production there are two long-running processes plus Redis:
+One esbuild-bundled entry point, `backend/dist/index.js`, runs in one of three roles set by
+`TUBECA_ROLE`. In production there are two instances plus Redis:
 
-- The **backend** runs the API *and* all four BullMQ workers, the file watcher and the
-  HLS cache cleaner inside one Node process (`backend/src/index.ts`).
-- The **frontend** is a static Vite build served by the `serve` package.
+- The **api** role serves the HTTP API, Swagger UI, the HLS cache cleaner and the built
+  frontend on one port.
+- The **worker** role runs the three BullMQ workers and the file watcher.
+- `all` (the default for `pnpm dev` and `pnpm start`) does both in one process.
 - **Redis** backs BullMQ. Without it the backend cannot start.
+
+A `Dockerfile` and `docker-compose.yml` package the same layout as containers.
 
 See [Configuration](configuration.md) and [Deployment](deployment.md).
 
@@ -150,14 +154,12 @@ the same offset to two parallel queries. The pre-commit hook now runs both suite
 frontend's 860 cases cannot silently rot again the way 29 of them did between December and
 September.
 
-### One process, blocking work, leaky lifecycles
+### Blocking work and lifecycles
 
-API, four BullMQ workers, the file watcher, encoder detection and FFmpeg supervision share one
-Node process. The scan uses synchronous `fs` calls, encoder detection runs synchronous test
-encodes at import time, and per-segment FFmpeg children have no timeout and are not killed on
-disconnect or shutdown. Three modules register competing SIGINT/SIGTERM handlers. Commit
-`7052d0c` (DNS thread-pool starvation) was a symptom of this coupling, and its
-`UV_THREADPOOL_SIZE=24` fix never reaches the systemd unit. See
+Since 2026-09-03 the API and the workers can run as separate processes and FFmpeg children
+are tracked, timed out and killed on shutdown. What remains: the scan uses synchronous `fs`
+calls, encoder detection runs synchronous test encodes when the HLS service is first used, and
+three modules still register competing SIGINT/SIGTERM handlers. See
 [Configuration](configuration.md), [Libraries](libraries-and-scanning.md),
 [Streaming](streaming-and-transcoding.md).
 
@@ -193,14 +195,12 @@ scanned, but no scraper populates them, no tags are read from files, and the aud
 path double-plays through two elements. See [Libraries](libraries-and-scanning.md),
 [Playback](playback.md).
 
-### Deployment does not work as documented
+### Deployment is now one port, one binary
 
-The packaged layout (backend plus `serve -s dist`) has no proxy, the
-SPA hard-codes a relative `/api` base and the backend serves no static files, so the documented
-entry point cannot reach the API without nginx. `pnpm start` and the committed systemd unit run
-plain `node` against extensionless ESM output that only works under `tsx`. There are no release
-tags, no CI and no container image. See [Deployment](deployment.md),
-[Frontend App](frontend-app.md).
+Since 2026-09-03 the backend is bundled so plain `node` runs it, the API process serves the
+SPA, systemd runs an api and a worker unit, and a Dockerfile, compose file and CI workflow
+exist. What remains: no release tags, no published image, dev dependencies shipped in the
+package and image, and no backup step before upgrades. See [Deployment](deployment.md).
 
 ## Suggested Direction
 
@@ -233,9 +233,10 @@ Ordered by leverage. Each item's details are in the linked spec.
    de-duplication, FFmpeg timeouts and shutdown, cache size enforcement, eviction on media
    delete. Cancel-on-seek and live-over-prefetch priority remain
    ([Streaming](streaming-and-transcoding.md)).
-8. **Runtime and deployment shape** (M to L): split workers into their own process, compile
-   the backend properly so `node` runs it, serve the SPA from the backend, and ship a
-   container image with CI. ([Configuration](configuration.md), [Deployment](deployment.md))
+8. ~~**Runtime and deployment shape**~~ Done 2026-09-03: esbuild bundle run by `node`,
+   `TUBECA_ROLE` api/worker split, SPA served by the API, Docker image, compose file and CI
+   workflow. Release tagging and image publishing are the follow-ups
+   ([Deployment](deployment.md)).
 9. **Decide on Music** (S to hide, L to implement). ([Libraries](libraries-and-scanning.md))
 
 ## Conventions for Maintaining These Specs

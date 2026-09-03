@@ -5,6 +5,35 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * The backend package directory, found by walking up from this file until the
+ * backend's package.json appears. Works from `src/` under tsx and from the
+ * bundled `dist/index.js` alike, so relative defaults do not depend on how
+ * deep the compiled file sits.
+ */
+export function getBackendRoot(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 6; i++) {
+    const pkg = path.join(dir, 'package.json');
+    if (fs.existsSync(pkg)) {
+      try {
+        if (JSON.parse(fs.readFileSync(pkg, 'utf8')).name === '@tubeca/backend') return dir;
+      } catch {
+        // keep walking
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
+
+/** The monorepo root (parent of the backend package). */
+export function getRepoRoot(): string {
+  return path.dirname(getBackendRoot());
+}
+
 export interface ScraperPluginConfig {
   enabled?: boolean
   apiKey?: string
@@ -80,7 +109,7 @@ function resolveConfigPath(): string | null {
   }
 
   // Look for config in repository root (parent of backend directory)
-  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const repoRoot = getRepoRoot();
   const defaultConfigPath = path.join(repoRoot, DEFAULT_CONFIG_FILENAME);
 
   if (fs.existsSync(defaultConfigPath)) {
@@ -145,12 +174,12 @@ export function getImageStoragePath(appConfig?: AppConfig): string {
     if (path.isAbsolute(configuredPath)) {
       imageStoragePath = configuredPath;
     } else {
-      const repoRoot = path.resolve(__dirname, '..', '..', '..');
+      const repoRoot = getRepoRoot();
       imageStoragePath = path.resolve(repoRoot, configuredPath);
     }
   } else {
     // Default: ./data/images relative to backend directory
-    imageStoragePath = path.resolve(__dirname, '..', '..', 'data', 'images');
+    imageStoragePath = path.join(getBackendRoot(), 'data', 'images');
   }
 
   // Create directory if it doesn't exist
@@ -181,12 +210,12 @@ export function getHlsCachePath(appConfig?: AppConfig): string {
     if (path.isAbsolute(configuredPath)) {
       hlsCachePath = configuredPath;
     } else {
-      const repoRoot = path.resolve(__dirname, '..', '..', '..');
+      const repoRoot = getRepoRoot();
       hlsCachePath = path.resolve(repoRoot, configuredPath);
     }
   } else {
     // Default: ./data/hls-cache relative to backend directory
-    hlsCachePath = path.resolve(__dirname, '..', '..', 'data', 'hls-cache');
+    hlsCachePath = path.join(getBackendRoot(), 'data', 'hls-cache');
   }
 
   // Create directory if it doesn't exist

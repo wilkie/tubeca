@@ -22,7 +22,7 @@ sudo pacman -U tubeca-*.pkg.tar.zst
 
 # Start services
 sudo systemctl enable --now redis
-sudo systemctl enable --now tubeca-backend tubeca-frontend
+sudo systemctl enable --now tubeca-backend tubeca-worker
 ```
 
 The package:
@@ -102,7 +102,7 @@ sudo chmod 600 /opt/tubeca/backend/.env
 
 ```bash
 sudo cp /opt/tubeca/systemd/tubeca-backend.service /etc/systemd/system/
-sudo cp /opt/tubeca/systemd/tubeca-frontend.service /etc/systemd/system/
+sudo cp /opt/tubeca/systemd/tubeca-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 
@@ -113,10 +113,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now redis
 
 # Enable Tubeca services
-sudo systemctl enable tubeca-backend tubeca-frontend
+sudo systemctl enable tubeca-backend tubeca-worker
 
 # Start services
-sudo systemctl start tubeca-backend tubeca-frontend
+sudo systemctl start tubeca-backend tubeca-worker
 ```
 
 ## Service Management
@@ -124,24 +124,23 @@ sudo systemctl start tubeca-backend tubeca-frontend
 ```bash
 # Check status
 sudo systemctl status tubeca-backend
-sudo systemctl status tubeca-frontend
+sudo systemctl status tubeca-worker
 
 # View logs
 sudo journalctl -u tubeca-backend -f
-sudo journalctl -u tubeca-frontend -f
+sudo journalctl -u tubeca-worker -f
 
 # Restart services
 sudo systemctl restart tubeca-backend
-sudo systemctl restart tubeca-frontend
+sudo systemctl restart tubeca-worker
 
 # Stop services
-sudo systemctl stop tubeca-backend tubeca-frontend
+sudo systemctl stop tubeca-backend tubeca-worker
 ```
 
 ## Default Ports
 
-- **Backend API**: `http://localhost:3000`
-- **Frontend**: `http://localhost:8080`
+- **Web UI and API**: `http://localhost:3000` (one port; the API process serves the built frontend)
 
 ## Production with nginx (Recommended)
 
@@ -190,16 +189,14 @@ server {
 }
 ```
 
-When using nginx:
-1. Disable the `tubeca-frontend` service: `sudo systemctl disable --now tubeca-frontend`
-2. Configure nginx to serve the frontend directly
-3. Enable nginx: `sudo systemctl enable --now nginx`
+When using nginx, proxy everything to port 3000 (the backend keeps serving the static
+files) and enable nginx: `sudo systemctl enable --now nginx`
 
 ## Updating Tubeca
 
 ```bash
 # Stop services
-sudo systemctl stop tubeca-backend tubeca-frontend
+sudo systemctl stop tubeca-backend tubeca-worker
 
 # Update code
 cd /opt/tubeca
@@ -214,7 +211,7 @@ cd backend
 sudo npx prisma migrate deploy
 
 # Restart services
-sudo systemctl start tubeca-backend tubeca-frontend
+sudo systemctl start tubeca-backend tubeca-worker
 ```
 
 ## Troubleshooting
