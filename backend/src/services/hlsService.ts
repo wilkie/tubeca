@@ -1,10 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { loadAppConfig, getHlsCacheConfig } from '../config/appConfig';
 import { MediaService } from './mediaService';
 import { detectBestEncoder, getEncoderArgs, type HardwareEncoder } from '../utils/hwaccel';
-import { getTranscodingSettings } from './transcodingSettingsService';
+import { getTranscodingSettings, getTranscodingSettingsVersion } from './transcodingSettingsService';
+import { prisma } from '../config/database';
+import {
+  collectCacheStats,
+  enforceCacheSize,
+  evictMediaCache,
+  isDirectPlayable,
+  sweepExpiredSegments,
+} from './hlsCache';
 import type { TranscodingSettings } from '@prisma/client';
 
 // Quality presets for transcoding (default values, overridden by settings)
@@ -50,18 +58,24 @@ export class HlsService {
   private cachePath: string;
   private defaultSegmentDuration: number;
   // Track in-progress segment generations to prevent concurrent generation of same segment
+  /** In-flight segment encodes keyed by `<variantPath>:<index>`, shared by player requests and prefetch. */
   private generatingSegments: Map<string, Promise<void>> = new Map();
+  /** FFmpeg children still running, so they can be killed on shutdown. */
+  private activeProcesses: Set<ChildProcess> = new Set();
+  private readonly segmentTimeoutMs: number;
   // Detected video encoder (detected once at startup)
   private detectedEncoder: HardwareEncoder;
   // Settings cache
   private settingsCache: TranscodingSettings | null = null;
   private settingsCacheTime: number = 0;
+  private settingsVersionSeen: number = -1;
   private readonly SETTINGS_CACHE_TTL = 30000; // 30 seconds
   // Concurrency control for FFmpeg processes
   private activeTranscodes: number = 0;
   private waitingQueue: Array<() => void> = [];
 
-  constructor() {
+  constructor(options: { segmentTimeoutMs?: number } = {}) {
+    this.segmentTimeoutMs = options.segmentTimeoutMs ?? 120000;
     this.mediaService = new MediaService();
     const appConfig = loadAppConfig();
     const hlsConfig = getHlsCacheConfig(appConfig);
@@ -109,11 +123,17 @@ export class HlsService {
    * Get transcoding settings (with caching)
    */
   private async getSettings(): Promise<TranscodingSettings> {
-    if (this.settingsCache && Date.now() - this.settingsCacheTime < this.SETTINGS_CACHE_TTL) {
+    const version = getTranscodingSettingsVersion();
+    if (
+      this.settingsCache &&
+      this.settingsVersionSeen === version &&
+      Date.now() - this.settingsCacheTime < this.SETTINGS_CACHE_TTL
+    ) {
       return this.settingsCache;
     }
     this.settingsCache = await getTranscodingSettings();
     this.settingsCacheTime = Date.now();
+    this.settingsVersionSeen = version;
     return this.settingsCache;
   }
 
@@ -158,6 +178,60 @@ export class HlsService {
     return settings.segmentDuration || this.defaultSegmentDuration;
   }
 
+  /** Decide `original` eligibility from the probed stream codecs (see `isDirectPlayable`). */
+  async canDirectPlay(mediaId: string, filePath: string): Promise<boolean> {
+    const streams = await prisma.mediaStream.findMany({
+      where: { mediaId },
+      select: { streamType: true, codec: true },
+      orderBy: { streamIndex: 'asc' },
+    });
+    return isDirectPlayable(streams, filePath);
+  }
+
+  /**
+   * Generate a segment unless it already exists or is already being generated.
+   * One key per (variant, index) regardless of whether a player or a prefetch
+   * asked for it, so the same segment is never encoded twice concurrently.
+   */
+  private ensureSegment(
+    videoPath: string,
+    totalDuration: number,
+    quality: string,
+    segmentIndex: number,
+    audioTrack: string,
+    variantPath: string
+  ): Promise<void> {
+    const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
+    try {
+      if (fs.statSync(segmentPath).size > 0) return Promise.resolve();
+    } catch {
+      // Not cached yet
+    }
+    const key = `${variantPath}:${segmentIndex}`;
+    const existing = this.generatingSegments.get(key);
+    if (existing) return existing;
+
+    const generation = this.generateSegment(videoPath, totalDuration, quality, segmentIndex, audioTrack, variantPath)
+      .finally(() => {
+        this.generatingSegments.delete(key);
+      });
+    this.generatingSegments.set(key, generation);
+    return generation;
+  }
+
+  /** Kill every running FFmpeg child. Called on server shutdown. */
+  shutdown(): void {
+    for (const child of this.activeProcesses) {
+      child.kill('SIGKILL');
+    }
+    this.activeProcesses.clear();
+  }
+
+  /** Number of FFmpeg children currently running (for tests and diagnostics). */
+  get runningProcessCount(): number {
+    return this.activeProcesses.size;
+  }
+
   /**
    * Get the cache directory path for a specific media/quality/audioTrack combination
    */
@@ -178,11 +252,8 @@ export class HlsService {
     const audioTrackStr = audioTrack !== undefined ? audioTrack.toString() : 'default';
     const lines: string[] = ['#EXTM3U', '#EXT-X-VERSION:3'];
 
-    // Add original quality (stream copy) first
-    const ext = path.extname(media.path).toLowerCase();
-    const nativeFormat = ['.mp4', '.webm'].includes(ext);
-
-    if (nativeFormat) {
+    // Add original quality (stream copy) first, when the codecs allow it
+    if (await this.canDirectPlay(media.id, media.path)) {
       // For native formats, we can offer original quality
       lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=20000000,RESOLUTION=native,NAME="Original"`);
       lines.push(`${ORIGINAL_QUALITY}.m3u8?audioTrack=${audioTrackStr}`);
@@ -255,34 +326,8 @@ export class HlsService {
 
     // Generate initial segments (0, 1, 2, ...) in parallel
     for (let i = 0; i < prefetchCount; i++) {
-      const segmentPath = path.join(variantPath, `${i}.ts`);
-
-      // Skip if already exists
-      if (fs.existsSync(segmentPath)) {
-        const stat = fs.statSync(segmentPath);
-        if (stat.size > 0) continue;
-      }
-
-      const segmentKey = `initial:${variantPath}:${i}`;
-
-      // Skip if already being generated
-      if (this.generatingSegments.has(segmentKey)) continue;
-
-      // Generate in background (don't await)
-      const generationPromise = this.generateSegment(
-        videoPath,
-        totalDuration,
-        quality,
-        i,
-        audioTrack,
-        variantPath
-      ).catch((err) => {
+      this.ensureSegment(videoPath, totalDuration, quality, i, audioTrack, variantPath).catch((err) => {
         console.error(`Initial prefetch failed for segment ${i}:`, err);
-      });
-
-      this.generatingSegments.set(segmentKey, generationPromise);
-      generationPromise.finally(() => {
-        this.generatingSegments.delete(segmentKey);
       });
     }
   }
@@ -322,39 +367,11 @@ export class HlsService {
       fs.unlinkSync(segmentPath);
     }
 
-    // Create a unique key for this segment
-    const segmentKey = `${mediaId}:${quality}:${audioTrack}:${segmentIndex}`;
-
-    // Check if generation is already in progress
-    const existingGeneration = this.generatingSegments.get(segmentKey);
-    if (existingGeneration) {
-      // Wait for the existing generation to complete
-      await existingGeneration;
-      if (fs.existsSync(segmentPath)) {
-        // Trigger prefetch for upcoming segments
-        this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
-        return segmentPath;
-      }
-      return null;
-    }
-
-    // Start generation and track it
-    const generationPromise = this.generateSegment(
-      media.path,
-      media.duration || 0,
-      quality,
-      segmentIndex,
-      audioTrack,
-      variantPath
-    );
-
-    this.generatingSegments.set(segmentKey, generationPromise);
-
     try {
-      await generationPromise;
-    } finally {
-      // Clean up tracking
-      this.generatingSegments.delete(segmentKey);
+      await this.ensureSegment(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
+    } catch (error) {
+      console.error(`Segment generation failed for ${mediaId} ${quality}/${segmentIndex}:`, error);
+      return null;
     }
 
     if (fs.existsSync(segmentPath)) {
@@ -387,34 +404,8 @@ export class HlsService {
       const nextIndex = currentIndex + i;
       if (nextIndex > maxSegment) break;
 
-      const segmentPath = path.join(variantPath, `${nextIndex}.ts`);
-
-      // Skip if already exists
-      if (fs.existsSync(segmentPath)) {
-        const stat = fs.statSync(segmentPath);
-        if (stat.size > 0) continue;
-      }
-
-      const segmentKey = `prefetch:${variantPath}:${nextIndex}`;
-
-      // Skip if already being generated
-      if (this.generatingSegments.has(segmentKey)) continue;
-
-      // Generate in background (don't await)
-      const generationPromise = this.generateSegment(
-        videoPath,
-        totalDuration,
-        quality,
-        nextIndex,
-        audioTrack,
-        variantPath
-      ).catch((err) => {
+      this.ensureSegment(videoPath, totalDuration, quality, nextIndex, audioTrack, variantPath).catch((err) => {
         console.error(`Prefetch failed for segment ${nextIndex}:`, err);
-      });
-
-      this.generatingSegments.set(segmentKey, generationPromise);
-      generationPromise.finally(() => {
-        this.generatingSegments.delete(segmentKey);
       });
     }
   }
@@ -555,24 +546,46 @@ export class HlsService {
 
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+      this.activeProcesses.add(ffmpeg);
 
       let stderr = '';
-      ffmpeg.stderr.on('data', (data) => {
+      let timedOut = false;
+      ffmpeg.stderr?.on('data', (data) => {
         stderr += data.toString();
       });
 
+      // A segment that takes this long is stuck (unreadable source, hung encoder);
+      // kill it so the slot is freed and the player gets an error instead of a hang.
+      const timer = setTimeout(() => {
+        timedOut = true;
+        ffmpeg.kill('SIGKILL');
+      }, this.segmentTimeoutMs);
+
+      const finish = () => {
+        clearTimeout(timer);
+        this.activeProcesses.delete(ffmpeg);
+        releaseSlot();
+      };
+
       ffmpeg.on('close', (code) => {
-        releaseSlot(); // Release the slot when FFmpeg finishes
+        finish();
         if (code === 0) {
           resolve();
         } else {
-          console.error(`FFmpeg segment generation failed:\n${stderr}`);
-          reject(new Error(`FFmpeg exited with code ${code}`));
+          // Never leave a partial segment behind: a zero-length or truncated file
+          // would be served as if complete.
+          fs.rmSync(outputPath, { force: true });
+          if (timedOut) {
+            reject(new Error(`FFmpeg timed out after ${this.segmentTimeoutMs}ms generating segment ${segmentIndex}`));
+          } else {
+            console.error(`FFmpeg segment generation failed:\n${stderr}`);
+            reject(new Error(`FFmpeg exited with code ${code}`));
+          }
         }
       });
 
       ffmpeg.on('error', (err) => {
-        releaseSlot(); // Release the slot on error too
+        finish();
         reject(err);
       });
     });
@@ -602,10 +615,8 @@ export class HlsService {
 
     const qualities: string[] = [];
 
-    // Check if original quality is available (native format)
-    const ext = path.extname(media.path).toLowerCase();
-    const nativeFormat = ['.mp4', '.webm'].includes(ext);
-    if (nativeFormat) {
+    // Original (stream copy) only when the probed codecs are browser-playable
+    if (await this.canDirectPlay(media.id, media.path)) {
       qualities.push(ORIGINAL_QUALITY);
     }
 
@@ -619,9 +630,7 @@ export class HlsService {
    * Clean up cache for a specific media item
    */
   async cleanupMediaCache(mediaId: string): Promise<void> {
-    const mediaPath = path.join(this.cachePath, mediaId);
-    if (fs.existsSync(mediaPath)) {
-      fs.rmSync(mediaPath, { recursive: true, force: true });
+    if (evictMediaCache(mediaId, this.cachePath)) {
       console.log(`Cleaned up HLS cache for media: ${mediaId}`);
     }
   }
@@ -629,89 +638,32 @@ export class HlsService {
   /**
    * Get cache statistics
    */
-  async getCacheStats(): Promise<{
-    totalSize: number;
-    mediaCount: number;
-    segmentCount: number;
-  }> {
-    let totalSize = 0;
-    let mediaCount = 0;
-    let segmentCount = 0;
-
-    if (!fs.existsSync(this.cachePath)) {
-      return { totalSize, mediaCount, segmentCount };
-    }
-
-    const mediaDirs = fs.readdirSync(this.cachePath, { withFileTypes: true });
-    for (const mediaDir of mediaDirs) {
-      if (!mediaDir.isDirectory()) continue;
-      mediaCount++;
-
-      const countFiles = (dir: string) => {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            countFiles(fullPath);
-          } else if (entry.name.endsWith('.ts')) {
-            segmentCount++;
-            const stat = fs.statSync(fullPath);
-            totalSize += stat.size;
-          }
-        }
-      };
-
-      countFiles(path.join(this.cachePath, mediaDir.name));
-    }
-
-    return { totalSize, mediaCount, segmentCount };
+  async getCacheStats(): Promise<{ totalSize: number; mediaCount: number; segmentCount: number }> {
+    return collectCacheStats(this.cachePath);
   }
 
   /**
    * Clean up old segments based on TTL
    */
   async cleanupOldSegments(ttlHours: number): Promise<number> {
-    const cutoffTime = Date.now() - (ttlHours * 60 * 60 * 1000);
-    let deletedCount = 0;
-
-    if (!fs.existsSync(this.cachePath)) {
-      return deletedCount;
-    }
-
-    const cleanupDir = (dir: string) => {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      let hasFiles = false;
-
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          cleanupDir(fullPath);
-          // Remove empty directories
-          try {
-            const subEntries = fs.readdirSync(fullPath);
-            if (subEntries.length === 0) {
-              fs.rmdirSync(fullPath);
-            } else {
-              hasFiles = true;
-            }
-          } catch {
-            // Ignore errors
-          }
-        } else if (entry.name.endsWith('.ts') || entry.name.endsWith('.m3u8')) {
-          const stat = fs.statSync(fullPath);
-          if (stat.atimeMs < cutoffTime) {
-            fs.unlinkSync(fullPath);
-            deletedCount++;
-          } else {
-            hasFiles = true;
-          }
-        }
-      }
-
-      return hasFiles;
-    };
-
-    cleanupDir(this.cachePath);
-    return deletedCount;
+    return sweepExpiredSegments(this.cachePath, ttlHours);
   }
+
+  /** Evict least-recently-used segments until the cache is under `maxSizeGB`. */
+  async enforceCacheSize(maxSizeGB: number): Promise<{ deleted: number; freedBytes: number }> {
+    return enforceCacheSize(this.cachePath, maxSizeGB * 1024 * 1024 * 1024);
+  }
+}
+
+let sharedInstance: HlsService | null = null;
+
+/** Process-wide instance; created on first use so encoder detection runs once. */
+export function getHlsService(): HlsService {
+  if (!sharedInstance) sharedInstance = new HlsService();
+  return sharedInstance;
+}
+
+/** Kill running encodes if the shared instance exists (server shutdown). */
+export function shutdownHlsService(): void {
+  sharedInstance?.shutdown();
 }

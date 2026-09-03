@@ -7,12 +7,12 @@ import { authenticate } from '../middleware/auth';
 import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
-import { HlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
+import { getHlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
 
 const router = Router();
 const mediaService = new MediaService();
 const authService = new AuthService();
-const hlsService = new HlsService();
+const hlsService = getHlsService();
 const mediaAccess = requireLibraryAccess(mediaParam('id'));
 
 // Custom auth middleware that also accepts token via query parameter

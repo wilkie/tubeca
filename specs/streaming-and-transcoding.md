@@ -101,8 +101,10 @@ and cached by browsers.
 ### HLS playlist synthesis
 
 `generateMasterPlaylist` (`hlsService.ts:171`) emits `#EXT-X-VERSION:3` and one `#EXT-X-STREAM-INF`
-per rung, highest first. If the file extension is `.mp4`/`.webm` it prepends an `Original` entry
-with `BANDWIDTH=20000000,RESOLUTION=native` (`hlsService.ts:187`); `native` is not a valid `WxH`
+per rung, highest first. If `canDirectPlay` says the probed codecs are browser-safe (H.264 video
+with AAC/MP3 or no audio, per `isDirectPlayable` in `hlsCache.ts`; with no probe data only `.mp4`
+is trusted) it prepends an `Original` entry with `BANDWIDTH=20000000,RESOLUTION=native`; `native`
+is not a valid `WxH`
 value under the HLS spec, and hls.js tolerates it only because it parses leniently. Bitrates for the
 four rungs come from `TranscodingSettings` so the `BANDWIDTH` attribute tracks admin changes. The
 audio track selection is carried as an `?audioTrack=` query on every variant and segment URI, so
@@ -133,12 +135,10 @@ be linted as TypeScript). Layout is `<root>/<mediaId>/a<audioTrack|default>/<qua
    on atime, which many mounts disable) and return it, kicking off `prefetchSegments` for the next
    N.
 2. A zero-byte file (an FFmpeg run that was interrupted) is deleted and regenerated.
-3. `generatingSegments` (a `Map<string, Promise>`) de-duplicates concurrent requests: a second
-   request for an in-flight segment awaits the same promise. The key used by the request path is
-   `mediaId:quality:audioTrack:index`, while the prefetch paths use `initial:<variantPath>:<index>`
-   and `prefetch:<variantPath>:<index>`; these three keys never collide, so a player request
-   arriving while a prefetch of the same segment is running spawns a second FFmpeg for the same
-   output file, with both writing `-y` to the same path.
+3. `ensureSegment` de-duplicates all three callers (player request, initial prefetch, rolling
+   prefetch) through one `generatingSegments` map keyed on `<variantPath>:<index>`: a request
+   arriving while a prefetch of the same segment is running awaits that encode instead of
+   spawning a second FFmpeg into the same file.
 4. `generateSegment` (`hlsService.ts:425`) builds an FFmpeg command and runs it to completion; only
    then does the route stream the file. Segment latency therefore equals encode time for a full
    segment (6 s of video by default) and nothing is sent progressively.
@@ -181,12 +181,14 @@ share the same pool with no priority, so with `prefetchSegments=2` a single view
 FFmpegs wanting slots (current + 2 ahead) while a second viewer or a seek waits behind them. The
 settings value is re-read every 30 s; lowering it does not preempt running processes.
 
-Segment FFmpegs are never killed: there is no timeout, no cancellation on client disconnect, and no
-shutdown hook, so a seek-heavy session leaves a trail of encodes that run to completion (each
-bounded to one segment, so the damage is bounded). The progressive `/video` and `/subtitles` routes
-do kill their child with `SIGKILL` on `req.on('close')` (`stream.ts:193`, `329`). Nothing tracks
-live FFmpeg PIDs, and `shutdown()` in `index.ts` closes the BullMQ workers and the cleanup timer but
-not in-flight segment encodes.
+Each segment FFmpeg is tracked in `activeProcesses` and killed with `SIGKILL` if it exceeds
+`segmentTimeoutMs` (120 s by default, injectable for tests); a killed or failed run removes its
+partial output so a truncated `.ts` is never served. `HlsService.shutdown()` kills whatever is
+still running and `index.ts` calls it through `shutdownHlsService()` on SIGTERM/SIGINT. The
+service is a lazy process-wide singleton (`getHlsService()`), so encoder detection runs once
+rather than once for the stream router and once for the cleanup timer. Encodes are still not
+cancelled when a client disconnects or seeks away (each is bounded to one segment); the
+progressive `/video` and `/subtitles` routes do kill their child on `req.on('close')`.
 
 ### Encoder detection and settings
 
@@ -211,11 +213,13 @@ for the new playlist geometry; nothing purges the cache on settings change.
 
 `HlsCacheCleanupService` (`hlsCacheCleanupService.ts`) calls `cleanupOldSegments(ttlHours)` (default
 24 h from config) which walks the tree, unlinks `.ts`/`.m3u8` files with `atime < cutoff`, and
-rmdirs empty directories. `maxSizeGB` is parsed and defaulted to 10 but never enforced;
-`getCacheStats()` walks the whole tree with `statSync` per file and is called twice per sweep when
-anything was deleted. Nothing calls `cleanupMediaCache(mediaId)`; deleting a `Media` row leaves its
-segments until the TTL expires. The working tree currently holds ~71 MB under
-`backend/data/hls-cache`.
+rmdirs empty directories, then `enforceCacheSize(maxSizeGB)` deletes least-recently-accessed
+segments until the cache is under the configured limit (default 10 GB). The filesystem work lives
+in `hlsCache.ts` (`sweepExpiredSegments`, `enforceCacheSize`, `collectCacheStats`,
+`evictMediaCache`) so it needs no encoder detection; `ContentDeletionService` calls
+`evictMediaCache` whenever a media row is deleted, including tree deletes and scan reconciliation.
+`HlsService` re-reads `TranscodingSettings` as soon as `getTranscodingSettingsVersion()` changes,
+so a settings save applies to the next segment rather than after the 30 s cache expires.
 
 ### Probing
 
@@ -320,6 +324,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-03 `POST /api/jobs/*` endpoints removed with the other legacy handlers in `index.ts`; the video worker no longer has a producer.
 - 2026-09-03 `hlsService.test.ts` added (playlist synthesis, with `hwaccel` and `appConfig` mocked so no ffmpeg runs).
 - 2026-09-03 Every `/api/stream/*` route now runs `requireLibraryAccess(mediaParam('id'))` after `streamAuth`; covered by `routes/__tests__/stream.test.ts`.
+- 2026-09-03 Streaming robustness: codec-aware `Original` (`isDirectPlayable`), single de-dup key for all segment paths, per-segment FFmpeg timeout with partial-file cleanup, tracked processes killed on shutdown, lazy `HlsService` singleton, `maxSizeGB` enforced LRU-first, cache evicted on media delete, settings cache invalidated by version.
 
 ## Known Limitations
 
@@ -327,25 +332,21 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   is no path that serves the source container to a capable browser via HLS, and the fMP4/CMAF HLS
   variant is not used, so codecs MPEG-TS cannot carry (e.g. AV1, Opus in some players) cannot use
   `original`.
-- **Container-only "native" detection.** Both `/video` and the master playlist decide `nativeFormat`
-  from the file extension, not from probed codecs. An `.mp4` containing HEVC or AC-3 is offered as
-  `Original` and fails in the browser; an `.mkv` with H.264/AAC is transcoded when it could be
-  remuxed.
+- **The legacy `/video/:id` route still decides by extension.** Only the HLS paths use the probed
+  codecs; the progressive route (used for audio and as a fallback) keeps the `.mp4`/`.webm` check.
 - **Only H.264 output, only stereo AAC audio, always letterboxed to 16:9 presets, no upscale guard,
   no HDR handling.** 4K sources are capped at 1080p unless the user picks `Original`.
 - **Segment latency equals full-segment encode time.** The route waits for FFmpeg to exit before
   sending any bytes; with software x264 at 1080p on a slow CPU a seek costs one full 6 s segment of
   encode before playback resumes.
-- **Prefetch and player requests do not share de-duplication keys**, so the same segment can be
-  encoded twice concurrently into the same file.
-- **Orphaned/uncancellable encodes.** Segment FFmpegs have no timeout, are not killed on client
-  disconnect, and are not tracked at shutdown; prefetch has no priority below live requests.
-- **Cache growth is TTL-only.** `maxSizeGB` is ignored; media deletion does not evict segments; the
-  sweep relies on `atime` (patched by `touchFile` only on the read path) and does a full-tree `stat`
-  walk.
-- **Settings edge cases.** `PUT` body is unvalidated; `preferredEncoder` is dead; `HlsService`'s own
-  30 s settings cache is never invalidated; changing `segmentDuration` invalidates every cached
-  segment silently; `/hls/:id/qualities` reports default bitrates rather than configured ones.
+- **Encodes are not cancelled on disconnect or seek**, and prefetch has no priority below live
+  requests; the per-segment timeout bounds the damage but a seek-heavy session still encodes
+  segments nobody will watch.
+- **Cache eviction is `atime`-based** (patched by `touchFile` only on the read path) and each sweep
+  is a full-tree `stat` walk; on `noatime` mounts the LRU order degrades to creation order.
+- **Settings edge cases.** `PUT` body is unvalidated; `preferredEncoder` is dead; changing
+  `segmentDuration` invalidates every cached segment silently; `/hls/:id/qualities` reports default
+  bitrates rather than configured ones.
 - **VAAPI args are incomplete**, so VAAPI-only Linux boxes silently fall back to software.
 - **Stream ACL.** Any authenticated user can stream any media id regardless of library group
   membership; tokens appear in URLs.
@@ -359,26 +360,20 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Blocking boot**: encoder detection uses `execSync` with up to ~55 s of worst-case timeouts.
 - **The `video-processing` worker is dead code** with a harmful `analyze` stub (overwrites
   `Media.duration` with 120); nothing enqueues to it since the job endpoints were removed.
-- **Tests cover playlist synthesis only** (`hlsService.test.ts`: Original eligibility, rung
-  order, audioTrack propagation, segment count and final-segment length); segment generation,
-  the semaphore, cache cleanup, probing and the stream routes are untested.
+- **Tests cover playlists, direct-play eligibility, segment de-duplication, timeout and shutdown
+  (against a fake `child_process`), and the cache helpers**; FFmpeg argument construction, the
+  semaphore, probing and most stream routes are untested.
 
 ## Opportunities
 
-- **Codec-aware direct play / remux decisions** (M): use the stored `MediaStream` codecs to decide
-  `original` eligibility and to remux H.264/AAC MKVs instead of re-encoding them; drop the extension
-  check.
-- **Unify de-dup keys and add live-over-prefetch priority** (S): key `generatingSegments` on
-  `variantPath:index` for all three paths and give player requests a priority lane in the semaphore.
+- **Live-over-prefetch priority** (S): give player requests a priority lane in the transcode
+  semaphore, and cancel in-flight prefetches when a session seeks away.
+- **Use probed codecs in the legacy `/video/:id` route too** (S).
 - **Stream segments while encoding / smaller first segments** (M): write to a temp path and start
   serving once the muxer emits data, or use 2 s segments for the first rung to cut
   time-to-first-frame.
-- **Process lifecycle** (S): track child PIDs, apply a per-segment timeout, kill in-flight
-  prefetches when a session seeks away, and terminate on shutdown.
-- **Enforce `maxSizeGB` and evict on media delete** (S): call `cleanupMediaCache` from
-  `MediaService.deleteMedia`; LRU by size in the sweep; avoid the double `getCacheStats` walk.
-- **Invalidate `HlsService` settings cache on update and purge the cache when `segmentDuration`
-  changes** (S).
+- **Purge the cache when `segmentDuration` changes** (S), since every cached segment becomes
+  misaligned.
 - **Validate `PUT /api/settings/transcoding`** (S): numeric bounds, preset whitelist, and wire or
   remove `preferredEncoder`.
 - **Complete VAAPI support** (S): add `-vaapi_device /dev/dri/renderD128`, `-hwaccel vaapi`,

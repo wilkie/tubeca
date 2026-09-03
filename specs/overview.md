@@ -176,8 +176,7 @@ because `shared-types` is types-only. See [Libraries](libraries-and-scanning.md)
 Since 2026-09-03 rescans remove media and collections whose files vanished, `Media.path` is
 unique, and deleting a show, media item or library removes the whole tree with its artwork
 files. What remains: renames lose metadata (no size/mtime matching), Identify still deletes
-`Image` rows without files, HLS cache size limits are parsed but never enforced, and media
-deletion never evicts its segments. See [Libraries](libraries-and-scanning.md),
+`Image` rows without files. See [Libraries](libraries-and-scanning.md),
 [Images](images.md), [Streaming](streaming-and-transcoding.md).
 
 ### Watch state exists but is only surfaced in one place
@@ -230,9 +229,10 @@ Ordered by leverage. Each item's details are in the linked spec.
    identity-first resolution that never falls back to a search, and per-item scrape status
    shown on the collection and media pages. A library-level unmatched list is the follow-up
    ([Metadata Scraping](metadata-scraping.md)).
-7. **Streaming robustness** (M): codec-aware direct play, FFmpeg process lifecycle and
-   timeouts, cache size enforcement, and eviction on media delete.
-   ([Streaming](streaming-and-transcoding.md))
+7. ~~**Streaming robustness**~~ Done 2026-09-03: codec-aware Original, unified segment
+   de-duplication, FFmpeg timeouts and shutdown, cache size enforcement, eviction on media
+   delete. Cancel-on-seek and live-over-prefetch priority remain
+   ([Streaming](streaming-and-transcoding.md)).
 8. **Runtime and deployment shape** (M to L): split workers into their own process, compile
    the backend properly so `node` runs it, serve the SPA from the backend, and ship a
    container image with CI. ([Configuration](configuration.md), [Deployment](deployment.md))

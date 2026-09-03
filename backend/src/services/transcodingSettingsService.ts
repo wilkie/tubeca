@@ -30,6 +30,11 @@ const AVAILABLE_PRESETS = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast
 // Cache for settings to avoid repeated DB queries
 let settingsCache: TranscodingSettings | null = null;
 let cacheTimestamp = 0;
+// Bumped whenever settings change so other caches (HlsService) can invalidate immediately.
+let settingsVersion = 0;
+export function getTranscodingSettingsVersion(): number {
+  return settingsVersion;
+}
 const CACHE_TTL = 30000; // 30 seconds
 
 /**
@@ -125,6 +130,7 @@ export async function updateTranscodingSettings(
 
   // Invalidate cache
   settingsCache = null;
+  settingsVersion++;
 
   return updated;
 }
@@ -148,4 +154,5 @@ export async function getQualityPresets(): Promise<Record<string, { videoBitrate
  */
 export function invalidateSettingsCache(): void {
   settingsCache = null;
+  settingsVersion++;
 }

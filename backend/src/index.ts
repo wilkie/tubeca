@@ -13,6 +13,7 @@ import { redisConnection } from './config/redis';
 import { swaggerSpec } from './config/swagger.js';
 import { fileWatcherService } from './services/fileWatcherService';
 import { hlsCacheCleanupService } from './services/hlsCacheCleanupService';
+import { shutdownHlsService } from './services/hlsService';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import groupRoutes from './routes/groups';
@@ -171,6 +172,10 @@ async function shutdown() {
   // Stop HLS cache cleanup service
   hlsCacheCleanupService.stop();
   console.log('✅ HLS cache cleanup service stopped');
+
+  // Kill any FFmpeg still encoding
+  shutdownHlsService();
+  console.log('✅ FFmpeg processes stopped');
 
   // Close Redis connection
   await redisConnection.quit();

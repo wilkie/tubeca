@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '../config/database';
 import { getImageStoragePath } from '../config/appConfig';
+import { evictMediaCache } from './hlsCache';
 
 /**
  * Remove an image file (and its directory if that leaves it empty). Errors are
@@ -83,6 +84,7 @@ export class ContentDeletionService {
     if (!exists) return false;
     const files = await this.imagePathsFor([], [mediaId]);
     for (const file of files) deleteImageFile(this.storageRoot, file);
+    evictMediaCache(mediaId);
     await prisma.media.delete({ where: { id: mediaId } });
     return true;
   }
@@ -104,6 +106,7 @@ export class ContentDeletionService {
 
     const files = await this.imagePathsFor(collectionIds, mediaIds);
     for (const file of files) deleteImageFile(this.storageRoot, file);
+    for (const id of mediaIds) evictMediaCache(id);
 
     await prisma.$transaction([
       prisma.media.deleteMany({ where: { id: { in: mediaIds } } }),

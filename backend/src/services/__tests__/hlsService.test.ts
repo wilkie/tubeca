@@ -2,7 +2,27 @@ import { jest } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { resetDatabase, createVideoMedia } from '../../test/db';
+import { EventEmitter } from 'events';
+import { prisma, resetDatabase, createVideoMedia } from '../../test/db';
+
+// FFmpeg is replaced with a fake child that only exits when told to.
+interface FakeChild extends EventEmitter {
+  stderr: EventEmitter
+  kill: ReturnType<typeof jest.fn>
+}
+const spawned: FakeChild[] = [];
+jest.unstable_mockModule('child_process', () => ({
+  spawn: () => {
+    const child = new EventEmitter() as FakeChild;
+    child.stderr = new EventEmitter();
+    child.kill = jest.fn(() => {
+      setImmediate(() => child.emit('close', null));
+      return true;
+    });
+    spawned.push(child);
+    return child;
+  },
+}));
 
 const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-hls-test-'));
 
@@ -92,5 +112,78 @@ describe('HlsService playlist synthesis', () => {
     const playlist = await service.generateVariantPlaylist(media.id, '480p');
     expect(playlist).not.toContain('#EXTINF');
     expect(playlist).toContain('#EXT-X-ENDLIST');
+  });
+
+  describe('direct play', () => {
+    it('offers Original from probed codecs rather than the file extension', async () => {
+      const mkv = await createVideoMedia({ path: '/media/h264.mkv', duration: 100 });
+      const mp4 = await createVideoMedia({ path: '/media/hevc.mp4', duration: 100 });
+      await prisma.mediaStream.createMany({
+        data: [
+          { mediaId: mkv.id, streamIndex: 0, streamType: 'Video', codec: 'h264' },
+          { mediaId: mkv.id, streamIndex: 1, streamType: 'Audio', codec: 'aac' },
+          { mediaId: mp4.id, streamIndex: 0, streamType: 'Video', codec: 'hevc' },
+          { mediaId: mp4.id, streamIndex: 1, streamType: 'Audio', codec: 'aac' },
+        ],
+      });
+
+      expect(await service.getAvailableQualities(mkv.id)).toContain(ORIGINAL_QUALITY);
+      expect(await service.getAvailableQualities(mp4.id)).not.toContain(ORIGINAL_QUALITY);
+      expect(await service.generateMasterPlaylist(mkv.id)).toContain(`${ORIGINAL_QUALITY}.m3u8`);
+    });
+  });
+
+  describe('segment generation lifecycle', () => {
+    type Internals = {
+      ensureSegment: (
+        videoPath: string,
+        totalDuration: number,
+        quality: string,
+        segmentIndex: number,
+        audioTrack: string,
+        variantPath: string
+      ) => Promise<void>
+    };
+
+    beforeEach(() => {
+      spawned.length = 0;
+    });
+
+    it('encodes a segment once even when requested concurrently, and cleans up on timeout', async () => {
+      const quick = new HlsService({ segmentTimeoutMs: 30 });
+      const variant = path.join(cacheDir, 'm', 'adefault', '720p');
+      const internals = quick as unknown as Internals;
+
+      const a = internals.ensureSegment('/media/x.mkv', 60, '720p', 0, 'default', variant);
+      const b = internals.ensureSegment('/media/x.mkv', 60, '720p', 0, 'default', variant);
+
+      await expect(a).rejects.toThrow(/timed out/);
+      await expect(b).rejects.toThrow(/timed out/);
+      expect(spawned).toHaveLength(1);
+      expect(spawned[0].kill).toHaveBeenCalledWith('SIGKILL');
+      expect(quick.runningProcessCount).toBe(0);
+      expect(fs.existsSync(path.join(variant, '0.ts'))).toBe(false);
+    });
+
+    it('resolves when FFmpeg exits cleanly and releases the process', async () => {
+      const quick = new HlsService({ segmentTimeoutMs: 5000 });
+      const variant = path.join(cacheDir, 'm2', 'adefault', '480p');
+      const pending = (quick as unknown as Internals).ensureSegment('/media/y.mkv', 60, '480p', 1, 'default', variant);
+      await new Promise((r) => setImmediate(r));
+      expect(quick.runningProcessCount).toBe(1);
+      spawned[0].emit('close', 0);
+      await expect(pending).resolves.toBeUndefined();
+      expect(quick.runningProcessCount).toBe(0);
+    });
+
+    it('shutdown kills running encodes', async () => {
+      const quick = new HlsService({ segmentTimeoutMs: 5000 });
+      const variant = path.join(cacheDir, 'm3', 'adefault', '360p');
+      const pending = (quick as unknown as Internals).ensureSegment('/media/z.mkv', 60, '360p', 0, 'default', variant);
+      await new Promise((r) => setImmediate(r));
+      quick.shutdown();
+      await expect(pending).rejects.toThrow(/exited with code null/);
+      expect(spawned[0].kill).toHaveBeenCalled();
+    });
   });
 });
