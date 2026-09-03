@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -22,6 +22,8 @@ import {
   DialogActions,
 } from '@mui/material';
 import { Add, Delete, Public, Lock, Favorite, FavoriteBorder } from '@mui/icons-material';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { apiClient, type UserCollection, type UserCollectionType } from '../api/client';
 import { CreateCollectionDialog } from '../components/CreateCollectionDialog';
 import { Tooltip } from '@mui/material';
@@ -29,71 +31,42 @@ import { Tooltip } from '@mui/material';
 export function UserCollectionsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [myCollections, setMyCollections] = useState<UserCollection[]>([]);
-  const [publicCollections, setPublicCollections] = useState<UserCollection[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const myQuery = useApiQuery(queryKeys.userCollections, () => apiClient.getUserCollections());
+  // Public collections are a bonus row; a failure there should not blank the page.
+  const publicQuery = useApiQuery(queryKeys.publicCollections, () => apiClient.getPublicCollections());
+
+  const myCollections: UserCollection[] = myQuery.data?.userCollections ?? [];
+  const publicCollections: UserCollection[] = publicQuery.data?.userCollections ?? [];
+  const isLoading = myQuery.isPending;
+
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? myQuery.errorMessage;
+  const setError = setActionError;
+
+  /** Replace the cached list of the viewer's own collections. */
+  const setMyCollections = (update: (prev: UserCollection[]) => UserCollection[]) => {
+    queryClient.setQueryData<{ userCollections: UserCollection[] }>(queryKeys.userCollections, (prev) => ({
+      userCollections: update(prev?.userCollections ?? []),
+    }));
+  };
   const [tabIndex, setTabIndex] = useState(0);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<UserCollection | null>(null);
-  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      setIsLoading(true);
-      setError(null);
-
-      // Fetch user's collections
-      const myResult = await apiClient.getUserCollections();
-      if (cancelled) return;
-
-      if (myResult.error) {
-        setError(myResult.error);
-        setIsLoading(false);
-        return;
-      }
-
-      if (myResult.data) {
-        setMyCollections(myResult.data.userCollections);
-      }
-
-      // Fetch public collections
-      const publicResult = await apiClient.getPublicCollections();
-      if (cancelled) return;
-
-      let allCollectionIds: string[] = [];
-      if (publicResult.error) {
-        // Non-fatal - just don't show public collections
-        console.error('Failed to fetch public collections:', publicResult.error);
-      } else if (publicResult.data) {
-        setPublicCollections(publicResult.data.userCollections);
-        allCollectionIds = [...allCollectionIds, ...publicResult.data.userCollections.map((c) => c.id)];
-      }
-
-      // Check which collections are favorited
-      if (myResult.data) {
-        allCollectionIds = [...myResult.data.userCollections.map((c) => c.id), ...allCollectionIds];
-      }
-      if (allCollectionIds.length > 0) {
-        const favResult = await apiClient.checkFavorites(undefined, undefined, allCollectionIds);
-        if (cancelled) return;
-        if (favResult.data) {
-          setFavoritedIds(new Set(favResult.data.userCollectionIds));
-        }
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Which of these the viewer has favourited, asked for once both lists are in.
+  const collectionIds = [...myCollections.map((c) => c.id), ...publicCollections.map((c) => c.id)];
+  const favoritesQuery = useApiQuery(
+    ['user-collection-favorites', collectionIds.join(',')],
+    () => apiClient.checkFavorites(undefined, undefined, collectionIds),
+    { enabled: collectionIds.length > 0 }
+  );
+  const [locallyToggled, setLocallyToggled] = useState<Map<string, boolean>>(new Map());
+  const favoritedIds = new Set(favoritesQuery.data?.userCollectionIds ?? []);
+  for (const [id, favorited] of locallyToggled) {
+    if (favorited) favoritedIds.add(id);
+    else favoritedIds.delete(id);
+  }
 
   const handleCollectionClick = (collectionId: string) => {
     navigate(`/my-collections/${collectionId}`);
@@ -121,15 +94,7 @@ export function UserCollectionsPage() {
     e.stopPropagation();
     const result = await apiClient.toggleFavorite({ userCollectionId: collection.id });
     if (result.data) {
-      setFavoritedIds((prev) => {
-        const next = new Set(prev);
-        if (result.data!.favorited) {
-          next.add(collection.id);
-        } else {
-          next.delete(collection.id);
-        }
-        return next;
-      });
+      setLocallyToggled((prev) => new Map(prev).set(collection.id, result.data!.favorited));
     }
   };
 

@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -181,9 +183,31 @@ export function UserCollectionPage() {
   const { user } = useAuth();
   const { playMedia, refreshQueue } = usePlayer();
 
-  const [collection, setCollection] = useState<UserCollection | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const collectionQuery = useApiQuery(
+    queryKeys.userCollection(collectionId ?? ''),
+    () => apiClient.getUserCollection(collectionId!),
+    { enabled: Boolean(collectionId) }
+  );
+  const collection: UserCollection | null = collectionQuery.data?.userCollection ?? null;
+  const isLoading = collectionQuery.isPending;
+
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? collectionQuery.errorMessage;
+  const setError = setActionError;
+
+  /** Write a collection the server returned, or an edit of it, into the cache. */
+  const setCollection = (
+    next: UserCollection | ((prev: UserCollection | null) => UserCollection | null)
+  ) => {
+    queryClient.setQueryData<{ userCollection: UserCollection }>(
+      queryKeys.userCollection(collectionId ?? ''),
+      (prev) => {
+        const resolved = typeof next === 'function' ? next(prev?.userCollection ?? null) : next;
+        return resolved ? { userCollection: resolved } : prev;
+      }
+    );
+  };
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -193,7 +217,16 @@ export function UserCollectionPage() {
   const [sortField, setSortField] = useState<SortField>('dateAdded');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [excludedTypes, setExcludedTypes] = useState<Set<string>>(new Set());
-  const [isFavorited, setIsFavorited] = useState(false);
+  // Asked for separately: the favourite flag lives on the viewer, not the list.
+  const favoritesQuery = useApiQuery(
+    ['user-collection-favorite', collectionId ?? ''],
+    () => apiClient.checkFavorites(undefined, undefined, [collectionId!]),
+    { enabled: Boolean(collectionId) }
+  );
+  const [favoriteOverride, setFavoriteOverride] = useState<boolean | null>(null);
+  const isFavorited =
+    favoriteOverride ?? (favoritesQuery.data?.userCollectionIds.includes(collectionId ?? '') ?? false);
+  const setIsFavorited = setFavoriteOverride;
 
   const isOwner = collection?.userId === user?.id;
   const isPlaylist = collection?.collectionType === 'Playlist';
@@ -209,41 +242,6 @@ export function UserCollectionPage() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
-
-  useEffect(() => {
-    if (!collectionId) return;
-
-    let cancelled = false;
-
-    async function fetchData() {
-      setIsLoading(true);
-      setError(null);
-
-      const result = await apiClient.getUserCollection(collectionId!);
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        setCollection(result.data.userCollection);
-
-        // Check if this collection is favorited
-        const favResult = await apiClient.checkFavorites(undefined, undefined, [collectionId!]);
-        if (cancelled) return;
-        if (favResult.data) {
-          setIsFavorited(favResult.data.userCollectionIds.includes(collectionId!));
-        }
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [collectionId]);
 
   // Sort options for the dropdown
   const sortOptions: SortOption[] = useMemo(() => [

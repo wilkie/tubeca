@@ -243,12 +243,15 @@ the viewport, and the content scrolls over it; a 32px gradient at the bottom fad
 `mt: -38px`) to escape the container padding and swaps from transparent/light text to
 `background.paper` once `window.scrollY > 80`.
 
-`CollectionPage`, `MediaPage`, `PersonPage`, `HomePage`, `QueuePage`, `FavoritesPage` and
-`WatchLaterPage` read through `useApiQuery`; the shape a page renders is unchanged
-(`isPending` → `CircularProgress`, an error message → `Alert`, `null` → "not found" `Alert`),
-but the fetching, the cancellation and the error state are the cache's. `SettingsPage`,
-`LibrariesPage`, `UsersPage`, `UserCollectionsPage`, `UserCollectionPage` and `SearchPage` still
-carry their own effects. The "add to most recent user collection" behaviour is now
+`CollectionPage`, `MediaPage`, `PersonPage`, `HomePage`, `QueuePage`, `FavoritesPage`,
+`WatchLaterPage`, `UsersPage`, `LibrariesPage`, `UserCollectionsPage` and `UserCollectionPage`
+read through `useApiQuery`; the shape a page renders is unchanged (`isPending` →
+`CircularProgress`, an error message → `Alert`, `null` → "not found" `Alert`), but the fetching,
+the cancellation and the error state are the cache's. `LibrariesPage` polls through
+`refetchInterval`, which returns 2 s while any scan in the response is running and false
+otherwise, in place of its own `setInterval` and ref. Two pages still carry their own effects:
+`SearchPage`, whose pagination wants `useInfiniteQuery` alongside `LibraryPage`'s, and
+`SettingsPage`, whose fetch seeds a dozen controlled inputs and is single-use anyway. The "add to most recent user collection" behaviour is now
 `useAddToRecentCollection` plus `RecentCollectionMenuItem`, used by `CardQuickActions`,
 `FilmHeroView`, `ShowHeroView`, `StandardCollectionView` and `MediaPage`; the list is fetched
 only while an add menu is open.
@@ -328,8 +331,8 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - `0229cc8` 2025-12-01 Library tabs in the header (`ActiveLibraryContext`).
 - `24d1114` 2025-12-01 `CLAUDE.md`, Users admin page, route restructure.
 - `d7d4c32` 2025-12-01 Lint forces semicolons; `c3a9f25` 2025-12-02 husky pre-commit lint+typecheck.
-- 2026-09-03 TanStack Query adopted: `useApiQuery` adapter and a `queryKeys` table, shared
-  library/collection/media reads, `LibraryPage` split into `useLibraryCollections`,
+- 2026-09-03 TanStack Query adopted: `useApiQuery` adapter and a `queryKeys` table, eleven
+  pages and two contexts converted, shared library/collection/media reads, `LibraryPage` split into `useLibraryCollections`,
   `LibraryToolbar` and the collection cards, routes lazy-loaded, view mode and sort persisted
   per library, and the five copies of "add to most recent collection" replaced by one hook.
 - `68cf1ce`…`30f5a7a` 2025-12-01 Page-by-page test push (LibraryPage, MediaPage, PersonPage, UsersPage, Header, Sidebar, ImagesDialog, contexts).
@@ -368,10 +371,9 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   untranslated.
 - **Filters are not persisted.** View mode and sort are remembered per library, but excluded
   ratings and selected keywords are not, so returning to a library clears them.
-- **Half the pages are converted.** `SettingsPage`, `LibrariesPage`, `UsersPage`,
-  `UserCollectionsPage`, `UserCollectionPage` and `SearchPage` still keep their own
-  `cancelled`-flag effects, so `LibrariesPage`'s scan polling and `SearchPage`'s pagination do
-  not benefit from the cache yet.
+- **`SearchPage` is not converted.** It keeps its own `cancelled`-free `performSearch`, so its
+  pagination does not benefit from the cache. `SettingsPage` is left deliberately: its fetch
+  seeds twelve controlled inputs once.
 - **The scroll-restoration cache still stores data.** With a query cache in place, a library
   page revisited within the cache window could render from it and restore only the scroll
   offset, but `LibraryPage` and `SearchPage` still snapshot their rows.
@@ -394,10 +396,8 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Opportunities
 
-- **Finish the query migration** (M): `SettingsPage`, `LibrariesPage`, `UsersPage`,
-  `UserCollectionsPage`, `UserCollectionPage` and `SearchPage` still hand-roll their effects;
-  `LibrariesPage`'s scan poll wants `refetchInterval` and `SearchPage`/`LibraryPage` want
-  `useInfiniteQuery`, which would in turn let `ScrollRestorationContext` drop its data snapshot
+- **Move the two paginated pages to `useInfiniteQuery`** (M): `LibraryPage` and `SearchPage`
+  still page by hand, and doing this would let `ScrollRestorationContext` drop its data snapshot
   and restore only the scroll offset.
 - **Load hls.js on demand** (S): a dynamic `import('hls.js')` inside `PlayerContext` would take
   the largest dependency out of the initial download now that routes are split.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -25,6 +25,9 @@ import {
 } from '@mui/material';
 import { Add, Edit, Delete, Refresh, Stop, Visibility, VisibilityOff, ExpandMore } from '@mui/icons-material';
 import { apiClient, type Library, type ScanStatusResponse } from '../api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
+import { useLibraries } from '../hooks/useLibraries';
 import { LibraryDialog } from '../components/LibraryDialog';
 
 interface ScanState {
@@ -33,84 +36,56 @@ interface ScanState {
 
 export function LibrariesPage() {
   const { t } = useTranslation();
-  const [libraries, setLibraries] = useState<Library[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const librariesQuery = useLibraries();
+  const libraries = librariesQuery.libraries;
+
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [loadErrorDismissed, setLoadErrorDismissed] = useState(false);
+  const error = actionError ?? (loadErrorDismissed ? null : librariesQuery.errorMessage);
+  const setError = (message: string | null) => {
+    setActionError(message);
+    if (message === null) setLoadErrorDismissed(true);
+  };
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null);
-  const [scanStates, setScanStates] = useState<ScanState>({});
-  const pollIntervalRef = useRef<number | null>(null);
   const [scanMenuAnchor, setScanMenuAnchor] = useState<{ element: HTMLElement; libraryId: string } | null>(null);
 
+  const libraryIds = libraries.map((l) => l.id);
+  const scanStatusKey = ['library-scan-status', libraryIds.join(',')];
+
+  // Scan progress is the one thing on this page that changes without the
+  // viewer doing anything, so it polls, but only while a scan is running.
+  const scanQuery = useApiQuery<ScanState>(
+    scanStatusKey,
+    async () => {
+      const statuses: ScanState = {};
+      await Promise.all(
+        libraryIds.map(async (id) => {
+          const result = await apiClient.getLibraryScanStatus(id);
+          if (result.data) statuses[id] = result.data;
+        })
+      );
+      return { data: statuses };
+    },
+    {
+      enabled: libraryIds.length > 0,
+      refetchInterval: (query) =>
+        Object.values(query.state.data ?? {}).some((state) => state.scanning) ? 2000 : false,
+    }
+  );
+  const scanStates: ScanState = scanQuery.data ?? {};
+  const isLoading = librariesQuery.isPending;
+
+  /** Merge a status we already know into the polled map. */
+  const setScanStates = (update: (prev: ScanState) => ScanState) => {
+    queryClient.setQueryData<ScanState>(scanStatusKey, (prev) => update(prev ?? {}));
+  };
+
   const loadLibraries = useCallback(async () => {
-    const result = await apiClient.getLibraries();
-    if (result.error) {
-      setError(result.error);
-    } else if (result.data) {
-      setLibraries(result.data.libraries);
-    }
-    setIsLoading(false);
-  }, []);
-
-  const loadScanStatuses = useCallback(async (libraryIds: string[]) => {
-    const statuses: ScanState = {};
-    await Promise.all(
-      libraryIds.map(async (id) => {
-        const result = await apiClient.getLibraryScanStatus(id);
-        if (result.data) {
-          statuses[id] = result.data;
-        }
-      })
-    );
-    setScanStates(statuses);
-    return statuses;
-  }, []);
-
-  // Initial load
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      const result = await apiClient.getLibraries();
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        setLibraries(result.data.libraries);
-        // Load initial scan statuses
-        await loadScanStatuses(result.data.libraries.map((l) => l.id));
-      }
-      setIsLoading(false);
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadScanStatuses]);
-
-  // Poll for scan status updates when any scan is active
-  useEffect(() => {
-    const hasActiveScans = Object.values(scanStates).some((s) => s.scanning);
-
-    if (hasActiveScans && !pollIntervalRef.current) {
-      pollIntervalRef.current = window.setInterval(() => {
-        loadScanStatuses(libraries.map((l) => l.id));
-      }, 2000);
-    } else if (!hasActiveScans && pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [scanStates, libraries, loadScanStatuses]);
+    await librariesQuery.refetch();
+  }, [librariesQuery]);
 
   const handleCreate = () => {
     setEditingLibrary(null);
@@ -131,7 +106,9 @@ export function LibrariesPage() {
     if (result.error) {
       setError(result.error);
     } else {
-      setLibraries(libraries.filter((lib) => lib.id !== id));
+      queryClient.setQueryData<{ libraries: Library[] }>(queryKeys.libraries, (prev) =>
+        prev ? { libraries: prev.libraries.filter((lib) => lib.id !== id) } : prev
+      );
     }
   };
 

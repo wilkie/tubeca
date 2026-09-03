@@ -280,8 +280,9 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 6. ~~**Frontend data layer**~~ Done 2026-09-03: TanStack Query adopted behind a `useApiQuery`
    adapter, duplicate library and route lookups shared through the cache, `LibraryPage` split
    into a hook plus a toolbar and card components, routes lazy-loaded, view mode and sort
-   persisted per library, and one `useAddToRecentCollection` in place of five copies. Six
-   pages still hand-roll their fetches ([Frontend App](frontend-app.md)).
+   persisted per library, and one `useAddToRecentCollection` in place of five copies. Only
+   `SearchPage` and `SettingsPage` still hand-roll their fetches
+   ([Frontend App](frontend-app.md)).
 7. **Import polish** (S batch, plus M for sidecars): async `fs` in the scan, symlink cycle guard
    and depth cap, handle chokidar `change`, re-watch on library path change, per-library scan
    concurrency, dry-run for removals; then subtitle sidecar import and a directory picker.

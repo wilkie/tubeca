@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -26,6 +26,8 @@ import {
 } from '@mui/material';
 import { Add, Edit, Delete } from '@mui/icons-material';
 import { apiClient, type User, type Group } from '../api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { UserDialog } from '../components/UserDialog';
 import { useAuth } from '../context/AuthContext';
 
@@ -53,10 +55,23 @@ function TabPanel(props: TabPanelProps) {
 export function UsersPage() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState<User[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const usersQuery = useApiQuery(queryKeys.users, () => apiClient.getUsers());
+  const groupsQuery = useApiQuery(queryKeys.groups, () => apiClient.getGroups());
+  const users: User[] = usersQuery.data?.users ?? [];
+  const groups: Group[] = groupsQuery.data?.groups ?? [];
+  const isLoading = usersQuery.isPending || groupsQuery.isPending;
+
+  // Errors from a delete are shown in the same alert as a failed load, and
+  // can be dismissed.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [loadErrorDismissed, setLoadErrorDismissed] = useState(false);
+  const loadError = usersQuery.errorMessage ?? groupsQuery.errorMessage;
+  const error = actionError ?? (loadErrorDismissed ? null : loadError);
+  const setError = (message: string | null) => {
+    setActionError(message);
+    if (message === null) setLoadErrorDismissed(true);
+  };
   const [tabValue, setTabValue] = useState(0);
 
   // User dialog state
@@ -70,59 +85,10 @@ export function UsersPage() {
   const [isGroupSaving, setIsGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
 
+  /** Re-read both lists after a dialog saved something. */
   const loadData = useCallback(async () => {
-    const [usersResult, groupsResult] = await Promise.all([
-      apiClient.getUsers(),
-      apiClient.getGroups(),
-    ]);
-
-    if (usersResult.error) {
-      setError(usersResult.error);
-    } else if (usersResult.data) {
-      setUsers(usersResult.data.users);
-    }
-
-    if (groupsResult.error) {
-      setError(groupsResult.error);
-    } else if (groupsResult.data) {
-      setGroups(groupsResult.data.groups);
-    }
-
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      const [usersResult, groupsResult] = await Promise.all([
-        apiClient.getUsers(),
-        apiClient.getGroups(),
-      ]);
-
-      if (cancelled) return;
-
-      if (usersResult.error) {
-        setError(usersResult.error);
-      } else if (usersResult.data) {
-        setUsers(usersResult.data.users);
-      }
-
-      if (groupsResult.error) {
-        setError(groupsResult.error);
-      } else if (groupsResult.data) {
-        setGroups(groupsResult.data.groups);
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    await Promise.all([usersQuery.refetch(), groupsQuery.refetch()]);
+  }, [usersQuery, groupsQuery]);
 
   // User handlers
   const handleCreateUser = () => {
@@ -144,7 +110,9 @@ export function UsersPage() {
     if (result.error) {
       setError(result.error);
     } else {
-      setUsers(users.filter((u) => u.id !== id));
+      queryClient.setQueryData<{ users: User[] }>(queryKeys.users, (prev) =>
+        prev ? { users: prev.users.filter((u) => u.id !== id) } : prev
+      );
     }
   };
 
@@ -182,7 +150,9 @@ export function UsersPage() {
     if (result.error) {
       setError(result.error);
     } else {
-      setGroups(groups.filter((g) => g.id !== id));
+      queryClient.setQueryData<{ groups: Group[] }>(queryKeys.groups, (prev) =>
+        prev ? { groups: prev.groups.filter((g) => g.id !== id) } : prev
+      );
     }
   };
 
