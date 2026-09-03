@@ -86,3 +86,30 @@ describe('/api/watch', () => {
     expect((await request(app).get('/api/watch/continue')).status).toBe(401);
   });
 });
+
+describe('/api/watch batch endpoints', () => {
+  beforeEach(resetDatabase);
+
+  it('serves progress batches and collection summaries', async () => {
+    const library = await createLibrary();
+    const film = await createCollection({ libraryId: library.id, name: 'Film' });
+    const media = await createVideoMedia({ path: '/f.mkv', duration: 600, collectionId: film.id });
+    const user = await createUser();
+    await request(app).put(`/api/watch/${media.id}`).set('Authorization', user.authHeader).send({ position: 100 });
+
+    const batch = await request(app).get(`/api/watch/batch?mediaIds=${media.id},other`).set('Authorization', user.authHeader);
+    expect(batch.status).toBe(200);
+    expect(Object.keys(batch.body.progress)).toEqual([media.id]);
+
+    const summaries = await request(app).get(`/api/watch/collections?ids=${film.id}`).set('Authorization', user.authHeader);
+    expect(summaries.status).toBe(200);
+    expect(summaries.body.summaries[film.id]).toMatchObject({ total: 1, watched: 0, inProgress: 1 });
+  });
+
+  it('rejects missing or oversized id lists', async () => {
+    const user = await createUser();
+    expect((await request(app).get('/api/watch/batch').set('Authorization', user.authHeader)).status).toBe(400);
+    const tooMany = Array.from({ length: 201 }, (_, i) => `id${i}`).join(',');
+    expect((await request(app).get(`/api/watch/collections?ids=${tooMany}`).set('Authorization', user.authHeader)).status).toBe(400);
+  });
+});

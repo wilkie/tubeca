@@ -12,6 +12,7 @@ import { CollectionOptionsMenu } from '../components/CollectionOptionsMenu';
 import { DeleteCollectionDialog } from '../components/DeleteCollectionDialog';
 import { IdentifyDialog } from '../components/IdentifyDialog';
 import { ScrapeStatusAlert } from '../components/ScrapeStatusAlert';
+import { useWatchState } from '../hooks/useWatchState';
 import { FilmHeroView } from '../components/FilmHeroView';
 import { ShowHeroView } from '../components/ShowHeroView';
 import { StandardCollectionView } from '../components/StandardCollectionView';
@@ -285,6 +286,10 @@ export function CollectionPage() {
     [collection?.media]
   );
 
+  const mediaIds = useMemo(() => rawMedia.map((m) => m.id), [rawMedia]);
+  const childIds = useMemo(() => childCollections.map((c) => c.id), [childCollections]);
+  const watch = useWatchState({ mediaIds, collectionIds: childIds });
+
   // Filter children and media by quick search query
   const filteredChildren = useMemo(() => {
     if (!quickSearchQuery) return childCollections;
@@ -354,6 +359,8 @@ export function CollectionPage() {
           onPersonClick={handlePersonClick}
           onMenuOpen={handleMenuOpen}
           onAddToCollection={handleAddToCollection}
+          watchProgress={watch.progress[primaryMedia.id]}
+          onWatchedChange={watch.setWatched}
         />
       );
     }
@@ -374,6 +381,7 @@ export function CollectionPage() {
           onMenuOpen={handleMenuOpen}
           onAddToCollection={handleAddToCollection}
           onAddSeasonToCollection={handleAddChildToCollection}
+          watchSummaries={watch.summaries}
         />
       );
     }
@@ -409,6 +417,9 @@ export function CollectionPage() {
           onMediaClick={handleMediaClick}
           onMenuOpen={handleMenuOpen}
           onAddToCollection={handleAddToCollection}
+          watchProgress={watch.progress}
+          watchSummaries={watch.summaries}
+          onWatchedChange={watch.setWatched}
         />
       </>
     );

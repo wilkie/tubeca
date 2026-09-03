@@ -28,6 +28,8 @@ import type { BreadcrumbItem } from './CollectionBreadcrumbs';
 import { CastCrewGrid } from './CastCrewGrid';
 import { FavoriteButton } from './FavoriteButton';
 import { WatchLaterButton } from './WatchLaterButton';
+import { WatchedToggleButton } from './WatchedToggleButton';
+import type { WatchProgress } from '../api/client';
 
 interface FilmCreditWithPerson extends FilmCredit {
   person?: {
@@ -58,6 +60,8 @@ interface FilmHeroViewProps {
   onPersonClick: (personId: string) => void;
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
   onAddToCollection?: () => void;
+  watchProgress?: WatchProgress | null;
+  onWatchedChange?: (mediaId: string, watched: boolean) => Promise<boolean> | boolean | void;
 }
 
 export function FilmHeroView({
@@ -74,6 +78,8 @@ export function FilmHeroView({
   onPersonClick,
   onMenuOpen,
   onAddToCollection,
+  watchProgress,
+  onWatchedChange,
 }: FilmHeroViewProps) {
   const { t } = useTranslation();
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
@@ -382,7 +388,15 @@ export function FilmHeroView({
             )}
 
             {/* Action Buttons */}
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {onWatchedChange && (
+                <WatchedToggleButton
+                  mediaId={primaryMedia.id}
+                  watched={watchProgress?.completed ?? false}
+                  onChange={onWatchedChange}
+                  variant="button"
+                />
+              )}
               <Box sx={{ display: 'flex' }}>
                 <Button
                   variant="contained"

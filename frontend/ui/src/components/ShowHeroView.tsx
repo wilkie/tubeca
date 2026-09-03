@@ -38,6 +38,8 @@ import type { BreadcrumbItem } from './CollectionBreadcrumbs';
 import { FavoriteButton } from './FavoriteButton';
 import { WatchLaterButton } from './WatchLaterButton';
 import { CardQuickActions } from './CardQuickActions';
+import { WatchBadge } from './WatchBadge';
+import type { CollectionWatchSummary } from '../api/client';
 
 interface ShowCreditWithPerson extends ShowCredit {
   person?: {
@@ -73,6 +75,7 @@ interface ShowHeroViewProps {
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
   onAddToCollection?: () => void;
   onAddSeasonToCollection?: (season: ChildCollection) => void;
+  watchSummaries?: Record<string, CollectionWatchSummary>;
 }
 
 export function ShowHeroView({
@@ -89,6 +92,7 @@ export function ShowHeroView({
   onMenuOpen,
   onAddToCollection,
   onAddSeasonToCollection,
+  watchSummaries,
 }: ShowHeroViewProps) {
   const { t } = useTranslation();
 
@@ -553,6 +557,7 @@ export function ShowHeroView({
                       initialInWatchLater={watchLaterIds.has(season.id)}
                       onAddToCollection={onAddSeasonToCollection ? () => onAddSeasonToCollection(season) : undefined}
                     />
+                    <WatchBadge kind="collection" summary={watchSummaries?.[season.id]} />
                   </Card>
                 </Grid>
               );

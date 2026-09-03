@@ -271,5 +271,13 @@
     "failed": "Metadata lookup failed",
     "identify": "Identify",
     "retry": "Retry"
+  },
+  "watch": {
+    "watched": "Watched",
+    "markWatched": "Mark as watched",
+    "markUnwatched": "Mark as unwatched",
+    "remaining": "{{count}} left",
+    "remaining_one": "{{count}} left",
+    "progress": "{{percent}}% watched"
   }
 }

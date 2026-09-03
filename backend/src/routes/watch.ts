@@ -9,6 +9,13 @@ const mediaAccess = requireLibraryAccess(mediaParam('mediaId'));
 
 router.use(authenticate);
 
+/** Parse a comma-separated id list; null when empty, malformed or too long. */
+function parseIdList(raw: unknown): string[] | null {
+  if (typeof raw !== 'string') return null;
+  const ids = [...new Set(raw.split(',').map((id) => id.trim()).filter(Boolean))];
+  return ids.length >= 1 && ids.length <= 200 ? ids : null;
+}
+
 /**
  * @openapi
  * /api/watch/continue:
@@ -40,6 +47,73 @@ router.get('/continue', async (req, res) => {
     res.json({ items });
   } catch {
     res.status(500).json({ error: 'Failed to fetch continue watching' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/watch/batch:
+ *   get:
+ *     tags:
+ *       - Watch Progress
+ *     summary: Progress for several media items
+ *     parameters:
+ *       - in: query
+ *         name: mediaIds
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Comma-separated media ids (max 200)
+ *     responses:
+ *       200:
+ *         description: Map of media id to progress; never-played ids are absent
+ */
+router.get('/batch', async (req, res) => {
+  const ids = parseIdList(req.query.mediaIds);
+  if (!ids) {
+    return res.status(400).json({ error: 'mediaIds must list 1-200 ids' });
+  }
+  try {
+    const progress = await watchProgressService.getProgressBatch(req.user!.userId, ids);
+    res.json({ progress });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch watch progress' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/watch/collections:
+ *   get:
+ *     tags:
+ *       - Watch Progress
+ *     summary: Watched/total summaries for collections
+ *     description: Counts media across each collection's whole subtree. Collections in inaccessible libraries are omitted.
+ *     parameters:
+ *       - in: query
+ *         name: ids
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Comma-separated collection ids (max 200)
+ *     responses:
+ *       200:
+ *         description: Map of collection id to { total, watched, inProgress, resume? }
+ */
+router.get('/collections', async (req, res) => {
+  const ids = parseIdList(req.query.ids);
+  if (!ids) {
+    return res.status(400).json({ error: 'ids must list 1-200 ids' });
+  }
+  try {
+    const summaries = await watchProgressService.getCollectionSummaries(
+      req.user!.userId,
+      req.user!.role === 'Admin',
+      ids
+    );
+    res.json({ summaries });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch watch summaries' });
   }
 });
 

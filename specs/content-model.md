@@ -373,9 +373,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - **More route/service tests** on the real-SQLite scaffolding in `backend/src/test/`: cycle
   detection, delete file cleanup, Identify upsert, person id-merge priority, and supertest
   coverage of the three routers. (M)
-- **Embed watch progress in detail responses** (S): `getCollectionById` and `getMediaById` do
-  not know the user; a per-user overlay (or a batch progress endpoint) is needed before cards
-  can show watched state. See [Playback](playback.md).
 - **Populate music details** or drop the unwritten tables/types to reduce surface area. (L to
   implement a MusicBrainz scraper; S to prune.)
 - **Delete dead service methods** (`searchMedia`, `processMedia`, `updateMedia`,

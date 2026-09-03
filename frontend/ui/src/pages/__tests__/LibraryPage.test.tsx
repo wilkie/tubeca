@@ -20,6 +20,10 @@ jest.mock('../../api/client', () => ({
   apiClient: {
     getLibrary: jest.fn(),
     getCollectionsByLibrary: jest.fn(),
+    getWatchProgressBatch: jest.fn().mockReturnValue(new Promise(() => {})),
+    getCollectionWatchSummaries: jest.fn().mockReturnValue(new Promise(() => {})),
+    markWatched: jest.fn().mockResolvedValue({ data: { progress: { completed: true } } }),
+    clearWatchProgress: jest.fn().mockResolvedValue({ data: undefined }),
     getKeywordsByLibrary: jest.fn().mockResolvedValue({ data: { keywords: [] } }),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
     checkFavorites: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),

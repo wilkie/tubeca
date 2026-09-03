@@ -854,3 +854,20 @@ export interface ContinueWatchingEntry {
 export interface ContinueWatchingResponse {
   items: ContinueWatchingEntry[]
 }
+
+/** Progress for several media items, keyed by media id; never-played ids are absent */
+export interface WatchProgressBatchResponse {
+  progress: Record<string, WatchProgress>
+}
+
+/** Watched/total roll-up for a collection and all of its descendants */
+export interface CollectionWatchSummary {
+  total: number
+  watched: number
+  inProgress: number
+  resume?: { mediaId: string; position: number; duration: number }
+}
+
+export interface CollectionWatchSummariesResponse {
+  summaries: Record<string, CollectionWatchSummary>
+}

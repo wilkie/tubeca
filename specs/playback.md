@@ -250,6 +250,22 @@ Positions are persisted server-side in `WatchProgress` (one row per user and med
 progress bar and time left; clicking navigates to `/play/:id`, where the resume rule above
 applies. Only the quality level index and mini-player corner remain in `localStorage`.
 
+### Watched state on cards and lists
+
+`useWatchState({ mediaIds, collectionIds })` (`frontend/ui/src/hooks/useWatchState.ts`) loads
+`GET /api/watch/batch?mediaIds=` (progress rows keyed by media id) and
+`GET /api/watch/collections?ids=` (per-collection roll-ups over the whole subtree: `total`,
+`watched`, `inProgress`, and `resume` for the most recently played unfinished item), chunking at
+200 ids, and exposes `setWatched(mediaId, watched)` which calls `POST /:id/complete` or `DELETE
+/:id`, patches the local row and re-fetches the roll-ups. `WatchBadge` renders the state as a
+card overlay: a green check for watched media or fully watched collections, an "N left" pill once
+a collection has any watched or started items, and a thin progress bar for partly watched media
+and single-item collections (films). `WatchedToggleButton` is the mark watched/unwatched control.
+They are wired into `MediaGrid` (episode cards: badge plus an overlay toggle),
+`ChildCollectionGrid` and `ShowHeroView` (season cards), `LibraryPage` (film and show cards in
+both grid and list views), `FilmHeroView` and `MediaPage` (a labelled toggle beside Play).
+Collections in libraries the user cannot access are omitted from the summaries endpoint.
+
 ## Interactions
 
 - **Depends on:** [Streaming and Transcoding](streaming-and-transcoding.md) for
@@ -286,12 +302,13 @@ applies. Only the quality level index and mini-player corner remain in `localSto
 - `fc7c3a8` 2025-12-17 Remember last stable quality level in `localStorage`.
 - `0fc5947` 2025-12-19 `maxConcurrentTranscodes` semaphore; prefetch count follows `prefetchSegments` (no forced minimum of 3).
 - 2026-09-03 Resume on play, throttled progress reporting, mark-watched on `ended`, and the Continue Watching strip on `HomePage` (`ContinueWatchingRow`); `PlayerContext` tests cover the resume rule and reporting.
+- 2026-09-03 Watched badges and progress bars on library, season and episode cards; mark watched/unwatched on cards, film hero and media page; batch progress and collection summary endpoints.
 
 ## Known Limitations
 
-- **Watched state is not surfaced on cards.** Progress bars and watched badges appear only in
-  Continue Watching; episode lists, `MediaPage` and library grids do not show them, and there is
-  no "mark as watched/unwatched" control although the endpoints exist.
+- **Watched state is not shown on search results, user collections or the queue.** Those pages
+  do not call `useWatchState`; the badge components are ready but unwired there.
+- **Marking a whole season or show watched is one item at a time.** There is no bulk endpoint.
 - **Progress reports are fire-and-forget.** A failed `PUT /api/watch` is not retried, and the
   last position can be lost if the tab is closed mid-playback without a pause (no
   `beforeunload`/`visibilitychange` flush, no `sendBeacon`).
@@ -330,9 +347,9 @@ applies. Only the quality level index and mini-player corner remain in `localSto
 
 ## Opportunities
 
-- **Show watch state everywhere** (M): a batch `GET /api/watch?mediaIds=` (or progress embedded
-  in collection detail responses) so episode lists and cards can show progress bars, watched
-  ticks and unwatched counts; add mark watched/unwatched to `CardQuickActions` and `MediaPage`.
+- **Wire `useWatchState` into search, user collection and queue pages** (S) and add a
+  "mark all watched" action on seasons and shows backed by a bulk endpoint (M).
+- **Skip watched episodes in Up Next / auto-play** (S) now that the player can ask.
 - **Flush progress on tab close** (S): `visibilitychange`/`pagehide` handlers using
   `navigator.sendBeacon` (the endpoint would need to accept a beacon-friendly body).
 - **Next-episode from Continue Watching** (S): when a completed episode has a successor, show

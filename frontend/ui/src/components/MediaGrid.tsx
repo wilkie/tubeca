@@ -8,7 +8,9 @@ import {
   CardMedia,
 } from '@mui/material';
 import { VideoFile, AudioFile } from '@mui/icons-material';
-import { apiClient, type CollectionType, type Image } from '../api/client';
+import { apiClient, type CollectionType, type Image, type WatchProgress } from '../api/client';
+import { WatchBadge } from './WatchBadge';
+import { WatchedToggleButton } from './WatchedToggleButton';
 
 interface MediaItem {
   id: string;
@@ -29,6 +31,10 @@ interface MediaGridProps {
   collectionType?: CollectionType;
   onMediaClick: (mediaId: string) => void;
   title?: string;
+  /** Per-media watch state, keyed by media id */
+  watchProgress?: Record<string, WatchProgress>;
+  /** When provided, cards get a mark-watched toggle */
+  onWatchedChange?: (mediaId: string, watched: boolean) => Promise<boolean> | boolean | void;
 }
 
 export function MediaGrid({
@@ -36,6 +42,8 @@ export function MediaGrid({
   collectionType,
   onMediaClick,
   title,
+  watchProgress,
+  onWatchedChange,
 }: MediaGridProps) {
   const { t } = useTranslation();
 
@@ -94,7 +102,7 @@ export function MediaGrid({
           return (
             <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={item.id}>
               <Card
-                sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}
               >
                 <CardActionArea
                   onClick={() => onMediaClick(item.id)}
@@ -161,6 +169,15 @@ export function MediaGrid({
                     </CardContent>
                   )}
                 </CardActionArea>
+                <WatchBadge kind="media" progress={watchProgress?.[item.id]} />
+                {onWatchedChange && item.type === 'Video' && (
+                  <WatchedToggleButton
+                    mediaId={item.id}
+                    watched={watchProgress?.[item.id]?.completed ?? false}
+                    onChange={onWatchedChange}
+                    overlay
+                  />
+                )}
               </Card>
             </Grid>
           );

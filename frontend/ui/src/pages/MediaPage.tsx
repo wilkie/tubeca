@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -31,6 +31,8 @@ import {
 import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, FolderSpecial, ArrowDropDown, QueuePlayNext } from '@mui/icons-material';
 import { apiClient, type Media, type Image, type CollectionType, type UserCollection } from '../api/client';
 import { ScrapeStatusAlert } from '../components/ScrapeStatusAlert';
+import { WatchedToggleButton } from '../components/WatchedToggleButton';
+import { useWatchState } from '../hooks/useWatchState';
 import { StickyHeroBreadcrumbs } from '../components/StickyHeroBreadcrumbs';
 import type { BreadcrumbItem } from '../components/CollectionBreadcrumbs';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
@@ -74,6 +76,8 @@ export function MediaPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [media, setMedia] = useState<Media | null>(null);
+  const watchIds = useMemo(() => (mediaId ? [mediaId] : []), [mediaId]);
+  const watch = useWatchState({ mediaIds: watchIds });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
@@ -433,6 +437,14 @@ export function MediaPage() {
             >
               <MoreVert />
             </IconButton>
+            {media.type === 'Video' && (
+              <WatchedToggleButton
+                mediaId={media.id}
+                watched={watch.progress[media.id]?.completed ?? false}
+                onChange={watch.setWatched}
+                variant="button"
+              />
+            )}
             <Box sx={{ display: 'flex' }}>
               <Button
                 variant="contained"

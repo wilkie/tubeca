@@ -1086,6 +1086,26 @@ Media the current user has started but not finished, most recently played first.
 }
 ```
 
+### GET /watch/batch
+
+Progress for up to 200 media items: `?mediaIds=a,b,c`. Never-played ids are absent.
+
+**Response:**
+```json
+{ "progress": { "a": { "position": 600, "duration": 1200, "completed": false } } }
+```
+
+### GET /watch/collections
+
+Watched/total roll-ups for up to 200 collections over their whole subtree: `?ids=a,b`.
+Collections in libraries the user cannot access are omitted. `resume` is the most recently
+played unfinished item, when any.
+
+**Response:**
+```json
+{ "summaries": { "a": { "total": 10, "watched": 3, "inProgress": 1, "resume": { "mediaId": "m", "position": 400, "duration": 1000 } } } }
+```
+
 ### GET /watch/:mediaId
 
 Saved progress for one item, or `null` when never played.

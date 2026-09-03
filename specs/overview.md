@@ -181,12 +181,12 @@ files. What remains: renames lose metadata (no size/mtime matching), Identify st
 `Image` rows without files. See [Libraries](libraries-and-scanning.md),
 [Images](images.md), [Streaming](streaming-and-transcoding.md).
 
-### Watch state exists but is only surfaced in one place
+### Watch state
 
-Since 2026-09-03 playback position and watched state are persisted per user, resume works, and
-the home page has a Continue Watching strip. Episode lists, cards and the media page do not yet
-show progress or watched badges, and there is no mark-watched control. See
-[Playback](playback.md).
+Since 2026-09-03 playback position and watched state are persisted per user, resume works, the
+home page has a Continue Watching strip, and library, season and episode cards carry watched
+badges, remaining counts and progress bars with a mark-watched control. Search, user
+collections and the queue do not show it yet. See [Playback](playback.md).
 
 ### Music is hidden
 

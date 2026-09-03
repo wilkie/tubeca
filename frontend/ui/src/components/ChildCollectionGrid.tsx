@@ -8,7 +8,8 @@ import {
   CardMedia,
 } from '@mui/material';
 import { Folder, Tv, Person, Album } from '@mui/icons-material';
-import { apiClient, type CollectionType, type Image } from '../api/client';
+import { apiClient, type CollectionType, type Image, type CollectionWatchSummary } from '../api/client';
+import { WatchBadge } from './WatchBadge';
 
 interface ChildCollection {
   id: string;
@@ -23,6 +24,8 @@ interface ChildCollectionGridProps {
   onCollectionClick: (collectionId: string) => void;
   title?: string;
   fallbackImages?: Image[];
+  /** Watched/total roll-ups keyed by collection id */
+  watchSummaries?: Record<string, CollectionWatchSummary>;
 }
 
 function getCollectionIcon(collectionType?: CollectionType) {
@@ -46,6 +49,7 @@ export function ChildCollectionGrid({
   onCollectionClick,
   title,
   fallbackImages,
+  watchSummaries,
 }: ChildCollectionGridProps) {
   const { t } = useTranslation();
 
@@ -78,7 +82,7 @@ export function ChildCollectionGrid({
           return (
             <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={child.id}>
               <Card
-                sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}
               >
                 <CardActionArea
                   onClick={() => onCollectionClick(child.id)}
@@ -123,6 +127,7 @@ export function ChildCollectionGrid({
                     </CardContent>
                   )}
                 </CardActionArea>
+                <WatchBadge kind="collection" summary={watchSummaries?.[child.id]} />
               </Card>
             </Grid>
           );

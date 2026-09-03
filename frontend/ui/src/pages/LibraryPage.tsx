@@ -31,6 +31,8 @@ import { QuickSearchOverlay } from '../components/QuickSearchOverlay';
 import { SelectionActionBar } from '../components/SelectionActionBar';
 import { useQuickSearch } from '../hooks/useQuickSearch';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { useWatchState } from '../hooks/useWatchState';
+import { WatchBadge } from '../components/WatchBadge';
 
 type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
 
@@ -97,6 +99,8 @@ export function LibraryPage() {
   const { query: quickSearchQuery, isActive: isQuickSearchActive } = useQuickSearch();
   // Debounce the search query for API calls to avoid excessive requests
   const debouncedSearchQuery = useDebouncedValue(quickSearchQuery, 300);
+  const collectionIds = useMemo(() => collections.map((c) => c.id), [collections]);
+  const { summaries: watchSummaries } = useWatchState({ collectionIds });
 
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -732,6 +736,7 @@ export function LibraryPage() {
                                 )}
                               </Box>
                             )}
+                            <WatchBadge kind="collection" summary={watchSummaries[collection.id]} />
                             {/* Selection checkbox (visible in selection mode) */}
                             {isSelectionMode && (
                               <Box
@@ -857,6 +862,7 @@ export function LibraryPage() {
                               )}
                             </Box>
                           )}
+                          <WatchBadge kind="collection" summary={watchSummaries[collection.id]} />
                           {/* Selection checkbox (visible in selection mode) */}
                           {isSelectionMode && (
                             <Box

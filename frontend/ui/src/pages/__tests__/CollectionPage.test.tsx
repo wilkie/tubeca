@@ -37,6 +37,10 @@ const mockDeleteCollection = jest.fn();
 jest.mock('../../api/client', () => ({
   apiClient: {
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
+    getWatchProgressBatch: jest.fn().mockReturnValue(new Promise(() => {})),
+    getCollectionWatchSummaries: jest.fn().mockReturnValue(new Promise(() => {})),
+    markWatched: jest.fn().mockResolvedValue({ data: { progress: { completed: true } } }),
+    clearWatchProgress: jest.fn().mockResolvedValue({ data: undefined }),
     getImageUrl: jest.fn((id: string) => `http://localhost/api/images/${id}`),
     refreshCollectionMetadata: (...args: unknown[]) => mockRefreshCollectionMetadata(...args),
     refreshCollectionImages: (...args: unknown[]) => mockRefreshCollectionImages(...args),

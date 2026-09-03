@@ -97,3 +97,60 @@ describe('WatchProgressService', () => {
     expect((await service.getContinueWatching(outsider.id, true)).map((i) => i.mediaId)).toEqual([media.id]);
   });
 });
+
+describe('WatchProgressService batch and summaries', () => {
+  beforeEach(resetDatabase);
+
+  it('returns progress keyed by media id, omitting unplayed items', async () => {
+    const library = await createLibrary();
+    const film = await createCollection({ libraryId: library.id, name: 'F' });
+    const a = await createVideoMedia({ path: '/a.mkv', duration: 100, collectionId: film.id });
+    const b = await createVideoMedia({ path: '/b.mkv', duration: 100, collectionId: film.id });
+    const { user } = await createUser();
+    await service.recordProgress(user.id, a.id, 50);
+
+    const batch = await service.getProgressBatch(user.id, [a.id, b.id, 'nope']);
+    expect(Object.keys(batch)).toEqual([a.id]);
+    expect(batch[a.id].position).toBe(50);
+    expect(await service.getProgressBatch(user.id, [])).toEqual({});
+  });
+
+  it('rolls up watched, in-progress and resume over a show tree', async () => {
+    const library = await createLibrary({ libraryType: 'Television' });
+    const show = await createCollection({ libraryId: library.id, name: 'Show', collectionType: 'Show' });
+    const s1 = await createCollection({ libraryId: library.id, name: 'S1', collectionType: 'Season', parentId: show.id });
+    const s2 = await createCollection({ libraryId: library.id, name: 'S2', collectionType: 'Season', parentId: show.id });
+    const e1 = await createVideoMedia({ path: '/e1.mkv', duration: 1000, collectionId: s1.id });
+    const e2 = await createVideoMedia({ path: '/e2.mkv', duration: 1000, collectionId: s1.id });
+    const e3 = await createVideoMedia({ path: '/e3.mkv', duration: 1000, collectionId: s2.id });
+    const { user } = await createUser();
+    await service.markCompleted(user.id, e1.id);
+    await service.recordProgress(user.id, e2.id, 400);
+    await service.recordProgress(user.id, e3.id, 5); // below the resume threshold: neither
+
+    const summaries = await service.getCollectionSummaries(user.id, false, [show.id, s1.id, s2.id, 'missing']);
+    expect(summaries[show.id]).toEqual({
+      total: 3,
+      watched: 1,
+      inProgress: 1,
+      resume: { mediaId: e2.id, position: 400, duration: 1000 },
+    });
+    expect(summaries[s1.id]).toMatchObject({ total: 2, watched: 1, inProgress: 1 });
+    expect(summaries[s2.id]).toEqual({ total: 1, watched: 0, inProgress: 0 });
+    expect(summaries).not.toHaveProperty('missing');
+  });
+
+  it('omits collections in libraries the user cannot access', async () => {
+    const group = await createGroup();
+    const restricted = await createLibrary({ groupIds: [group.id] });
+    const film = await createCollection({ libraryId: restricted.id, name: 'Secret' });
+    await createVideoMedia({ path: '/s.mkv', duration: 10, collectionId: film.id });
+    const { user: outsider } = await createUser();
+    const { user: admin } = await createUser({ role: 'Admin' });
+
+    expect(await service.getCollectionSummaries(outsider.id, false, [film.id])).toEqual({});
+    expect(await service.getCollectionSummaries(admin.id, true, [film.id])).toEqual({
+      [film.id]: { total: 1, watched: 0, inProgress: 0 },
+    });
+  });
+});

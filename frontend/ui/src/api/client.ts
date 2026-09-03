@@ -84,6 +84,9 @@ import type {
   ContinueWatchingResponse,
   ContinueWatchingEntry,
   WatchProgress,
+  WatchProgressBatchResponse,
+  CollectionWatchSummary,
+  CollectionWatchSummariesResponse,
   ScrapeState,
   ScrapeStatus,
 } from '@tubeca/shared-types';
@@ -175,6 +178,9 @@ export type {
   ContinueWatchingResponse,
   ContinueWatchingEntry,
   WatchProgress,
+  WatchProgressBatchResponse,
+  CollectionWatchSummary,
+  CollectionWatchSummariesResponse,
   ScrapeState,
   ScrapeStatus,
 };
@@ -579,6 +585,18 @@ class ApiClient {
 
   async clearWatchProgress(mediaId: string): Promise<ApiResponse<void>> {
     return this.request<void>(`/watch/${mediaId}`, { method: 'DELETE' });
+  }
+
+  async getWatchProgressBatch(mediaIds: string[]): Promise<ApiResponse<WatchProgressBatchResponse>> {
+    return this.request<WatchProgressBatchResponse>(`/watch/batch?mediaIds=${encodeURIComponent(mediaIds.join(','))}`);
+  }
+
+  async getCollectionWatchSummaries(
+    collectionIds: string[]
+  ): Promise<ApiResponse<CollectionWatchSummariesResponse>> {
+    return this.request<CollectionWatchSummariesResponse>(
+      `/watch/collections?ids=${encodeURIComponent(collectionIds.join(','))}`
+    );
   }
 
   async getContinueWatching(limit?: number): Promise<ApiResponse<ContinueWatchingResponse>> {

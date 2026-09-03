@@ -11,6 +11,10 @@ jest.mock('../../api/client', () => ({
   apiClient: {
     getMedia: jest.fn(),
     deleteMedia: jest.fn(),
+    getWatchProgressBatch: jest.fn().mockReturnValue(new Promise(() => {})),
+    getCollectionWatchSummaries: jest.fn().mockReturnValue(new Promise(() => {})),
+    markWatched: jest.fn().mockResolvedValue({ data: { progress: { completed: true } } }),
+    clearWatchProgress: jest.fn().mockResolvedValue({ data: undefined }),
     refreshMediaMetadata: jest.fn(),
     refreshMediaImages: jest.fn(),
     getImageUrl: jest.fn((id: string) => `http://localhost/api/images/${id}`),

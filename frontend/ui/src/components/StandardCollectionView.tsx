@@ -16,7 +16,7 @@ import {
   Button,
 } from '@mui/material';
 import { CalendarMonth, MoreVert, Add, FolderSpecial, Folder, ExpandMore, ExpandLess } from '@mui/icons-material';
-import { apiClient, type Collection, type CollectionType, type Image, type UserCollection } from '../api/client';
+import { apiClient, type Collection, type CollectionType, type Image, type UserCollection, type WatchProgress, type CollectionWatchSummary } from '../api/client';
 import { ChildCollectionGrid } from './ChildCollectionGrid';
 import { MediaGrid } from './MediaGrid';
 import { FavoriteButton } from './FavoriteButton';
@@ -52,6 +52,9 @@ interface StandardCollectionViewProps {
   onMediaClick: (mediaId: string) => void;
   onMenuOpen: (event: React.MouseEvent<HTMLElement>) => void;
   onAddToCollection?: () => void;
+  watchProgress?: Record<string, WatchProgress>;
+  watchSummaries?: Record<string, CollectionWatchSummary>;
+  onWatchedChange?: (mediaId: string, watched: boolean) => Promise<boolean> | boolean | void;
 }
 
 function getCollectionLabel(collectionType?: CollectionType): string | null {
@@ -78,6 +81,9 @@ export function StandardCollectionView({
   onMediaClick,
   onMenuOpen,
   onAddToCollection,
+  watchProgress,
+  watchSummaries,
+  onWatchedChange,
 }: StandardCollectionViewProps) {
   const { t } = useTranslation();
 
@@ -522,6 +528,7 @@ export function StandardCollectionView({
               parentCollectionType={collection.collectionType}
               onCollectionClick={onCollectionClick}
               fallbackImages={collection.images}
+              watchSummaries={watchSummaries}
             />
           )}
 
@@ -531,6 +538,8 @@ export function StandardCollectionView({
               media={media}
               collectionType={collection.collectionType}
               onMediaClick={onMediaClick}
+              watchProgress={watchProgress}
+              onWatchedChange={onWatchedChange}
             />
           )}
         </>
