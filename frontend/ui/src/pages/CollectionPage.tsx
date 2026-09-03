@@ -11,6 +11,7 @@ import { StickyHeroBreadcrumbs } from '../components/StickyHeroBreadcrumbs';
 import { CollectionOptionsMenu } from '../components/CollectionOptionsMenu';
 import { DeleteCollectionDialog } from '../components/DeleteCollectionDialog';
 import { IdentifyDialog } from '../components/IdentifyDialog';
+import { ScrapeStatusAlert } from '../components/ScrapeStatusAlert';
 import { FilmHeroView } from '../components/FilmHeroView';
 import { ShowHeroView } from '../components/ShowHeroView';
 import { StandardCollectionView } from '../components/StandardCollectionView';
@@ -413,8 +414,17 @@ export function CollectionPage() {
     );
   };
 
+  const canIdentify = collection.collectionType === 'Show' || collection.collectionType === 'Film';
+
   return (
     <Container maxWidth={false} sx={{ py: 4 }}>
+      <ScrapeStatusAlert
+        scrapeStatus={collection.scrapeStatus}
+        scrapeMessage={collection.scrapeMessage}
+        canEdit={canEdit}
+        onIdentify={canIdentify ? handleIdentifyClick : undefined}
+        onRetry={handleRefreshMetadata}
+      />
       {renderView()}
 
       {/* Shared Dialogs and Menus */}

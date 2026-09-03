@@ -76,7 +76,9 @@
   `images[]`, `keywords[]` (implicit join table `_CollectionToKeyword`) and `userCollectionItems[]`.
   Indexed on `libraryId`, `parentId`, `collectionType`. There is no uniqueness constraint on
   `(libraryId, parentId, name)`; `ImportService.ensureCollection` de-duplicates with `findFirst`
-  before create.
+  before create. `scrapeStatus` (`Pending | Matched | NoMatch | Failed`), `scrapeMessage` and
+  `scrapedAt` record the last metadata scrape outcome (also on `Media`); see
+  [Metadata Scraping](metadata-scraping.md).
 - **Media** is single-table inheritance: `path`, `duration Int` (seconds, from ffprobe), `name`,
   `type`, optional `thumbnails` (trickplay folder path), `collectionId` with **`onDelete: SetNull`**
   (`schema.prisma:107`). Indexed on `type` and `collectionId`. `path` is unique since
@@ -300,6 +302,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - 2026-09-03 Collections and media routes guarded by `requireLibraryAccess`; route tests added under `routes/__tests__/`.
 - 2026-09-03 `WatchProgress` model added (migration `20260903093221_add_watch_progress`).
 - 2026-09-03 `Media.path` unique; recursive, file-cleaning deletes for collections, media and libraries via `ContentDeletionService`.
+- 2026-09-03 `ScrapeStatus` enum and `scrapeStatus`/`scrapeMessage`/`scrapedAt` columns on `Collection` and `Media`.
 
 ## Known Limitations
 

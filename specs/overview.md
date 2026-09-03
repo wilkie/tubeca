@@ -226,9 +226,10 @@ Ordered by leverage. Each item's details are in the linked spec.
    unique `Media.path`, orphan reconciliation after complete scans, file-cleaning recursive
    deletes. Rename detection is the follow-up.
    ([Libraries](libraries-and-scanning.md), [Content Model](content-model.md))
-6. **Scrape quality and visibility** (M): score candidates on title and year instead of
-   taking the first result, stop the fall-through that can undo an Identify, and surface
-   scrape status and failures in the UI. ([Metadata Scraping](metadata-scraping.md))
+6. ~~**Scrape quality and visibility**~~ Done 2026-09-03: scored matching with a threshold,
+   identity-first resolution that never falls back to a search, and per-item scrape status
+   shown on the collection and media pages. A library-level unmatched list is the follow-up
+   ([Metadata Scraping](metadata-scraping.md)).
 7. **Streaming robustness** (M): codec-aware direct play, FFmpeg process lifecycle and
    timeouts, cache size enforcement, and eviction on media delete.
    ([Streaming](streaming-and-transcoding.md))

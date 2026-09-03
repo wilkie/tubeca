@@ -7,6 +7,13 @@ import { PersonService } from '../services/personService';
 import type { CollectionScrapeJobData } from '../queues/collectionScrapeQueue';
 import type { SeriesMetadata, SeasonMetadata, VideoMetadata } from '@tubeca/scraper-types';
 import { parseTitleAndYear } from '../utils/mediaParser';
+import {
+  resolveByIdentity,
+  resolveBySearch,
+  recordCollectionScrape,
+  markCollectionScrapePending,
+  type ScrapeAttempt,
+} from '../services/scrapeResolution';
 
 const imageService = new ImageService();
 const personService = new PersonService();
@@ -16,6 +23,17 @@ interface ScrapeResult {
   scraperId?: string
   externalId?: string
   error?: string
+}
+
+/** Job return value: keeps the shape earlier callers expect and throws for retryable failures. */
+function toResult(attempt: ScrapeAttempt<unknown>): ScrapeResult {
+  if (attempt.status === 'matched') {
+    return { success: true, scraperId: attempt.scraperId, externalId: attempt.externalId };
+  }
+  if (attempt.status === 'failed' && attempt.retryable) {
+    throw attempt.error; // Let BullMQ retry; status already recorded as Failed
+  }
+  return { success: false, error: attempt.message };
 }
 
 // Worker with rate limiting - process 1 job at a time with delays
@@ -36,22 +54,39 @@ export const collectionScrapeWorker = new Worker<CollectionScrapeJobData, Scrape
         return { success: false, error: 'Collection not found' };
       }
 
+      await markCollectionScrapePending([collectionId]);
+
+      let attempt: ScrapeAttempt<unknown>;
       switch (collectionType) {
         case 'Show':
-          return await scrapeShowMetadata(job);
+          attempt = await scrapeShowMetadata(job);
+          break;
         case 'Season':
-          return await scrapeSeasonMetadata(job);
+          attempt = await scrapeSeasonMetadata(job);
+          break;
         case 'Film':
-          return await scrapeFilmMetadata(job);
+          attempt = await scrapeFilmMetadata(job);
+          break;
         case 'Artist':
-          return await scrapeArtistMetadata(job);
+          attempt = await scrapeArtistMetadata(job);
+          break;
         case 'Album':
-          return await scrapeAlbumMetadata(job);
+          attempt = await scrapeAlbumMetadata(job);
+          break;
         default:
-          return { success: false, error: `Unsupported collection type: ${collectionType}` };
+          attempt = { status: 'nomatch', message: `Unsupported collection type: ${collectionType}` };
       }
+
+      await recordCollectionScrape(collectionId, attempt);
+      return toResult(attempt);
     } catch (error) {
       console.error(`❌ Collection scrape failed for ${collectionName}:`, error);
+      await recordCollectionScrape(collectionId, {
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error : new Error(String(error)),
+        retryable: true,
+      });
       throw error;
     }
   },
@@ -65,56 +100,39 @@ export const collectionScrapeWorker = new Worker<CollectionScrapeJobData, Scrape
   }
 );
 
-async function scrapeShowMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeResult> {
+async function scrapeShowMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeAttempt<SeriesMetadata>> {
   const { collectionId, collectionName, scraperId, externalId, skipImages, imagesOnly } = job.data;
 
-  // If we have an external ID, fetch directly
+  let attempt: ScrapeAttempt<SeriesMetadata>;
   if (externalId && scraperId) {
-    const scraper = scraperManager.get(scraperId);
-    if (scraper?.getSeriesMetadata) {
-      const metadata = await scraper.getSeriesMetadata(externalId);
-      if (metadata) {
-        await applyShowMetadata(collectionId, metadata, scraperId, skipImages, imagesOnly);
-        return { success: true, scraperId, externalId };
-      }
+    // Already identified: fetch by id only, never fall back to a name search.
+    attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, externalId, (s) =>
+      s.getSeriesMetadata?.(externalId)
+    );
+  } else {
+    const scrapers = scraperId
+      ? [scraperManager.get(scraperId)].filter((s): s is NonNullable<typeof s> => Boolean(s))
+      : scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
+    if (scrapers.length === 0) {
+      return { status: 'nomatch', message: 'No video scrapers configured' };
     }
+    const { title, year } = parseTitleAndYear(collectionName);
+    attempt = await resolveBySearch(
+      scrapers,
+      { title, year },
+      (s) => s.searchSeries?.(title),
+      (s, id) => s.getSeriesMetadata!(id)
+    );
   }
 
-  // Get configured video scrapers
-  const scrapers = scraperId
-    ? [scraperManager.get(scraperId)].filter(Boolean)
-    : scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
-
-  if (scrapers.length === 0) {
-    return { success: false, error: 'No video scrapers configured' };
+  if (attempt.status === 'matched') {
+    await applyShowMetadata(collectionId, attempt.metadata, attempt.scraperId, skipImages, imagesOnly);
+    console.log(`✅ Found show metadata for ${collectionName} via ${attempt.scraperId}`);
   }
-
-  // Try to find a match
-  for (const scraper of scrapers) {
-    if (!scraper?.searchSeries || !scraper?.getSeriesMetadata) continue;
-
-    try {
-      const searchResults = await scraper.searchSeries(collectionName);
-
-      if (searchResults.length > 0) {
-        const bestMatch = searchResults[0];
-        const metadata = await scraper.getSeriesMetadata(bestMatch.externalId);
-
-        if (metadata) {
-          await applyShowMetadata(collectionId, metadata, scraper.id, skipImages, imagesOnly);
-          console.log(`✅ Found show metadata for ${collectionName} via ${scraper.name}`);
-          return { success: true, scraperId: scraper.id, externalId: metadata.externalId };
-        }
-      }
-    } catch (error) {
-      console.warn(`Scraper ${scraper.id} failed for show ${collectionName}:`, error);
-    }
-  }
-
-  return { success: false, error: 'No metadata found from any scraper' };
+  return attempt;
 }
 
-async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeResult> {
+async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeAttempt<SeasonMetadata>> {
   const { collectionId, collectionName, parentShowId, seasonNumber, skipImages, imagesOnly } = job.data;
   let { parentExternalId, parentScraperId } = job.data;
 
@@ -130,12 +148,12 @@ async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<
   }
 
   if (!parentExternalId || !parentScraperId || seasonNumber === undefined) {
-    return { success: false, error: 'Missing parent show info for season scrape' };
+    return { status: 'nomatch', message: 'Missing parent show info for season scrape' };
   }
 
   const scraper = scraperManager.get(parentScraperId);
   if (!scraper?.getSeasonMetadata) {
-    return { success: false, error: 'Scraper does not support season metadata' };
+    return { status: 'nomatch', message: 'Scraper does not support season metadata' };
   }
 
   try {
@@ -144,86 +162,61 @@ async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<
     if (metadata) {
       await applySeasonMetadata(collectionId, metadata, parentScraperId, skipImages, imagesOnly);
       console.log(`✅ Found season metadata for ${collectionName} via ${scraper.name}`);
-      return { success: true, scraperId: parentScraperId, externalId: metadata.externalId };
+      return { status: 'matched', scraperId: parentScraperId, externalId: metadata.externalId, metadata };
     }
   } catch (error) {
     console.warn(`Failed to get season metadata for ${collectionName}:`, error);
   }
 
-  return { success: false, error: 'No season metadata found' };
+  return { status: 'nomatch', message: 'No season metadata found' };
 }
 
-async function scrapeFilmMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeResult> {
+async function scrapeFilmMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeAttempt<VideoMetadata>> {
   const { collectionId, collectionName, year, scraperId, externalId, skipImages, imagesOnly } = job.data;
 
-  // If we have an external ID, fetch directly
+  let attempt: ScrapeAttempt<VideoMetadata>;
   if (externalId && scraperId) {
-    const scraper = scraperManager.get(scraperId);
-    if (scraper?.getVideoMetadata) {
-      const metadata = await scraper.getVideoMetadata(externalId);
-      if (metadata) {
-        await applyFilmMetadata(collectionId, metadata, scraperId, skipImages, imagesOnly);
-        return { success: true, scraperId, externalId };
-      }
+    // Already identified: fetch by id only, never fall back to a name search.
+    attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, externalId, (s) =>
+      s.getVideoMetadata?.(externalId)
+    );
+  } else {
+    const scrapers = scraperId
+      ? [scraperManager.get(scraperId)].filter((s): s is NonNullable<typeof s> => Boolean(s))
+      : scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
+    if (scrapers.length === 0) {
+      return { status: 'nomatch', message: 'No video scrapers configured' };
     }
+    // "Blade Runner (1982)" -> title "Blade Runner", year 1982; the raw string hurts matching.
+    const parsed = parseTitleAndYear(collectionName);
+    const query = { title: parsed.title, year: year ?? parsed.year };
+    attempt = await resolveBySearch(
+      scrapers,
+      query,
+      (s) => s.searchVideo?.(query.title, { year: query.year, videoType: 'movie' }),
+      (s, id) => s.getVideoMetadata!(id)
+    );
   }
 
-  // Get configured video scrapers
-  const scrapers = scraperId
-    ? [scraperManager.get(scraperId)].filter(Boolean)
-    : scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
-
-  if (scrapers.length === 0) {
-    return { success: false, error: 'No video scrapers configured' };
+  if (attempt.status === 'matched') {
+    await applyFilmMetadata(collectionId, attempt.metadata, attempt.scraperId, skipImages, imagesOnly);
+    console.log(`✅ Found film metadata for ${collectionName} via ${attempt.scraperId}`);
   }
-
-  // Parse a clean title (and year) from the collection name, e.g.
-  // "Blade Runner (1982)" -> title "Blade Runner", year 1982. Passing the raw
-  // "Name (Year)" string to the scraper hurts matching.
-  const parsed = parseTitleAndYear(collectionName);
-  const searchTitle = parsed.title;
-  const searchYear = year ?? parsed.year;
-
-  // Try to find a match
-  for (const scraper of scrapers) {
-    if (!scraper?.searchVideo || !scraper?.getVideoMetadata) continue;
-
-    try {
-      const searchResults = await scraper.searchVideo(searchTitle, {
-        year: searchYear,
-        videoType: 'movie',
-      });
-
-      if (searchResults.length > 0) {
-        const bestMatch = searchResults[0];
-        const metadata = await scraper.getVideoMetadata(bestMatch.externalId);
-
-        if (metadata) {
-          await applyFilmMetadata(collectionId, metadata, scraper.id, skipImages, imagesOnly);
-          console.log(`✅ Found film metadata for ${collectionName} via ${scraper.name}`);
-          return { success: true, scraperId: scraper.id, externalId: metadata.externalId };
-        }
-      }
-    } catch (error) {
-      console.warn(`Scraper ${scraper.id} failed for film ${collectionName}:`, error);
-    }
-  }
-
-  return { success: false, error: 'No metadata found from any scraper' };
+  return attempt;
 }
 
-async function scrapeArtistMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeResult> {
+async function scrapeArtistMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeAttempt<never>> {
   const { collectionName } = job.data;
   // TODO: Implement when music scrapers are available
   console.log(`⏭️ Artist scraping not yet implemented for: ${collectionName}`);
-  return { success: false, error: 'Artist scraping not yet implemented' };
+  return { status: 'nomatch', message: 'Artist scraping not yet implemented' };
 }
 
-async function scrapeAlbumMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeResult> {
+async function scrapeAlbumMetadata(job: Job<CollectionScrapeJobData>): Promise<ScrapeAttempt<never>> {
   const { collectionName } = job.data;
   // TODO: Implement when music scrapers are available
   console.log(`⏭️ Album scraping not yet implemented for: ${collectionName}`);
-  return { success: false, error: 'Album scraping not yet implemented' };
+  return { status: 'nomatch', message: 'Album scraping not yet implemented' };
 }
 
 /**

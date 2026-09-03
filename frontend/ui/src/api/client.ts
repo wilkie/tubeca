@@ -84,6 +84,8 @@ import type {
   ContinueWatchingResponse,
   ContinueWatchingEntry,
   WatchProgress,
+  ScrapeState,
+  ScrapeStatus,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -173,6 +175,8 @@ export type {
   ContinueWatchingResponse,
   ContinueWatchingEntry,
   WatchProgress,
+  ScrapeState,
+  ScrapeStatus,
 };
 
 const API_BASE = '/api';

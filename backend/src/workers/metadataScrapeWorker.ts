@@ -7,6 +7,13 @@ import { PersonService } from '../services/personService';
 import type { MetadataScrapeJobData } from '../queues/metadataScrapeQueue';
 import type { VideoMetadata, AudioMetadata } from '@tubeca/scraper-types';
 import { parseTitleAndYear } from '../utils/mediaParser';
+import {
+  resolveByIdentity,
+  resolveBySearch,
+  recordMediaScrape,
+  markMediaScrapePending,
+  type ScrapeAttempt,
+} from '../services/scrapeResolution';
 
 const imageService = new ImageService();
 const personService = new PersonService();
@@ -16,6 +23,17 @@ interface ScrapeResult {
   scraperId?: string
   externalId?: string
   error?: string
+}
+
+/** Job return value: keeps the shape earlier callers expect and throws for retryable failures. */
+function toResult(attempt: ScrapeAttempt<unknown>): ScrapeResult {
+  if (attempt.status === 'matched') {
+    return { success: true, scraperId: attempt.scraperId, externalId: attempt.externalId };
+  }
+  if (attempt.status === 'failed' && attempt.retryable) {
+    throw attempt.error;
+  }
+  return { success: false, error: attempt.message };
 }
 
 // Worker with rate limiting - process 1 job at a time with delays
@@ -36,13 +54,18 @@ export const metadataScrapeWorker = new Worker<MetadataScrapeJobData, ScrapeResu
         return { success: false, error: 'Media not found' };
       }
 
-      if (mediaType === 'Video') {
-        return await scrapeVideoMetadata(job);
-      } else {
-        return await scrapeAudioMetadata(job);
-      }
+      await markMediaScrapePending([mediaId]);
+      const attempt = mediaType === 'Video' ? await scrapeVideoMetadata(job) : await scrapeAudioMetadata(job);
+      await recordMediaScrape(mediaId, attempt);
+      return toResult(attempt);
     } catch (error) {
       console.error(`❌ Metadata scrape failed for ${mediaName}:`, error);
+      await recordMediaScrape(mediaId, {
+        status: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error : new Error(String(error)),
+        retryable: true,
+      });
       throw error; // Let BullMQ handle retries
     }
   },
@@ -56,184 +79,79 @@ export const metadataScrapeWorker = new Worker<MetadataScrapeJobData, ScrapeResu
   }
 );
 
-async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeResult> {
+async function scrapeVideoMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeAttempt<VideoMetadata>> {
   const { mediaId, mediaName, year, showName, season, episode, scraperId, externalId, skipImages, imagesOnly } = job.data;
 
-  // If we have an external ID, fetch directly
+  let attempt: ScrapeAttempt<VideoMetadata>;
   if (externalId && scraperId) {
-    const scraper = scraperManager.get(scraperId);
-    if (scraper?.getVideoMetadata) {
-      const metadata = await scraper.getVideoMetadata(externalId);
-      if (metadata) {
-        await applyVideoMetadata(mediaId, metadata, scraperId, skipImages, imagesOnly);
-        return { success: true, scraperId, externalId };
-      }
+    // Already identified: fetch by id only, never fall back to a name search.
+    attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, externalId, (s) =>
+      s.getVideoMetadata?.(externalId)
+    );
+  } else {
+    const scrapers = scraperId
+      ? [scraperManager.get(scraperId)].filter((s): s is NonNullable<typeof s> => Boolean(s))
+      : scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
+    if (scrapers.length === 0) {
+      return { status: 'nomatch', message: 'No video scrapers configured' };
+    }
+
+    const isEpisode = season !== undefined && episode !== undefined;
+    if (isEpisode) {
+      const query = { title: showName || extractShowName(mediaName) };
+      attempt = await resolveBySearch(
+        scrapers,
+        query,
+        (s) => (s.searchSeries && s.getEpisodeMetadata ? s.searchSeries(query.title) : undefined),
+        (s, id) => s.getEpisodeMetadata!(id, season!, episode!)
+      );
+    } else {
+      const parsed = parseTitleAndYear(mediaName);
+      const query = { title: parsed.title, year: year ?? parsed.year };
+      attempt = await resolveBySearch(
+        scrapers,
+        query,
+        (s) => (s.searchVideo && s.getVideoMetadata ? s.searchVideo(query.title, { year: query.year }) : undefined),
+        (s, id) => s.getVideoMetadata!(id)
+      );
     }
   }
 
-  // Determine if this is likely a TV episode
-  const isEpisode = season !== undefined && episode !== undefined;
-
-  // Get configured scrapers
-  const scrapers = scraperId
-    ? [scraperManager.get(scraperId)].filter(Boolean)
-    : scraperManager.getByMediaType('video').filter((s) => s.isConfigured());
-
-  if (scrapers.length === 0) {
-    return { success: false, error: 'No video scrapers configured' };
+  if (attempt.status === 'matched') {
+    await applyVideoMetadata(mediaId, attempt.metadata, attempt.scraperId, skipImages, imagesOnly);
+    console.log(`✅ Found metadata for ${mediaName} via ${attempt.scraperId}`);
   }
-
-  // Track errors to distinguish between "no results" and "API failures"
-  const errors: Error[] = [];
-
-  // Try to find a match
-  for (const scraper of scrapers) {
-    if (!scraper) continue;
-
-    try {
-      let metadata: VideoMetadata | null = null;
-
-      if (isEpisode && scraper.searchSeries && scraper.getEpisodeMetadata) {
-        // Search for the TV series first
-        const searchQuery = showName || extractShowName(mediaName);
-        const seriesResults = await scraper.searchSeries(searchQuery);
-
-        if (seriesResults.length > 0) {
-          // Use the best match
-          const bestMatch = seriesResults[0];
-          metadata = await scraper.getEpisodeMetadata(bestMatch.externalId, season!, episode!);
-        }
-      } else if (scraper.searchVideo && scraper.getVideoMetadata) {
-        // Search for movie/video. Strip a "(Year)" from the name so the query is
-        // the clean title, and use the parsed year when none was provided.
-        const parsed = parseTitleAndYear(mediaName);
-        const results = await scraper.searchVideo(parsed.title, { year: year ?? parsed.year });
-
-        if (results.length > 0) {
-          // Use the best match (results should be sorted by confidence)
-          const bestMatch = results[0];
-          metadata = await scraper.getVideoMetadata(bestMatch.externalId);
-        }
-      }
-
-      if (metadata) {
-        await applyVideoMetadata(mediaId, metadata, scraper.id, skipImages, imagesOnly);
-        console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`);
-        return { success: true, scraperId: scraper.id, externalId: metadata.externalId };
-      }
-    } catch (error) {
-      console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error);
-      if (error instanceof Error) {
-        errors.push(error);
-      }
-      // Continue to next scraper
-    }
-  }
-
-  // If all scrapers failed with errors (not just empty results), throw to trigger BullMQ retry
-  if (errors.length > 0 && errors.length === scrapers.length) {
-    const lastError = errors[errors.length - 1];
-    // Check if this is a retryable error (network issues, timeouts, etc.)
-    if (isRetryableError(lastError)) {
-      throw lastError; // Let BullMQ retry the job
-    }
-  }
-
-  return { success: false, error: 'No metadata found from any scraper' };
+  return attempt;
 }
 
-/**
- * Check if an error is retryable (network issues, timeouts, server errors)
- */
-function isRetryableError(error: Error): boolean {
-  // AbortError from AbortController timeout
-  if (error.name === 'AbortError') {
-    return true;
-  }
-
-  const message = error.message.toLowerCase();
-  if (message.includes('fetch failed') ||
-      message.includes('timeout') ||
-      message.includes('aborted') ||
-      message.includes('econnreset') ||
-      message.includes('econnrefused') ||
-      message.includes('enotfound') ||
-      message.includes('socket hang up') ||
-      message.includes('network') ||
-      message.includes('api error: 5') || // 5xx errors
-      message.includes('api error: 429')) { // rate limiting
-    return true;
-  }
-  // Check for undici/Node.js fetch error codes in cause
-  const cause = (error as { cause?: { code?: string } }).cause;
-  if (cause?.code?.startsWith('UND_ERR_') || cause?.code?.startsWith('ECONN')) {
-    return true;
-  }
-  return false;
-}
-
-async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeResult> {
+async function scrapeAudioMetadata(job: Job<MetadataScrapeJobData>): Promise<ScrapeAttempt<AudioMetadata>> {
   const { mediaId, mediaName, scraperId, externalId } = job.data;
 
-  // If we have an external ID, fetch directly
+  let attempt: ScrapeAttempt<AudioMetadata>;
   if (externalId && scraperId) {
-    const scraper = scraperManager.get(scraperId);
-    if (scraper?.getAudioMetadata) {
-      const metadata = await scraper.getAudioMetadata(externalId);
-      if (metadata) {
-        await applyAudioMetadata(mediaId, metadata, scraperId);
-        return { success: true, scraperId, externalId };
-      }
+    attempt = await resolveByIdentity(scraperManager.get(scraperId), scraperId, externalId, (s) =>
+      s.getAudioMetadata?.(externalId)
+    );
+  } else {
+    const scrapers = scraperId
+      ? [scraperManager.get(scraperId)].filter((s): s is NonNullable<typeof s> => Boolean(s))
+      : scraperManager.getByMediaType('audio').filter((s) => s.isConfigured());
+    if (scrapers.length === 0) {
+      return { status: 'nomatch', message: 'No audio scrapers configured' };
     }
+    attempt = await resolveBySearch(
+      scrapers,
+      { title: mediaName },
+      (s) => (s.searchAudio && s.getAudioMetadata ? s.searchAudio(mediaName) : undefined),
+      (s, id) => s.getAudioMetadata!(id)
+    );
   }
 
-  // Get configured audio scrapers
-  const scrapers = scraperId
-    ? [scraperManager.get(scraperId)].filter(Boolean)
-    : scraperManager.getByMediaType('audio').filter((s) => s.isConfigured());
-
-  if (scrapers.length === 0) {
-    return { success: false, error: 'No audio scrapers configured' };
+  if (attempt.status === 'matched') {
+    await applyAudioMetadata(mediaId, attempt.metadata, attempt.scraperId);
+    console.log(`✅ Found metadata for ${mediaName} via ${attempt.scraperId}`);
   }
-
-  // Track errors to distinguish between "no results" and "API failures"
-  const errors: Error[] = [];
-
-  // Try to find a match
-  for (const scraper of scrapers) {
-    if (!scraper || !scraper.searchAudio || !scraper.getAudioMetadata) continue;
-
-    try {
-      const results = await scraper.searchAudio(mediaName);
-
-      if (results.length > 0) {
-        const bestMatch = results[0];
-        const metadata = await scraper.getAudioMetadata(bestMatch.externalId);
-
-        if (metadata) {
-          await applyAudioMetadata(mediaId, metadata, scraper.id);
-          console.log(`✅ Found metadata for ${mediaName} via ${scraper.name}`);
-          return { success: true, scraperId: scraper.id, externalId: metadata.externalId };
-        }
-      }
-    } catch (error) {
-      console.warn(`Scraper ${scraper.id} failed for ${mediaName}:`, error);
-      if (error instanceof Error) {
-        errors.push(error);
-      }
-      // Continue to next scraper
-    }
-  }
-
-  // If all scrapers failed with errors (not just empty results), throw to trigger BullMQ retry
-  if (errors.length > 0 && errors.length === scrapers.length) {
-    const lastError = errors[errors.length - 1];
-    if (isRetryableError(lastError)) {
-      throw lastError; // Let BullMQ retry the job
-    }
-  }
-
-  return { success: false, error: 'No metadata found from any scraper' };
+  return attempt;
 }
 
 /**

@@ -30,6 +30,7 @@ import {
 } from '@mui/material';
 import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, FolderSpecial, ArrowDropDown, QueuePlayNext } from '@mui/icons-material';
 import { apiClient, type Media, type Image, type CollectionType, type UserCollection } from '../api/client';
+import { ScrapeStatusAlert } from '../components/ScrapeStatusAlert';
 import { StickyHeroBreadcrumbs } from '../components/StickyHeroBreadcrumbs';
 import type { BreadcrumbItem } from '../components/CollectionBreadcrumbs';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
@@ -350,6 +351,12 @@ export function MediaPage() {
 
   return (
     <Container maxWidth={false} sx={{ py: 4 }}>
+      <ScrapeStatusAlert
+        scrapeStatus={media.scrapeStatus}
+        scrapeMessage={media.scrapeMessage}
+        canEdit={canEdit}
+        onRetry={handleRefreshMetadata}
+      />
       {/* Sticky Breadcrumbs */}
       {breadcrumbs.length > 0 && (
         <StickyHeroBreadcrumbs

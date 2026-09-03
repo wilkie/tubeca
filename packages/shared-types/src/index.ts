@@ -177,6 +177,15 @@ export interface ScanCancelResponse {
 
 export type CollectionType = 'Generic' | 'Show' | 'Season' | 'Film' | 'Artist' | 'Album'
 
+/** Outcome of the most recent metadata scrape for a collection or media item */
+export type ScrapeStatus = 'Pending' | 'Matched' | 'NoMatch' | 'Failed'
+
+export interface ScrapeState {
+  scrapeStatus?: ScrapeStatus | null
+  scrapeMessage?: string | null
+  scrapedAt?: string | null
+}
+
 export interface CollectionSummary {
   id: string
   name: string
@@ -317,7 +326,7 @@ export interface KeywordsResponse {
   keywords: Keyword[]
 }
 
-export interface Collection {
+export interface Collection extends ScrapeState {
   id: string
   name: string
   collectionType: CollectionType
@@ -495,7 +504,7 @@ export interface MediaStream {
   frameRate: number | null
 }
 
-export interface Media {
+export interface Media extends ScrapeState {
   id: string
   name: string
   path: string

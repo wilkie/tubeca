@@ -19,6 +19,7 @@ import {
   type CollectionScrapeType,
 } from '../queues/collectionScrapeQueue';
 import { ContentDeletionService } from './contentDeletionService';
+import { markCollectionScrapePending, markMediaScrapePending } from './scrapeResolution';
 
 /** Hints handed to the metadata scrape queue for one media file. */
 export interface MediaHints {
@@ -286,6 +287,7 @@ export class ImportService {
       episode: h.episode,
       year: h.year,
     }));
+    await markMediaScrapePending(hints.map((h) => h.id));
     await this.deps.queueMediaScrapes(jobs);
     return jobs.length;
   }
@@ -303,6 +305,7 @@ export class ImportService {
       seasonNumber: h.seasonNumber,
       year: h.year,
     }));
+    await markCollectionScrapePending(ordered.map((h) => h.id));
     await this.deps.queueCollectionScrapes(jobs);
     return jobs.length;
   }

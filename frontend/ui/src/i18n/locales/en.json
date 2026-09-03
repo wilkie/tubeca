@@ -264,5 +264,12 @@
     "continueWatching": "Continue Watching",
     "timeLeft": "{{time}} left",
     "episodeCode": "S{{season}}E{{episode}}"
+  },
+  "scrape": {
+    "pending": "Looking up metadata…",
+    "noMatch": "No metadata match was found",
+    "failed": "Metadata lookup failed",
+    "identify": "Identify",
+    "retry": "Retry"
   }
 }

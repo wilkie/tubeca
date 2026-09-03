@@ -85,9 +85,9 @@ Both workers are constructed with `concurrency: 1` and `limiter: { max: 10, dura
 ### Collection scrape flow (`collectionScrapeWorker.ts`)
 
 1. Verify the collection still exists; dispatch on `collectionType`.
-2. **Show** (`:67`): if the job carries `scraperId` + `externalId` (refresh/identify), call `getSeriesMetadata` directly. Otherwise for each configured video scraper with `searchSeries` + `getSeriesMetadata`, search the raw `collectionName`, take `results[0]`, fetch details. Per-scraper exceptions are caught and logged; the loop moves on.
+2. **Show**: the worker first marks the collection `Pending`. If the job carries `scraperId` + `externalId` (refresh/identify), `resolveByIdentity` fetches by id and **never** falls back to a search. Otherwise `resolveBySearch` asks each configured video scraper with `searchSeries` + `getSeriesMetadata` for candidates using `parseTitleAndYear(collectionName)`, scores them with `pickBestMatch` (see Matching below) and fetches details for the best one; scrapers that throw are skipped.
 3. **Season** (`:118`): needs `parentExternalId`/`parentScraperId`; if absent it reads them from the parent's `ShowDetails`. Calls `getSeasonMetadata` on the parent's scraper. No search fallback.
-4. **Film** (`:160`): same shape as Show but uses `parseTitleAndYear(collectionName)` (27c0663) for a clean query and `year ?? parsed.year` as a filter, with `videoType: 'movie'`.
+4. **Film**: same shape as Show with `year ?? parsed.year` in the query (both as a TMDB filter and in the score) and `videoType: 'movie'`.
 5. **Artist / Album** (`:215-226`): return `{ success: false, error: '... not yet implemented' }` with a `TODO`.
 6. **Apply** (`applyShowMetadata :262`, `applySeasonMetadata`, `applyFilmMetadata :530`): upsert the details row (genres stored as a comma-joined string; `scraperId`/`externalId` recorded); download images unless `skipImages` is set *and* the entity already has at least one image; delete all existing `ShowCredit`/`FilmCredit` rows and recreate them one by one, calling `personService.findOrCreatePerson` and downloading a `Photo` for the person if none exists; upsert each keyword (lower-cased, trimmed) and connect it to the collection (`saveKeywords :232`, never disconnects stale keywords).
 7. `imagesOnly` short-circuits step 6 to just the image downloads (used by "Refresh images").
@@ -97,8 +97,8 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 ### Media scrape flow (`metadataScrapeWorker.ts`)
 
 1. Verify the media exists; branch on `mediaType`.
-2. **Video** (`scrapeVideoMetadata :59`): if `scraperId` + `externalId` are supplied, fetch directly. Otherwise, `isEpisode = season !== undefined && episode !== undefined`. For episodes: `searchSeries(showName || extractShowName(mediaName))`, take `results[0]`, then `getEpisodeMetadata(seriesId, season, episode)`. For movies: `parseTitleAndYear(mediaName)` and `searchVideo(title, { year })` with no `videoType` (so TMDB uses `/search/multi`), take `results[0]`, then `getVideoMetadata`.
-3. Errors per scraper are collected; if **every** scraper threw and the last error is retryable (`isRetryableError :136`, same heuristic as the TMDB plugin), the error is re-thrown so BullMQ retries. Otherwise the job completes with `success: false`.
+2. **Video** (`scrapeVideoMetadata`): marks the media `Pending`; with `scraperId` + `externalId` it uses `resolveByIdentity` (no search fallback). Otherwise `isEpisode = season !== undefined && episode !== undefined`. For episodes: `resolveBySearch` over `searchSeries(showName || extractShowName(mediaName))`, scored against the show name, then `getEpisodeMetadata(seriesId, season, episode)`. For movies: `parseTitleAndYear(mediaName)`, `searchVideo(title, { year })` with no `videoType` (so TMDB uses `/search/multi`), scored, then `getVideoMetadata`.
+3. `resolveBySearch` collects per-scraper errors; if **every** scraper threw and the last error is retryable (`isRetryableError` in `scrapeResolution.ts`), the attempt is `failed`/retryable and the worker re-throws so BullMQ retries. A confident miss is `nomatch` and completes the job with `success: false`. Either way the outcome is written to the media row (see below).
 4. **Apply** (`applyVideoMetadata :232`): upsert `VideoDetails` (`showName`, `season`, `episode`, `description`, `releaseDate`, `rating`); if `episodeTitle` is present, **overwrite `Media.name`** with it; download `Poster`/`Backdrop`/`Thumbnail` (episodes only ever get a `Poster` from the TMDB still); delete and recreate `Credit` rows with person linking and photo download as above.
 5. **Audio** (`scrapeAudioMetadata :168`): identical structure calling `searchAudio`/`getAudioMetadata`; since no plugin declares `'audio'` in `supportedTypes` it always returns `No audio scrapers configured`.
 
@@ -116,11 +116,16 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 
 `parseTitleAndYear` prefers a bracketed year (`"Blade Runner 2049 (2017)"` keeps its digits) and falls back to a bare trailing year (`"Dune 2021"`). It is used in both workers and the dialog, replacing the earlier behaviour of sending `"Name (Year)"` verbatim to TMDB. The import path now derives the `year` hint with `parseTitleAndYear` as well, so the scanner, watcher and scrape workers agree; `parseMovieFromFilename` (release-name oriented, strips quality tags) remains only as a utility.
 
-### Failure and no-match semantics
+### Matching (`scrapeMatching.ts`)
 
-- **No match** (`results.length === 0` or details returned `null`): job resolves `{ success: false, error }`. BullMQ counts it as *completed*; the only trace is a console line (`⚠️ ... completed but no metadata found`). Nothing is written to the database, so the UI shows the bare folder name with no indicator that scraping ran.
-- **Plugin returned null on a by-ID fetch**: TMDB's `get*Metadata` methods swallow all errors and return `null`, so a transient network error during a refresh or Identify makes the collection worker fall through to name search (`:82-108`, `:175-205`) restricted to the same scraper, which can overwrite the user's explicit choice with the first search hit.
-- **Exceptions**: the collection worker catches and logs per-scraper errors and never re-throws for search failures, so its BullMQ `attempts: 3` only fires on unexpected errors outside those `try` blocks (e.g. Prisma). The media worker re-throws only when all scrapers failed with a retryable error. Failed jobs remain in Redis for 7 days; `GET /api/media/scrapers/queue-status` exposes counts for the metadata queue (not the collection queue) to Admins, and no frontend page calls it.
+`pickBestMatch(query, results)` scores every candidate instead of trusting the provider's order. `titleSimilarity` normalises both titles (lower-case, diacritics and punctuation stripped, `&` → `and`, leading article dropped) and returns 1 for equality, 0.6-0.9 when one contains the other, else a token-overlap fraction scaled to 0.7. A known query year adds 0.25 for an exact match, 0.1 for ±1 and subtracts 0.3 otherwise; the scraper's `confidence` (TMDB popularity) contributes at most 0.05 and list position breaks remaining ties. Anything under `DEFAULT_MIN_SCORE` (0.55) is rejected, so "Blade Runner (1982)" no longer becomes *Blade Runner 2049* because the sequel is more popular, and an unrelated first hit becomes a visible "no match" rather than wrong metadata.
+
+### Outcomes and status (`scrapeResolution.ts`)
+
+Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human message such as `No confident match for "Heat (1995)"`) or `failed` (with `retryable`). The worker records it on the entity (`Collection`/`Media.scrapeStatus`, `scrapeMessage`, `scrapedAt`; `Pending` is written when a job is queued by `ImportService` and again when it starts) and maps it to the job result: `matched` → `success: true`; `nomatch` → `success: false` (BullMQ counts it as completed); `failed` + retryable → re-throw so BullMQ retries, with the row already marked `Failed`.
+
+- **Identified items never fall back**: when a job carries `externalId` + `scraperId`, an empty or failed by-id fetch is reported as a retryable failure with "identification kept"; the user's Identify choice and the previous metadata survive a network blip. (Before 2026-09-03 the worker fell through to a name search on the same scraper and could overwrite it with the first hit.)
+- **The UI shows the outcome**: `ScrapeStatusAlert` on `CollectionPage` and `MediaPage` renders an info/warning/error alert for `Pending`/`NoMatch`/`Failed` with the message, plus Identify (Shows and Films) and Retry buttons for editors; matched items show nothing extra. Failed jobs also remain in Redis for 7 days; `GET /api/media/scrapers/queue-status` exposes counts for the metadata queue to Admins, and no frontend page calls it.
 
 ## Interactions
 
@@ -142,15 +147,16 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 - `b088bdc` 2025-12-15 — Identify feature: `POST /collections/search`, `POST /collections/:id/identify`, `IdentifyDialog`, menu item.
 - `7052d0c` 2026-07-01 — DNS threadpool starvation fix: c-ares lookup with TTL cache in the TMDB agent; `UV_THREADPOOL_SIZE=24`.
 - `27c0663` 2026-09-02 — `parseTitleAndYear` for clean title/year in both workers and the Identify dialog pre-fill, with tests; frontend mirror in `utils/parseTitle.ts`.
+- 2026-09-03 — `scrapeMatching.ts` (scored candidate selection with a threshold) and `scrapeResolution.ts` (identity-first resolution with no search fallback, outcome recording); `scrapeStatus`/`scrapeMessage`/`scrapedAt` on `Collection` and `Media` (migration `20260903130000_scrape_status`); `ScrapeStatusAlert` in the UI.
 
 ## Known Limitations
 
-- **First-result matching, no scoring**: both workers take `results[0]` from the provider's own ordering. TMDB's `confidence` is `vote_average/10` (popularity), and nothing compares titles or years to the query. Show searches pass no year at all. A show called "Dexter" or a film named after a common word will regularly mis-match.
+- **Scoring is title+year only**: `originalTitle` and alternative titles are not compared, so a folder named in a different language than the provider's `en-US` title scores low and is reported as no match; the threshold is a constant, not configurable.
 - **English/US hard-coded**: TMDB `en-US`, `include_image_language=en,null`, US certification; TVDB `eng`, `usa`. `ScraperConfig.language` exists but `getScraperConfigs` drops it.
 - **TVDB is effectively unusable for collections**: no `getSeriesMetadata`/`getSeasonMetadata`, series-only search, no timeouts or retries. It appears in Identify results for Shows, but picking one produces a job that returns `success: false`.
 - **Music is a stub**: Artist/Album jobs and Audio media jobs are enqueued on every scan of a Music library and always complete with `not yet implemented` / `No audio scrapers configured`.
-- **No user-visible scrape status**: no-match and failure outcomes are only console logs. The UI cannot show "unmatched", "failed", or "queued"; refresh buttons return before the job runs; Identify reloads the page before new data or images exist (and after the old images were deleted).
-- **Retry asymmetry and silent fall-through**: the collection worker swallows search errors so BullMQ retries rarely fire; TMDB detail fetches swallow errors into `null`, so a network blip during refresh/Identify falls back to name search on the same scraper and can silently replace an explicit identification.
+- **Status is per item, not per library**: there is no list of unmatched items or a count on the library page; refresh buttons still return before the job runs, and the page does not poll, so a user sees `Pending` until they reload. Identify still reloads the page before new data or images exist.
+- **TMDB still returns `null` for both "missing" and "error"** on by-id fetches; the worker treats both as a retryable failure for identified items, which means a genuinely deleted TMDB entry will be retried three times and then sit at `Failed`.
 - **Season ordering by timer**: the `max(5 s, 2 s x shows)` delay is a heuristic; late season jobs fail without retry and the season keeps only its folder name.
 - **Identify does not cascade**: re-identifying a Show does not re-scrape its Seasons or episode `Media` rows, which retain the old show's data and images.
 - **Media rows cannot be refreshed by ID or identified**: `VideoDetails` lacks `scraperId`/`externalId`; media-level refresh re-searches by name, and there is no Identify for episodes.
@@ -165,10 +171,10 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 ## Opportunities
 
 - **Unify the two workers' apply/download/credit code** (M): `downloadCollectionImages`, `downloadFilmImages`, `downloadMediaImages`, three near-identical credit loops, and three copies of `mapCreditType` (plus a fourth in the dead `ScraperService`) could become one `metadataApplyService`; delete `scraperService.ts` or make it the shared implementation.
-- **Add a real match score** (M): compare normalised title (and `originalTitle`) and year against the query, weight by provider popularity, and reject below a threshold instead of always taking `results[0]`; surface the score in `/collections/search` and sort by it. This is the single biggest quality lever given the Identify commit's motivation.
-- **Persist scrape state on the entity** (M): a `scrapeStatus`/`lastScrapedAt`/`lastScrapeError` on the details tables (or a small `ScrapeLog`) so the UI can flag unmatched items, show "refreshing...", and offer Identify proactively; wire `queue-status` (both queues) into an admin page.
+- **Score `originalTitle` too and expose scores in Identify** (S): `pickBestMatch` could take alternative titles, and `/collections/search` could return and sort by the score so the dialog's ordering matches the worker's.
+- **Library-level scrape overview** (M): an "unmatched items" filter or count per library (a `where: { scrapeStatus: 'NoMatch' }` query) and polling of `scrapeStatus` on the page after Refresh/Identify so `Pending` resolves without a reload.
 - **Make Identify cascade** (S/M): after a Show identify, re-enqueue its Season children and episode `Media` with the new external ID; add `scraperId`/`externalId` to `VideoDetails` and an episode-level Identify.
-- **Distinguish "null because error" from "null because missing"** (S): have plugins throw on transport errors and return `null` only on 404, and have the collection worker re-throw retryable errors like the media worker does; never fall back to name search when an explicit `externalId` was supplied.
+- **Distinguish "null because error" from "null because missing"** (S): have plugins throw on transport errors and return `null` only on 404, so an identified item whose provider entry vanished becomes `NoMatch` instead of a retried `Failed`.
 - **Replace the season delay with a dependency** (S): enqueue Season jobs from the Show job's success path (or use BullMQ flows) so ordering is guaranteed.
 - **Pass language/region through config** (S): forward `language`, `region`, `imageSize` from `tubeca.config.json` to `initialize()`; make certification country follow region.
 - **Cache provider responses** (S/M): an in-memory or Redis TTL cache keyed by endpoint+params would remove the repeated `/tv/{id}` and `/images` calls and make refreshes/full scans cheap.

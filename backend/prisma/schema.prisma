@@ -75,6 +75,11 @@ model Collection {
   // User collection items referencing this collection
   userCollectionItems UserCollectionItem[]
 
+  // Most recent metadata scrape outcome (see ScrapeStatus)
+  scrapeStatus  ScrapeStatus?
+  scrapeMessage String?
+  scrapedAt     DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -96,6 +101,14 @@ enum CollectionType {
   Film     // Movie container (film library)
   Artist   // Music artist container
   Album    // Album within an artist
+}
+
+// Outcome of the most recent metadata scrape for a collection or media item
+enum ScrapeStatus {
+  Pending  // Queued or running
+  Matched  // Metadata applied from a scraper
+  NoMatch  // Scrapers returned nothing usable; use Identify
+  Failed   // Scraper error (network, API); will be retried or needs a refresh
 }
 
 enum Role {
@@ -138,6 +151,11 @@ model Media {
 
   // Per-user playback positions
   watchProgress WatchProgress[]
+
+  // Most recent metadata scrape outcome (see ScrapeStatus)
+  scrapeStatus  ScrapeStatus?
+  scrapeMessage String?
+  scrapedAt     DateTime?
 
   // Timestamps
   createdAt   DateTime  @default(now())

@@ -512,4 +512,36 @@ describe('CollectionPage', () => {
       });
     });
   });
+
+  describe('scrape status', () => {
+    it('shows a no-match alert with Identify and Retry for editors', async () => {
+      const user = userEvent.setup();
+      mockGetCollection.mockResolvedValue({
+        data: {
+          collection: {
+            ...createMockFilmCollection(),
+            scrapeStatus: 'NoMatch',
+            scrapeMessage: 'No confident match for "The Matrix (1999)"',
+          },
+        },
+      });
+      render(<CollectionPage />);
+
+      const alert = await screen.findByTestId('scrape-status');
+      expect(alert).toHaveTextContent(/No confident match/);
+
+      await user.click(screen.getByRole('button', { name: /retry/i }));
+      expect(mockRefreshCollectionMetadata).toHaveBeenCalledWith('film-1');
+      expect(screen.getByRole('button', { name: /^identify$/i })).toBeInTheDocument();
+    });
+
+    it('renders no alert when the collection matched', async () => {
+      mockGetCollection.mockResolvedValue({
+        data: { collection: { ...createMockFilmCollection(), scrapeStatus: 'Matched' } },
+      });
+      render(<CollectionPage />);
+      await screen.findAllByText('The Matrix');
+      expect(screen.queryByTestId('scrape-status')).not.toBeInTheDocument();
+    });
+  });
 });
