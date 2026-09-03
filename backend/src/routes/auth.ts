@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import { authenticate } from '../middleware/auth';
 import { AuthService } from '../services/authService';
 
 const router = Router();
@@ -76,6 +77,29 @@ router.post('/login', authLimiter, async (req, res) => {
     const message = error instanceof Error ? error.message : 'Login failed';
     res.status(401).json({ error: message });
   }
+});
+
+/**
+ * @openapi
+ * /api/auth/media-token:
+ *   post:
+ *     tags:
+ *       - Auth
+ *     summary: Get a short-lived token for image and stream URLs
+ *     description: |
+ *       Image and stream URLs carry their token in the query string, where it is
+ *       exposed to logs, browser history and anyone the link is shared with. This
+ *       returns a token scoped to those routes and valid for four hours; it cannot
+ *       be used for any other API call.
+ *     responses:
+ *       200:
+ *         description: A media-scoped token and its expiry
+ *       401:
+ *         description: Not signed in
+ */
+router.post('/media-token', authenticate, (req, res) => {
+  const { userId, name, role, tokenVersion } = req.user!;
+  res.json(authService.generateMediaToken({ userId, name, role, tokenVersion }));
 });
 
 /**

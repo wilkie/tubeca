@@ -38,6 +38,11 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
+  // A media-scoped token may only fetch images and streams (see `mediaAuth`).
+  if (payload.scope === 'media') {
+    return res.status(401).json({ error: 'This token cannot be used for API requests' });
+  }
+
   if (!(await isTokenCurrent(payload))) {
     return res.status(401).json({ error: 'Session is no longer valid; sign in again' });
   }

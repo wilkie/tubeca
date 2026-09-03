@@ -13,6 +13,7 @@ jest.mock('../../api/client', () => ({
     login: jest.fn(),
     setup: jest.fn(),
     clearToken: jest.fn(),
+    refreshMediaToken: jest.fn().mockResolvedValue(undefined),
   },
 }));
 

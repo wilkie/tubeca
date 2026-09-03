@@ -1086,6 +1086,18 @@ Media the current user has started but not finished, most recently played first.
 }
 ```
 
+### POST /auth/media-token
+
+Returns a short-lived token for image and stream URLs, which carry their token in the query
+string. Scoped to those routes: it is refused for every other API call. Requires a session.
+
+**Response:**
+```json
+{ "token": "string", "expiresAt": "datetime" }
+```
+
+---
+
 ### GET /watch/batch
 
 Progress for up to 200 media items: `?mediaIds=a,b,c`. Never-played ids are absent.

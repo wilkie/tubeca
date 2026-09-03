@@ -39,7 +39,17 @@ export interface TokenPayload {
    * issued before versioning existed; those count as version 0.
    */
   tokenVersion?: number
+  /**
+   * `media` marks a token that may only fetch images and streams. Those URLs
+   * travel in `src` attributes, where a header cannot be set, so they end up in
+   * logs, history and shared links; a scoped, short-lived token limits what a
+   * leaked one can do. A token with no scope is a full session token.
+   */
+  scope?: 'media'
 }
+
+/** How long a media-scoped token lasts. Long enough for a viewing session, short enough to matter. */
+export const MEDIA_TOKEN_TTL_SECONDS = 4 * 60 * 60;
 
 /**
  * `tokenVersion` per user, so `authenticate` does not read the database on
@@ -87,6 +97,18 @@ export class AuthService {
 
   generateToken(payload: TokenPayload): string {
     return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+  }
+
+  /**
+   * A short-lived token for image and stream URLs. It carries the same identity
+   * and version as the session token, so access checks and invalidation behave
+   * the same, but `authenticate` refuses it for anything else.
+   */
+  generateMediaToken(payload: Omit<TokenPayload, 'scope'>): { token: string; expiresAt: string } {
+    const token = jwt.sign({ ...payload, scope: 'media' }, JWT_SECRET, {
+      expiresIn: MEDIA_TOKEN_TTL_SECONDS,
+    });
+    return { token, expiresAt: new Date(Date.now() + MEDIA_TOKEN_TTL_SECONDS * 1000).toISOString() };
   }
 
   verifyToken(token: string): TokenPayload {

@@ -75,6 +75,15 @@ version 0, so the change did not sign everyone out. To keep this off the hot pat
 segment every few seconds) versions are cached per process for 15 seconds and the entry is
 dropped on a bump; the query-token middlewares apply the same check.
 
+Image and stream URLs cannot set a header, so they carry a token in the query string. Since
+2026-09-03 that is a **media-scoped** token: `POST /api/auth/media-token` (session required)
+returns a four-hour JWT carrying the same identity and `tokenVersion` but `scope: 'media'`.
+`authenticate` refuses a scoped token outright, so a leaked media URL cannot drive the API or
+mint further tokens, while `streamAuth`/`imageAuth` accept it and apply the same version check.
+The frontend keeps it in `localStorage`, uses it for every media URL, refreshes it in the
+background once less than an hour remains, and falls back to the session token when it has none
+yet, so URLs are never unusable.
+
 `POST /api/auth/login` and `POST /api/auth/setup` are rate limited to 20 failed attempts per IP
 per 15 minutes (`express-rate-limit`, successful requests are not counted).
 
@@ -214,11 +223,12 @@ API calls return 403.
 - 2026-09-03 `requireLibraryAccess` middleware added and applied to collections, media, images and stream routes; search now uses `LibraryService` for its scope.
 - 2026-09-03 Person filmographies and user-collection items scoped to accessible libraries (`resolveAccessibleLibraryIds`, `filterItemsByLibraryAccess`).
 - 2026-09-03 Session invalidation (`User.tokenVersion`, migration `20260903180000_user_token_version`), last-admin guards, self-service `PATCH /api/users/me`, login rate limiting, and central 401 handling in the frontend client.
+- 2026-09-03 Media-scoped tokens (`POST /api/auth/media-token`, four hours, `scope: 'media'`) for image and stream URLs; `authenticate` refuses them.
 
 ## Known Limitations
 
 - Outside production a missing `JWT_SECRET` still falls back to a public constant; a `NODE_ENV` left at `development` on a real deployment would sign forgeable tokens.
-- Tokens are bearer secrets placed in URLs (`?token=`), so they end up in server logs, browser history, referrer headers and any shared link. The same 24h token is used for both API and media URLs; there is no short-lived, scoped media token.
+- Tokens still travel in URLs (`?token=`), so they reach server logs, browser history and any shared link; the media-scoped token limits what a leaked one can do and expires in four hours, but a cookie would keep them out of URLs entirely. A media token is not revocable on its own: it dies with its expiry or when the user's token version is bumped.
 
 - Each access check costs one or two extra queries per request; the user's group ids are not cached, and list endpoints resolve the accessible-library list once per request on top of that. `GET /api/user-collections/public` still exposes public collections' item counts (not titles).
 - No account lockout and no password complexity rules beyond an eight-character minimum on self-service changes; `cors()` is wide open (`index.ts:36`). The rate limiter counts per IP in memory, so it resets on restart and is per-process.
@@ -233,10 +243,6 @@ API calls return 403.
 ## Opportunities
 
 - **Cache group ids per request** (S): `canUserAccessLibrary` re-reads the user's groups on every call; attach them to `req.user` once in `authenticate` or memoise per request.
-- **Short-lived, media-scoped tokens for query-string URLs** (M): sign a separate `{ userId, scope: 'media' }` token with a short TTL from a dedicated endpoint, so leaked URLs cannot drive the admin API; would also let the 24h API token move to an `httpOnly` cookie.
-
-
-
 
 - **Atomic user update** (S): fold role and groupIds into `PATCH /api/users/:id` so `UserDialog` makes one request; keep the two sub-routes for compatibility.
 - **Route `AuthService` through `users.ts`** (S): drop the duplicated `bcrypt`/`SALT_ROUNDS` and use `authService.hashPassword`.

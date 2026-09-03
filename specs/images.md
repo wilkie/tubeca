@@ -132,7 +132,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - **Resize on ingest** (M): use `sharp` to write a bounded-size variant (and a small grid thumbnail) next to the original; serve via a `?size=` parameter. Removes multi-megabyte `original` backdrops from list pages.
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
 - **Orphan cleanup** (S): make identify go through `ContentDeletionService.imagePathsFor`, and add an admin "prune images" job that diffs disk against `Image.path`.
-- **Short-lived signed image URLs or cookie auth** (M): replace the long-lived JWT query param with a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.
+- **Cookie auth for image URLs** (M): a `SameSite` cookie would keep tokens out of URLs entirely; today they carry a short-lived media-scoped token. This would also let us drop `public` from a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.
 - **Download hardening** (S): `AbortSignal.timeout`, a max byte size, and rejecting non-image `Content-Type`; validate the URL host against the scraper's known image base.
 - **Static serving** (S/M): expose the image directory via `express.static` behind the same auth, or document a reverse-proxy `X-Accel-Redirect` path for production.
 - **User upload** (M): `POST /api/images/upload` (multipart) reusing `saveImage` with a `manual` scraperId, so curated art survives `refresh-images`.

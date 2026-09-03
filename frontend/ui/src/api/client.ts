@@ -241,7 +241,60 @@ interface ApiResponse<T> {
 /** Fired when the server rejects our session; `AuthContext` signs the user out. */
 export const UNAUTHORIZED_EVENT = 'tubeca:unauthorized';
 
+const MEDIA_TOKEN_KEY = 'tubeca_media_token';
+const MEDIA_TOKEN_EXPIRY_KEY = 'tubeca_media_token_expires';
+/** Refresh once less than an hour of the four-hour lifetime remains. */
+const MEDIA_TOKEN_REFRESH_MARGIN_MS = 60 * 60 * 1000;
+
 class ApiClient {
+  private mediaTokenRequest: Promise<void> | null = null;
+
+  /**
+   * Token used by URLs that carry it in the query string (images, streams).
+   * Prefers the short-lived media-scoped token, which cannot drive the rest of
+   * the API if the URL leaks, and falls back to the session token so URLs are
+   * always usable, including on the first render after a reload.
+   */
+  private urlToken(): string | null {
+    const media = localStorage.getItem(MEDIA_TOKEN_KEY);
+    const expiresAt = Number(localStorage.getItem(MEDIA_TOKEN_EXPIRY_KEY)) || 0;
+
+    if (media && expiresAt - Date.now() > MEDIA_TOKEN_REFRESH_MARGIN_MS) {
+      return media;
+    }
+    // Expiring or absent: fetch a new one for later renders and use what we have now.
+    void this.refreshMediaToken();
+    return media ?? this.getToken();
+  }
+
+  /**
+   * Fetch a media-scoped token, at most one request at a time. Safe to call
+   * from render paths; failures leave the previous token in place.
+   */
+  async refreshMediaToken(): Promise<void> {
+    if (!this.getToken()) return;
+    if (this.mediaTokenRequest) return this.mediaTokenRequest;
+
+    this.mediaTokenRequest = (async () => {
+      const result = await this.request<{ token: string; expiresAt: string }>('/auth/media-token', {
+        method: 'POST',
+      });
+      if (result.data) {
+        localStorage.setItem(MEDIA_TOKEN_KEY, result.data.token);
+        localStorage.setItem(MEDIA_TOKEN_EXPIRY_KEY, String(Date.parse(result.data.expiresAt)));
+      }
+    })().finally(() => {
+      this.mediaTokenRequest = null;
+    });
+
+    return this.mediaTokenRequest;
+  }
+
+  clearMediaToken(): void {
+    localStorage.removeItem(MEDIA_TOKEN_KEY);
+    localStorage.removeItem(MEDIA_TOKEN_EXPIRY_KEY);
+  }
+
   private getToken(): string | null {
     return localStorage.getItem('token');
   }
@@ -252,6 +305,7 @@ class ApiClient {
 
   clearToken(): void {
     localStorage.removeItem('token');
+    this.clearMediaToken();
   }
 
   private async request<T>(
@@ -637,7 +691,7 @@ class ApiClient {
 
   // Get streaming URL for video (includes auth token)
   getVideoStreamUrl(mediaId: string, startTime?: number, audioTrack?: number): string {
-    const token = this.getToken();
+    const token = this.urlToken();
     let url = `${API_BASE}/stream/video/${mediaId}?token=${token}`;
     if (startTime && startTime > 0) {
       url += `&start=${startTime}`;
@@ -650,19 +704,19 @@ class ApiClient {
 
   // Get streaming URL for audio (includes auth token)
   getAudioStreamUrl(mediaId: string): string {
-    const token = this.getToken();
+    const token = this.urlToken();
     return `${API_BASE}/stream/audio/${mediaId}?token=${token}`;
   }
 
   // Get URL for subtitle stream as WebVTT (includes auth token)
   getSubtitleUrl(mediaId: string, streamIndex: number): string {
-    const token = this.getToken();
+    const token = this.urlToken();
     return `${API_BASE}/stream/subtitles/${mediaId}?token=${token}&streamIndex=${streamIndex}`;
   }
 
   // HLS streaming URLs
   getHlsMasterPlaylistUrl(mediaId: string, audioTrack?: number): string {
-    const token = this.getToken();
+    const token = this.urlToken();
     let url = `${API_BASE}/stream/hls/${mediaId}/master.m3u8?token=${token}`;
     if (audioTrack !== undefined) {
       url += `&audioTrack=${audioTrack}`;
@@ -671,7 +725,7 @@ class ApiClient {
   }
 
   getHlsVariantPlaylistUrl(mediaId: string, quality: string, audioTrack?: string): string {
-    const token = this.getToken();
+    const token = this.urlToken();
     let url = `${API_BASE}/stream/hls/${mediaId}/${quality}.m3u8?token=${token}`;
     if (audioTrack) {
       url += `&audioTrack=${audioTrack}`;
@@ -697,7 +751,7 @@ class ApiClient {
 
   // Get URL for an image (includes auth token)
   getImageUrl(imageId: string): string {
-    const token = this.getToken();
+    const token = this.urlToken();
     return `${API_BASE}/images/${imageId}/file?token=${token}`;
   }
 
@@ -723,7 +777,7 @@ class ApiClient {
 
   // Get URL for a trickplay sprite sheet (includes auth token)
   getTrickplaySpriteUrl(mediaId: string, width: number, index: number): string {
-    const token = this.getToken();
+    const token = this.urlToken();
     return `${API_BASE}/stream/trickplay/${mediaId}/${width}/${index}?token=${token}`;
   }
 

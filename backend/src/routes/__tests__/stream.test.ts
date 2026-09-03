@@ -58,4 +58,23 @@ describe('stream routes enforce library access', () => {
       expect((await request(app).get(url).set('Authorization', outsider.authHeader)).status).toBe(404);
     }
   });
+
+  it('accepts a media-scoped token in the query string, subject to the same rules', async () => {
+    const { media, member } = await fixture();
+    const { AuthService, bumpTokenVersion } = await import('../../services/authService');
+    const authService = new AuthService();
+    const { token: mediaToken } = authService.generateMediaToken({
+      userId: member.user.id,
+      name: member.user.name,
+      role: member.user.role,
+      tokenVersion: member.user.tokenVersion,
+    });
+
+    const url = `/api/stream/hls/${media.id}/master.m3u8`;
+    expect((await request(app).get(`${url}?token=${mediaToken}`)).status).toBe(200);
+
+    // Invalidating the session invalidates media URLs too.
+    await bumpTokenVersion(member.user.id);
+    expect((await request(app).get(`${url}?token=${mediaToken}`)).status).toBe(401);
+  });
 });

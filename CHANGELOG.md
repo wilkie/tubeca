@@ -6,6 +6,8 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Image and stream URLs carry a four-hour, media-scoped token instead of the session token,
+  so a shared or logged URL cannot be used to drive the API.
 - Password changes, role changes and deletions end existing sessions immediately.
 - Any signed-in user can change their own password.
 - Login and setup are rate limited; the last Admin cannot be deleted or demoted.

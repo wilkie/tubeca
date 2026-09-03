@@ -362,8 +362,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   remove `preferredEncoder`.
 - **Complete VAAPI support** (S): add `-vaapi_device /dev/dri/renderD128`, `-hwaccel vaapi`,
   `format=nv12,hwupload` to the filter chain.
-- **Short-lived signed stream URLs** (M) instead of the login JWT in query strings; library
-  authorization itself is now enforced per route.
+
 - **Filter subtitle streams by codec and cache extracted VTT** (S): only text codecs (`subrip`,
   `ass`, `webvtt`, `mov_text`) are convertible; write the VTT next to the HLS cache.
 - **Re-probe on file change and on demand** (S): the watcher already sees modifications; expose a

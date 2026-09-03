@@ -786,3 +786,85 @@ describe('rejected sessions', () => {
     window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   });
 });
+
+describe('media-scoped tokens in URLs', () => {
+  const MEDIA_KEY = 'tubeca_media_token';
+  const EXPIRY_KEY = 'tubeca_media_token_expires';
+  const store: Record<string, string | null> = {};
+
+  beforeEach(() => {
+    // The suite's shared mock has a fixed getItem; drive it explicitly here.
+    store.token = 'session-token';
+    store[MEDIA_KEY] = null;
+    store[EXPIRY_KEY] = null;
+    mockLocalStorage.getItem.mockImplementation((key: string) => store[key] ?? null);
+    mockLocalStorage.setItem.mockImplementation((key: string, value: string) => {
+      store[key] = value;
+    });
+    (global.fetch as jest.Mock).mockReset();
+  });
+
+  const inFourHours = () => String(Date.now() + 4 * 60 * 60 * 1000);
+
+  it('uses a fresh media token in image and stream URLs', () => {
+    store[MEDIA_KEY] = 'media-token';
+    store[EXPIRY_KEY] = inFourHours();
+
+    expect(apiClient.getImageUrl('img-1')).toContain('token=media-token');
+    expect(apiClient.getHlsMasterPlaylistUrl('m1')).toContain('token=media-token');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the session token and fetches one for next time', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'fresh-media-token', expiresAt: new Date(Date.now() + 4 * 3600_000).toISOString() }),
+    });
+
+    expect(apiClient.getImageUrl('img-1')).toContain('token=session-token');
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/media-token'),
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('replaces a token that is about to expire', async () => {
+    store[MEDIA_KEY] = 'expiring-token';
+    store[EXPIRY_KEY] = String(Date.now() + 10 * 60 * 1000); // inside the refresh margin
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'fresh-media-token', expiresAt: new Date(Date.now() + 4 * 3600_000).toISOString() }),
+    });
+
+    // The expiring token is still used for this render rather than dropping to nothing.
+    expect(apiClient.getImageUrl('img-1')).toContain('token=expiring-token');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store[MEDIA_KEY]).toBe('fresh-media-token');
+  });
+
+  it('asks only once while a refresh is in flight', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'fresh-media-token', expiresAt: new Date(Date.now() + 4 * 3600_000).toISOString() }),
+    });
+
+    apiClient.getImageUrl('a');
+    apiClient.getImageUrl('b');
+    apiClient.getImageUrl('c');
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(1);
+  });
+
+  it('drops the media token when the session is cleared', () => {
+    store[MEDIA_KEY] = 'media-token';
+    apiClient.clearToken();
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith(MEDIA_KEY);
+  });
+});

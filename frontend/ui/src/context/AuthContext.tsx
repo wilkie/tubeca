@@ -53,6 +53,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (result.data) {
         setUser(result.data.user);
+        // Returning visitor: make sure the media token is fresh too.
+        void apiClient.refreshMediaToken();
       } else {
         apiClient.clearToken();
       }
@@ -73,6 +75,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     if (result.data) {
       setUser(result.data.user);
+      // Image and stream URLs use a short-lived scoped token; fetch one now so
+      // the first page after signing in does not fall back to the session token.
+      void apiClient.refreshMediaToken();
     }
     return null;
   };
@@ -85,6 +90,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (result.data) {
       setUser(result.data.user);
       setNeedsSetup(false);
+      void apiClient.refreshMediaToken();
     }
     return null;
   };

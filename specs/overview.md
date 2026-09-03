@@ -128,8 +128,9 @@ Limitations and Opportunities sections; the pointers here are the entry points.
 Since 2026-09-03 one rule in `LibraryService` decides library visibility. A
 `requireLibraryAccess` middleware applies it to every entity-addressed route on the collections,
 media, images and stream routers; search, person filmographies and user-collection items apply
-it as a query scope. What remains: the same 24-hour login JWT is embedded in every image and
-stream URL as a query parameter. See [Auth](auth-and-users.md).
+it as a query scope. Image and stream URLs carry a four-hour media-scoped token that cannot be
+used for anything else. What remains: tokens still travel in query strings at all, where a
+cookie would not. See [Auth](auth-and-users.md).
 
 ### Secrets were in history
 
@@ -267,11 +268,9 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 2. ~~**Playback quality of life**~~ Done 2026-09-03: keyboard shortcuts, bounded error
    recovery with retry, progress flushed on tab close, Up Next skips watched episodes, quality
    by height, audio double-play fixed, Media Session ([Playback](playback.md)).
-3. **Token hardening** (M): short-lived media-scoped tokens for image and stream URLs so the
-   24-hour login JWT stops travelling in query strings; token versioning so role changes and
-   deletions take effect immediately; central 401 handling in the client; login rate limiting;
-   last-admin guard; self-service password change. ([Auth](auth-and-users.md),
-   [Images](images.md), [Streaming](streaming-and-transcoding.md))
+3. ~~**Token hardening**~~ Done 2026-09-03: media-scoped tokens, session invalidation via
+   `tokenVersion`, central 401 handling, login rate limiting, last-admin guard, self-service
+   password change ([Auth](auth-and-users.md)).
 4. **Scrape follow-through** (M): Identify cascades to seasons and episodes, season jobs
    depend on the show job instead of a timer, full scans skip re-downloading unchanged images,
    provider responses cached, language/region passed through from config, and the two workers'
