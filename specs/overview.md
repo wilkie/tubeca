@@ -241,6 +241,20 @@ Ordered by leverage. Each item's details are in the linked spec.
 9. ~~**Decide on Music**~~ Hidden 2026-09-03; schema kept for a future implementation
    ([Libraries](libraries-and-scanning.md)).
 
+### Second round
+
+Drawn from the Opportunities sections after the first nine items landed.
+
+1. ~~**Watched state on cards and lists**~~ Done 2026-09-03 ([Playback](playback.md)).
+2. ~~**Rename detection in scan reconciliation**~~ Done 2026-09-03
+   ([Libraries](libraries-and-scanning.md)).
+3. **Release tagging and image publishing** (S): tag `v1.0.0`, push the CI-built image to GHCR
+   on tags. ([Deployment](deployment.md))
+4. **Remaining access gaps** (S): person filmographies and public user collections still
+   name titles from restricted libraries. ([Auth](auth-and-users.md))
+5. **Slim the package and image** (M): production-only `node_modules`, OpenAPI generated at
+   build time. ([Deployment](deployment.md))
+
 ## Conventions for Maintaining These Specs
 
 - When a change alters behaviour described in a spec, update the spec in the same commit.

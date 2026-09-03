@@ -34,7 +34,10 @@ export interface FileWatcherOptions {
  * Service for watching library paths for filesystem changes
  * and automatically processing new media files
  */
-export class FileWatcherService {
+export /** How long an unlink waits for a matching add before the row is deleted. */
+const RENAME_GRACE_MS = 10000;
+
+class FileWatcherService {
   private watchers: Map<string, WatchedLibrary> = new Map();
   private enabled: boolean = false;
   private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
@@ -326,7 +329,9 @@ export class FileWatcherService {
   private handleFileRemove(_libraryId: string, libraryPath: string, relativePath: string): void {
     const fullPath = path.join(libraryPath, relativePath);
 
-    // Use setTimeout to avoid blocking the watcher
+    // A rename arrives as unlink + add. Wait before deleting so the add can
+    // re-point the row (importMediaFile recognises the file by size and mtime);
+    // by then the row's path has changed and the lookup below finds nothing.
     setTimeout(async () => {
       try {
         // Find and delete the media record
@@ -334,14 +339,14 @@ export class FileWatcherService {
           where: { path: fullPath },
         });
 
-        if (media) {
+        if (media && !fs.existsSync(fullPath)) {
           await contentDeletionService.deleteMedia(media.id);
           console.log(`📁 Removed media: ${relativePath}`);
         }
       } catch (error) {
         console.error(`📁 Error removing media ${fullPath}:`, error);
       }
-    }, 100);
+    }, RENAME_GRACE_MS);
   }
 
   /**
@@ -386,12 +391,20 @@ export class FileWatcherService {
     );
 
     const imported = await importService.importMediaFile({
+      libraryId,
       libraryType,
       filePath: fullPath,
       parentCollectionId: leafId,
       collectionPath,
     });
 
+    if (imported.moved) {
+      console.log(`📁 Media moved to: ${relativePath}`);
+      if (imported.scrapeStatus !== 'Matched') {
+        await importService.queueMediaScrapes(libraryType, [imported.hints]);
+      }
+      return;
+    }
     if (!imported.created) {
       console.log(`📁 Media already exists: ${relativePath}`);
       return;

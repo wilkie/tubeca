@@ -151,6 +151,8 @@ export interface ScanResult {
   filesProcessed: number
   collectionsCreated: number
   mediaCreated: number
+  /** Existing rows re-pointed to a renamed or moved file */
+  mediaMoved?: number
   /** Media rows removed because their files were no longer on disk */
   mediaRemoved?: number
   /** Collections removed because their folders were no longer on disk */
@@ -508,6 +510,8 @@ export interface Media extends ScrapeState {
   id: string
   name: string
   path: string
+  fileSize?: number | null
+  fileMtimeMs?: number | null
   duration: number
   type: MediaType
   thumbnails: string | null

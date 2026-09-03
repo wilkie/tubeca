@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Prisma, type CollectionType, type LibraryType, type StreamType } from '@prisma/client';
+import { Prisma, type CollectionType, type LibraryType, type ScrapeStatus, type StreamType } from '@prisma/client';
 import { prisma } from '../config/database';
 import { probeMediaFile, type StreamInfo } from '../utils/ffprobe';
 import { VIDEO_EXTENSIONS, getCollectionType } from '../utils/libraryLayout';
@@ -44,8 +44,28 @@ export interface CollectionHints {
 
 export interface ImportedMedia {
   mediaId: string
+  /** A brand new row was created */
   created: boolean
+  /** An existing row was re-pointed to this path (renamed or moved file) */
+  moved: boolean
+  /** The row's last scrape outcome, so callers can decide whether to re-queue a scrape */
+  scrapeStatus: ScrapeStatus | null
   hints: MediaHints
+}
+
+/** Size and mtime identify a file across renames and moves. */
+export interface FileIdentity {
+  fileSize: number
+  fileMtimeMs: number
+}
+
+export function readFileIdentity(filePath: string): FileIdentity | null {
+  try {
+    const stat = fs.statSync(filePath);
+    return { fileSize: stat.size, fileMtimeMs: stat.mtimeMs };
+  } catch {
+    return null;
+  }
 }
 
 export interface EnsuredCollection {
@@ -207,22 +227,50 @@ export class ImportService {
    * Import one media file: probe it, create the `Media` and `MediaStream`
    * rows, detect a sibling `.trickplay` folder. Idempotent on `Media.path`;
    * a concurrent insert of the same path is tolerated.
+   *
+   * An unknown path whose size and mtime match a row in the same library whose
+   * own file has vanished is treated as a rename or move: that row is
+   * re-pointed here, keeping its metadata, images and watch progress.
    */
   async importMediaFile(opts: {
+    libraryId: string
     libraryType: LibraryType
     filePath: string
     parentCollectionId: string | null
     collectionPath: string[]
   }): Promise<ImportedMedia> {
-    const { libraryType, filePath, parentCollectionId, collectionPath } = opts;
+    const { libraryId, libraryType, filePath, parentCollectionId, collectionPath } = opts;
     const ext = path.extname(filePath).toLowerCase();
     const fileBaseName = path.basename(filePath, ext);
     const mediaType: 'Video' | 'Audio' = VIDEO_EXTENSIONS.includes(ext) ? 'Video' : 'Audio';
     const hintsFor = (id: string) => buildMediaHints(id, libraryType, fileBaseName, collectionPath, mediaType);
+    const identity = readFileIdentity(filePath);
 
-    const existing = await prisma.media.findUnique({ where: { path: filePath }, select: { id: true } });
+    const existing = await prisma.media.findUnique({
+      where: { path: filePath },
+      select: { id: true, fileSize: true, scrapeStatus: true },
+    });
     if (existing) {
-      return { mediaId: existing.id, created: false, hints: hintsFor(existing.id) };
+      // Backfill the file identity for rows imported before it was recorded.
+      if (existing.fileSize === null && identity) {
+        await prisma.media.update({ where: { id: existing.id }, data: identity });
+      }
+      return { mediaId: existing.id, created: false, moved: false, scrapeStatus: existing.scrapeStatus, hints: hintsFor(existing.id) };
+    }
+
+    const moved = identity ? await this.findMovedMedia(libraryId, identity) : null;
+    if (moved) {
+      const hints = hintsFor(moved.id);
+      await prisma.media.update({
+        where: { id: moved.id },
+        data: {
+          path: filePath,
+          collectionId: parentCollectionId,
+          // Keep a scraped title; otherwise take the name from the new location.
+          ...(moved.scrapeStatus === 'Matched' ? {} : { name: hints.name }),
+        },
+      });
+      return { mediaId: moved.id, created: false, moved: true, scrapeStatus: moved.scrapeStatus, hints };
     }
 
     let thumbnails: string | null = null;
@@ -245,6 +293,7 @@ export class ImportService {
           name,
           duration: probe.duration,
           type: mediaType,
+          ...(identity ?? {}),
           ...(thumbnails && { thumbnails }),
           collectionId: parentCollectionId,
           streams: {
@@ -269,15 +318,29 @@ export class ImportService {
         },
         select: { id: true },
       });
-      return { mediaId: media.id, created: true, hints: hintsFor(media.id) };
+      return { mediaId: media.id, created: true, moved: false, scrapeStatus: null, hints: hintsFor(media.id) };
     } catch (error) {
       // Unique violation: someone (the watcher, another scan) imported it first.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const raced = await prisma.media.findUnique({ where: { path: filePath }, select: { id: true } });
-        if (raced) return { mediaId: raced.id, created: false, hints: hintsFor(raced.id) };
+        const raced = await prisma.media.findUnique({ where: { path: filePath }, select: { id: true, scrapeStatus: true } });
+        if (raced) return { mediaId: raced.id, created: false, moved: false, scrapeStatus: raced.scrapeStatus, hints: hintsFor(raced.id) };
       }
       throw error;
     }
+  }
+
+  /**
+   * A media row in this library with the same size and mtime whose file is
+   * gone from its recorded path. Requires both to match exactly, so a copied
+   * file (old path still present) is imported as a second item.
+   */
+  private async findMovedMedia(libraryId: string, identity: FileIdentity) {
+    const candidates = await prisma.media.findMany({
+      where: { ...identity, collection: { libraryId } },
+      select: { id: true, path: true, scrapeStatus: true },
+      take: 10,
+    });
+    return candidates.find((c) => !fs.existsSync(c.path)) ?? null;
   }
 
   /** Queue metadata scrapes for media hints (no-op for Film libraries, whose metadata lives on the collection). */

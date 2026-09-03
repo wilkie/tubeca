@@ -11,6 +11,7 @@ export interface ScanResult {
   filesProcessed: number
   collectionsCreated: number
   mediaCreated: number
+  mediaMoved: number
   mediaRemoved: number
   collectionsRemoved: number
   errors: string[]
@@ -24,6 +25,7 @@ function toResult(summary: ScanSummary): ScanResult {
     filesProcessed: summary.filesProcessed,
     collectionsCreated: summary.collectionsCreated,
     mediaCreated: summary.mediaCreated,
+    mediaMoved: summary.mediaMoved,
     mediaRemoved: summary.mediaRemoved,
     collectionsRemoved: summary.collectionsRemoved,
     errors: summary.errors,

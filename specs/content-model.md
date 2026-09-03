@@ -81,9 +81,10 @@
   [Metadata Scraping](metadata-scraping.md).
 - **Media** is single-table inheritance: `path`, `duration Int` (seconds, from ffprobe), `name`,
   `type`, optional `thumbnails` (trickplay folder path), `collectionId` with **`onDelete: SetNull`**
-  (`schema.prisma:107`). Indexed on `type` and `collectionId`. `path` is unique since
-  `20260903120000_unique_media_path`; `ImportService.importMediaFile` looks up by `findUnique`
-  and tolerates a concurrent insert.
+  (`schema.prisma:107`). Indexed on `type`, `collectionId` and `(fileSize, fileMtimeMs)`. `path`
+  is unique since `20260903120000_unique_media_path`; `fileSize`/`fileMtimeMs` (both `Float`, so
+  the JSON stays plain numbers) identify a file across renames. `ImportService.importMediaFile`
+  looks up by `findUnique`, then by identity for moved files, and tolerates a concurrent insert.
 - **MediaStream** one row per ffprobe stream, `@@unique([mediaId, streamIndex])`, cascade on media.
 - **Detail tables** all share the pattern `collectionId @unique` (or `mediaId @unique`), cascade
   delete, nullable `scraperId`/`externalId` with a composite index. `FilmDetails` is the widest
@@ -303,6 +304,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - 2026-09-03 `WatchProgress` model added (migration `20260903093221_add_watch_progress`).
 - 2026-09-03 `Media.path` unique; recursive, file-cleaning deletes for collections, media and libraries via `ContentDeletionService`.
 - 2026-09-03 `ScrapeStatus` enum and `scrapeStatus`/`scrapeMessage`/`scrapedAt` columns on `Collection` and `Media`.
+- 2026-09-03 `Media.fileSize` and `fileMtimeMs` added for rename detection.
 
 ## Known Limitations
 

@@ -80,7 +80,8 @@ For each file whose lower-cased extension is in the library's list:
 - `Media.path` is the absolute joined path and is unique. `importMediaFile` looks it up with `findUnique`; if a concurrent import (the watcher, another scan) wins the insert, the resulting `P2002` is caught and the existing row is used, so the scanner and watcher can no longer produce duplicates.
 - New files are probed with `probeMediaFile`; `duration` (rounded seconds, 0 on failure) is stored on `Media` and each video/audio/subtitle stream becomes a `MediaStream` row in the same create. Data/attachment streams are skipped. The watcher goes through the identical code.
 - A sibling `<basename>.trickplay` directory is stored as `Media.thumbnails` (consumed by [Streaming & Transcoding](streaming-and-transcoding.md)).
-- Existing files are counted in `filesProcessed` and otherwise untouched (no re-probe); in full-scan mode their hints are re-added to `mediaToScrape` so they get re-scraped. A renamed file is a new path: it is imported fresh and the old row is removed by reconciliation at the end of the scan.
+- Existing files are counted in `filesProcessed` and otherwise untouched (no re-probe), except that rows imported before file identity was recorded get `fileSize`/`fileMtimeMs` backfilled; in full-scan mode their hints are re-added to `mediaToScrape` so they get re-scraped.
+- An unknown path is first checked for a **rename or move**: `importMediaFile` stats the file and looks for a row in the same library with the same `fileSize` and `fileMtimeMs` whose recorded path no longer exists. If found, that row is re-pointed (`path`, `collectionId`; the name is kept when the row's scrape status is `Matched`, otherwise taken from the new location) and reported as `moved`, so details, images and watch progress survive and no probe runs. A copy (old file still present) or a re-encode (size/mtime changed) is imported as a new row. Moved rows that were never matched are re-queued for scraping.
 
 Music libraries (the type is hidden since 2026-09-03: `LibraryDialog` does not offer it and `POST /api/libraries` rejects it, but libraries created earlier still exist) go through the same walk (Artist/Album folders, Audio media, ffprobe streams). `ImportService` no longer queues Artist/Album collection scrapes or Audio media scrapes, since no bundled plugin implements them; music imports produce a browsable tree with durations and no metadata.
 
@@ -95,7 +96,7 @@ Queueing goes through `ImportService.queueMediaScrapes` and `queueCollectionScra
 
 ### Orphan reconciliation
 
-At the end of a scan, `removeMissing` deletes every media row in the library (via its collection) and every collection whose id was not seen during the walk, through `ContentDeletionService` so artwork files go too. Two guards prevent a bad walk from emptying a library: reconciliation is skipped if any directory could not be read (`incomplete`), and if the walk saw nothing at all (an unmounted share presents as an empty folder), in which case the result carries an explanatory error. Media at the library root have no collection and are never reconciled.
+At the end of a scan, `removeMissing` deletes every media row in the library (via its collection) and every collection whose id was not seen during the walk, through `ContentDeletionService` so artwork files go too. Because moved files are re-pointed during the walk (and therefore seen), a renamed folder costs one collection delete plus one create while its media rows keep their ids; `ScanResult.mediaMoved` reports how many. Two guards prevent a bad walk from emptying a library: reconciliation is skipped if any directory could not be read (`incomplete`), and if the walk saw nothing at all (an unmounted share presents as an empty folder), in which case the result carries an explanatory error. Media at the library root have no collection and are never reconciled.
 
 ### File watcher
 
@@ -103,7 +104,7 @@ Enabled at boot if `FILE_WATCHER_ENABLED=true` or `fileWatcher.enabled` in `tube
 
 - `add` → filtered by extension, debounced 2 s per path, then `processNewFile`: `ImportService.ensureCollectionPath` creates any missing folders in the chain (queueing their scrapes), `importMediaFile` imports the file, and `queueMediaScrapes` enqueues a job unless the library is Film.
 - `addDir` → debounced, `processNewDirectory` runs `ensureCollectionPath` and queues scrapes for whatever it created.
-- `unlink` → after 100 ms, `contentDeletionService.deleteMedia` for the matching path, which also removes the media's artwork files.
+- `unlink` → after a 10 s grace period (`RENAME_GRACE_MS`), `contentDeletionService.deleteMedia` for the row still at that path, provided the file is still absent. chokidar reports a rename as `unlink` + `add`; the `add` re-points the row through `importMediaFile`'s size/mtime match, so by the time the timer fires the old path matches nothing and no delete happens.
 - `unlinkDir` → deliberately a no-op, to survive folder renames (which chokidar reports as unlinkDir+addDir). Collections are therefore never removed by the watcher.
 - `change` is not handled, so an in-place re-encode does not re-probe.
 
@@ -142,10 +143,11 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - 2026-09-03 `getCollectionType` and media extension lists extracted to `utils/libraryLayout.ts` (with tests) and used by both the scan worker and file watcher.
 - 2026-09-03 Import integrity: `ImportService`, `LibraryScanService` and `ContentDeletionService` extracted; scanner and watcher share one import path; `Media.path` unique with a dedupe migration; orphan reconciliation after each complete scan; library, collection and media deletes clean artwork files.
 - 2026-09-03 Music hidden: removed from the library picker and the create-route allow-list; scans stop queueing Artist/Album/Audio scrapes. Schema and existing libraries untouched.
+- 2026-09-03 Rename/move detection: `Media.fileSize`/`fileMtimeMs` recorded at import (migration `20260903150000_media_file_identity`), unknown paths matched against vanished rows in the same library, watcher unlink waits 10 s for the matching add; `ScanResult.mediaMoved`.
 
 ## Known Limitations
 
-- **Renames lose metadata.** Reconciliation treats a renamed file or folder as delete-plus-create, so scraped details, images and watch progress for the old row are gone; there is no size/mtime matching to carry them over.
+- **Rename detection needs an unchanged file.** Matching is exact on size and mtime, so a file that was re-encoded, re-muxed or touched while being moved is treated as new and the old row is reconciled away. Rows from before 2026-09-03 have no identity until a scan or watcher event backfills it.
 - **Root-level media are never reconciled** because they have no collection and therefore no link to the library.
 - **Blocking filesystem I/O in the API process.** The scan uses `readdirSync`/`statSync`/`existsSync` and all workers run inside the Express process, so a large directory on a slow mount stalls request handling. `libraryService` validation is also sync.
 - **Case sensitivity.** Collections are matched by exact `name` and Prisma/SQLite default comparison; on case-insensitive filesystems a folder renamed only in case yields a second collection. Extensions are lower-cased, but `.MKV` files are matched while a folder named `Season 1` vs `season 1` is not deduplicated.
@@ -159,7 +161,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 
 ## Opportunities
 
-- **Rename detection** (M): before reconciliation deletes a row, look for a new file with the same size and mtime (or a content hash) and re-point `Media.path` instead, preserving metadata and watch progress.
+- **Content hashing for renames** (M): a partial hash (first/last MB) as a second identity key would survive touched mtimes and cross-library moves.
 - **Dry-run / review for removals** (S): expose what a scan would remove and let an admin confirm, for libraries on flaky mounts.
 - **Use `fs.promises.readdir`/`stat`** in the scan and `libraryService` (S) so the API process stays responsive; consider `Promise.all` with a small concurrency limit for ffprobe (currently strictly serial, one process spawn per file).
 - **Track visited real paths when following symlinks** (S) and add a depth cap to match the watcher.

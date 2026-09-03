@@ -6,7 +6,10 @@ import {
   shouldScrapeMedia,
 } from '../importService';
 import { ContentDeletionService } from '../contentDeletionService';
-import { prisma, resetDatabase, createLibrary, createCollection, createVideoMedia } from '../../test/db';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { prisma, resetDatabase, createLibrary, createCollection, createVideoMedia, createUser } from '../../test/db';
 
 const probe = jest.fn(async () => ({
   duration: 1234,
@@ -113,6 +116,7 @@ describe('ImportService', () => {
     const { leafId } = await service.ensureCollectionPath(library.id, 'Television', ['Betty', 'Season 1']);
 
     const first = await service.importMediaFile({
+      libraryId: library.id,
       libraryType: 'Television',
       filePath: '/lib/Betty/Season 1/Betty S01E02.mkv',
       parentCollectionId: leafId,
@@ -127,6 +131,7 @@ describe('ImportService', () => {
     expect(stored!.streams).toHaveLength(2);
 
     const again = await service.importMediaFile({
+      libraryId: library.id,
       libraryType: 'Television',
       filePath: '/lib/Betty/Season 1/Betty S01E02.mkv',
       parentCollectionId: leafId,
@@ -174,5 +179,99 @@ describe('ImportService', () => {
     expect(await prisma.collection.findUnique({ where: { id: gone.id } })).toBeNull();
     expect(await prisma.media.findUnique({ where: { id: staleMedia.id } })).toBeNull();
     expect(await prisma.media.findUnique({ where: { id: keptMedia.id } })).not.toBeNull();
+  });
+
+  describe('rename detection', () => {
+    let dir: string;
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-rename-'));
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    async function importAt(libraryId: string, file: string, collectionId: string | null) {
+      return service.importMediaFile({
+        libraryId,
+        libraryType: 'Film',
+        filePath: file,
+        parentCollectionId: collectionId,
+        collectionPath: [path.basename(path.dirname(file))],
+      });
+    }
+
+    it('re-points a row when its file reappears under a new path with the same size and mtime', async () => {
+      const library = await createLibrary({ libraryType: 'Film', path: dir });
+      const film = await createCollection({ libraryId: library.id, name: 'Heat (1995)' });
+      const oldPath = path.join(dir, 'Heat (1995)', 'heat.mkv');
+      fs.mkdirSync(path.dirname(oldPath), { recursive: true });
+      fs.writeFileSync(oldPath, 'video-bytes');
+
+      const first = await importAt(library.id, oldPath, film.id);
+      expect(first.created).toBe(true);
+      await prisma.media.update({ where: { id: first.mediaId }, data: { scrapeStatus: 'Matched', name: 'Heat' } });
+      const { user } = await createUser();
+      await prisma.watchProgress.create({ data: { userId: user.id, mediaId: first.mediaId, position: 10, duration: 100 } });
+
+      const newPath = path.join(dir, 'Heat (1995)', 'Heat.1995.Remux.mkv');
+      fs.renameSync(oldPath, newPath);
+      const second = await importAt(library.id, newPath, film.id);
+
+      expect(second).toMatchObject({ mediaId: first.mediaId, created: false, moved: true, scrapeStatus: 'Matched' });
+      const row = await prisma.media.findUnique({ where: { id: first.mediaId }, include: { watchProgress: true } });
+      expect(row!.path).toBe(newPath);
+      expect(row!.name).toBe('Heat');
+      expect(row!.watchProgress).toHaveLength(1);
+      expect(probe).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes the new name for a moved file that was never matched', async () => {
+      const library = await createLibrary({ libraryType: 'Film', path: dir });
+      const film = await createCollection({ libraryId: library.id, name: 'Old Name (2001)' });
+      const oldPath = path.join(dir, 'Old Name (2001)', 'a.mkv');
+      fs.mkdirSync(path.dirname(oldPath), { recursive: true });
+      fs.writeFileSync(oldPath, 'x');
+      const first = await importAt(library.id, oldPath, film.id);
+
+      const better = await createCollection({ libraryId: library.id, name: 'Better Name (2001)' });
+      const newPath = path.join(dir, 'Better Name (2001)', 'a.mkv');
+      fs.mkdirSync(path.dirname(newPath), { recursive: true });
+      fs.renameSync(oldPath, newPath);
+      const second = await importAt(library.id, newPath, better.id);
+
+      expect(second.moved).toBe(true);
+      const row = await prisma.media.findUnique({ where: { id: first.mediaId } });
+      expect(row).toMatchObject({ path: newPath, collectionId: better.id, name: 'Better Name (2001)' });
+    });
+
+    it('treats a copy (old file still present) as a new item', async () => {
+      const library = await createLibrary({ libraryType: 'Film', path: dir });
+      const film = await createCollection({ libraryId: library.id, name: 'F' });
+      const a = path.join(dir, 'F', 'a.mkv');
+      fs.mkdirSync(path.dirname(a), { recursive: true });
+      fs.writeFileSync(a, 'same');
+      const first = await importAt(library.id, a, film.id);
+      const b = path.join(dir, 'F', 'b.mkv');
+      fs.copyFileSync(a, b);
+      const stat = fs.statSync(a);
+      fs.utimesSync(b, stat.atime, stat.mtime);
+
+      const second = await importAt(library.id, b, film.id);
+      expect(second.created).toBe(true);
+      expect(second.mediaId).not.toBe(first.mediaId);
+    });
+
+    it('backfills size and mtime on rows imported before they were recorded', async () => {
+      const library = await createLibrary({ libraryType: 'Film', path: dir });
+      const film = await createCollection({ libraryId: library.id, name: 'F' });
+      const file = path.join(dir, 'F', 'legacy.mkv');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, 'legacy');
+      const legacy = await createVideoMedia({ path: file, duration: 1, collectionId: film.id });
+      expect(legacy.fileSize).toBeNull();
+
+      await importAt(library.id, file, film.id);
+      const row = await prisma.media.findUnique({ where: { id: legacy.id } });
+      expect(row!.fileSize).toBe(6);
+      expect(row!.fileMtimeMs).toBeGreaterThan(0);
+    });
   });
 });

@@ -18,6 +18,8 @@ export interface ScanSummary {
   filesProcessed: number
   collectionsCreated: number
   mediaCreated: number
+  /** Existing rows re-pointed to a renamed or moved file */
+  mediaMoved: number
   mediaRemoved: number
   collectionsRemoved: number
   errors: string[]
@@ -54,6 +56,7 @@ export class LibraryScanService {
         filesProcessed: 0,
         collectionsCreated: 0,
         mediaCreated: 0,
+        mediaMoved: 0,
         mediaRemoved: 0,
         collectionsRemoved: 0,
         errors: [],
@@ -121,6 +124,7 @@ export class LibraryScanService {
       const filePath = path.join(dirPath, entry.name);
       try {
         const imported = await this.importer.importMediaFile({
+          libraryId: library.id,
           libraryType: library.libraryType,
           filePath,
           parentCollectionId,
@@ -130,6 +134,10 @@ export class LibraryScanService {
         if (imported.created) {
           summary.mediaCreated++;
           summary.mediaToScrape.push(imported.hints);
+        } else if (imported.moved) {
+          summary.mediaMoved++;
+          // A moved file keeps matched metadata; anything else gets another chance.
+          if (imported.scrapeStatus !== 'Matched' || options.fullScan) summary.mediaToScrape.push(imported.hints);
         } else if (options.fullScan) {
           summary.mediaToScrape.push(imported.hints);
         }

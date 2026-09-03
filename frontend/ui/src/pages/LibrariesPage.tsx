@@ -315,6 +315,9 @@ export function LibrariesPage() {
                                   collections: scanState.result.collectionsCreated,
                                   media: scanState.result.mediaCreated,
                                 }),
+                                scanState.result.mediaMoved
+                                  ? t('libraries.scanResultMoved', { count: scanState.result.mediaMoved })
+                                  : null,
                                 (scanState.result.mediaRemoved || scanState.result.collectionsRemoved)
                                   ? t('libraries.scanResultRemoved', {
                                       media: scanState.result.mediaRemoved ?? 0,

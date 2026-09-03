@@ -126,6 +126,11 @@ model Media {
   duration    Int       // Length in seconds
   name        String    // Human-readable name
 
+  // File identity captured at import; a renamed/moved file is recognised by
+  // matching size and mtime so its metadata and watch progress survive.
+  fileSize    Float?    // bytes (Float to stay JSON-safe above 2^31)
+  fileMtimeMs Float?    // modification time in ms since epoch
+
   // Discriminator field
   type        MediaType
 
@@ -163,6 +168,7 @@ model Media {
 
   @@index([type])
   @@index([collectionId])
+  @@index([fileSize, fileMtimeMs])
 }
 
 // Media stream information (audio, video, subtitle tracks)

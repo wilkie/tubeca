@@ -135,4 +135,21 @@ describe('LibraryScanService', () => {
   it('throws for a missing library path', async () => {
     await expect(scanner.scan({ id: 'x', path: '/nope/nothing', libraryType: 'Film' })).rejects.toThrow(/does not exist/);
   });
+
+  it('keeps a renamed film as the same media row instead of delete-plus-create', async () => {
+    touch('Old (1999)/old.mkv');
+    const library = await createLibrary({ libraryType: 'Film', path: root });
+    const lib = { id: library.id, path: root, libraryType: 'Film' as const };
+    await scanner.scan(lib);
+    const before = await prisma.media.findFirstOrThrow();
+
+    fs.renameSync(path.join(root, 'Old (1999)'), path.join(root, 'New (1999)'));
+    const summary = await scanner.scan(lib);
+
+    expect(summary).toMatchObject({ mediaCreated: 0, mediaMoved: 1, mediaRemoved: 0, collectionsCreated: 1, collectionsRemoved: 1 });
+    const after = await prisma.media.findFirstOrThrow();
+    expect(after.id).toBe(before.id);
+    expect(after.path).toBe(path.join(root, 'New (1999)/old.mkv'));
+    expect((await prisma.collection.findMany()).map((c) => c.name)).toEqual(['New (1999)']);
+  });
 });
