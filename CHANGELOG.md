@@ -22,6 +22,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - A library remembers whether you browse it as posters or as a list, and how you sort it.
 - A library can be scanned without removing anything: new files are imported and the result says
   how many items are missing, which is safer on a network share that comes and goes.
+- Subtitle files sitting next to a video are imported and offered in the player, including the
+  language, forced and hearing-impaired markers their filenames carry.
+- The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
 - Re-encoding a file in place now updates its length and its audio and subtitle tracks, instead

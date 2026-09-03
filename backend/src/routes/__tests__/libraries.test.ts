@@ -1,6 +1,9 @@
 import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { resetDatabase, createGroup, createLibrary, createUser } from '../../test/db';
 
 // The router pulls in the scan queue (Redis) and the file watcher; neither is
@@ -86,5 +89,67 @@ describe('POST /api/libraries', () => {
       .send({ name: 'Films', path: '/tmp', libraryType: 'Film' });
     expect(res.status).toBe(201);
     expect(res.body.library).toMatchObject({ name: 'Films', libraryType: 'Film' });
+  });
+});
+
+describe('GET /api/libraries/browse', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    await resetDatabase();
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-browse-'));
+    fs.mkdirSync(path.join(root, 'Films'));
+    fs.mkdirSync(path.join(root, 'Shows'));
+    fs.mkdirSync(path.join(root, '.hidden'));
+    fs.writeFileSync(path.join(root, 'notes.txt'), '');
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('lists folders only, without hidden ones', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app).get('/api/libraries/browse').query({ path: root }).set('Authorization', authHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body.directories.map((d: { name: string }) => d.name)).toEqual(['Films', 'Shows']);
+    expect(res.body.path).toBe(fs.realpathSync(root) === root ? root : root);
+    expect(res.body.parent).toBe(path.dirname(root));
+  });
+
+  it('is admin only', async () => {
+    const { authHeader } = await createUser({ role: 'Editor' });
+
+    const res = await request(app).get('/api/libraries/browse').query({ path: root }).set('Authorization', authHeader);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects a relative path', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app).get('/api/libraries/browse').query({ path: 'films' }).set('Authorization', authHeader);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('reports a path that is not a directory', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .get('/api/libraries/browse')
+      .query({ path: path.join(root, 'notes.txt') })
+      .set('Authorization', authHeader);
+
+    expect(res.status).toBe(404);
+  });
+
+  it('is not shadowed by the library-by-id route', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app).get('/api/libraries/browse').set('Authorization', authHeader);
+
+    // No path given: the filesystem root, which always has a listing.
+    expect(res.status).toBe(200);
+    expect(res.body.parent).toBeNull();
   });
 });

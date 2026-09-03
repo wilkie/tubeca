@@ -172,6 +172,19 @@ export interface ScanStatusResponse {
   failedReason?: string
 }
 
+export interface BrowseDirectoryEntry {
+  name: string
+  path: string
+}
+
+export interface BrowseDirectoriesResponse {
+  /** The directory that was listed. */
+  path: string
+  /** Its parent, or null at the filesystem root. */
+  parent: string | null
+  directories: BrowseDirectoryEntry[]
+}
+
 export interface ScanCancelResponse {
   message: string
   wasActive: boolean

@@ -32,7 +32,7 @@
 | `backend/src/queues/libraryScanQueue.ts` | `library-scan` queue; deterministic job id `scan-<libraryId>`, `attempts: 1`, `addLibraryScanJob` / `getLibraryScanJob` / `cancelLibraryScanJob`. |
 | `backend/src/workers/libraryScanWorker.ts` | Thin BullMQ handler: loads the library, runs `LibraryScanService.scan` with cancel/progress callbacks, queues scrapes from the summary, returns a `ScanResult`. `concurrency: 2`. |
 | `backend/src/services/libraryScanService.ts` | The walk: `fs.promises.readdir` per directory, symlink classification, a visited real-path set and `MAX_SCAN_DEPTH`, hidden/`.trickplay` skipping, `ImportService` calls, seen-id tracking, and post-walk orphan reconciliation (or a dry-run report). Testable against a temp tree. |
-| `backend/src/services/importService.ts` | Shared by scanner and watcher: `ensureCollection`/`ensureCollectionPath`, `importMediaFile` (probe, streams, trickplay, unique-path race handling), pure `buildMediaHints`/`buildCollectionHints`, `queueMediaScrapes`/`queueCollectionScrapes`, `reprobeMediaFile`, `findMissing`, `removeMissing`. |
+| `backend/src/services/importService.ts` | Shared by scanner and watcher: `ensureCollection`/`ensureCollectionPath`, `importMediaFile` (probe, streams, trickplay, unique-path race handling), pure `buildMediaHints`/`buildCollectionHints`, `queueMediaScrapes`/`queueCollectionScrapes`, `reprobeMediaFile`, `syncExternalSubtitles`, `findMissing`, `removeMissing`. |
 | `backend/src/services/contentDeletionService.ts` | `deleteMedia`, `deleteCollectionTree`, `deleteLibraryContents`: remove rows and every artwork file they own (including credit photos). Used by the collection/media/library services, the watcher and reconciliation. |
 | `backend/src/services/fileWatcherService.ts` | Singleton chokidar wrapper: `start/stop/sync/watchLibrary/unwatchLibrary`, debounced add handlers, unlink handler; delegates all creation to `ImportService`. |
 | `backend/src/utils/mediaParser.ts` | `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear`, `getShowNameFromCollectionPath`, `extractYear`. |
@@ -94,6 +94,28 @@ Queueing goes through `ImportService.queueMediaScrapes` and `queueCollectionScra
 - Media scrape jobs are skipped entirely for Film libraries (`shouldScrapeMedia`): film metadata is attached to the Film collection, not the media. The watcher now applies the same rule.
 - Collection scrape jobs are added for Show, Season, Film, Artist and Album collections. Shows go first, and a season whose show is in the same batch is not queued here at all: the show job queues it once it has an external id to look the season up with. Seasons and albums carry `parentShowId`; seasons carry `seasonNumber`; films carry `year`. Everything else about matching lives in [Metadata Scraping](metadata-scraping.md).
 
+### Subtitle sidecars
+
+A subtitle file next to a video is imported as a `MediaStream` of type `Subtitle` carrying an
+`externalPath` instead of living inside the container. `subtitleSidecars.ts` reads the naming
+convention players share, `<video name>.<tags>.<ext>` for `.srt`, `.vtt`, `.ass` and `.ssa`: a
+language code in any of its two-letter, three-letter or spelled-out forms becomes an ISO 639-2
+code, `forced` and `default` set their flags, `sdh`/`cc`/`hi` label the track, and anything left
+becomes its title. A name that merely starts with the video's, such as `Heatwave.srt` next to
+`Heat.mkv`, is not matched.
+
+External rows take negative stream indices (-1, -2, ...) so they never collide with ffmpeg's
+numbering for the container. `GET /api/stream/subtitles/:id?streamIndex=-1` sees the negative
+index, looks the row up and converts that file to WebVTT rather than mapping a stream out of the
+video. The player builds its subtitle menu from `Media.streams`, so sidecars appear there with no
+frontend change.
+
+The set is reconciled on every import, not only on the first: a subtitle downloaded later is
+added on the next scan and one deleted is dropped, while a re-probe of the video (the watcher's
+`change` handler) replaces only the container's own streams. During a scan the directory listing
+the walk already has is passed down, so a folder of episodes is read once rather than once per
+episode.
+
 ### Orphan reconciliation
 
 At the end of a scan, `removeMissing` deletes every media row in the library (via its collection) and every collection whose id was not seen during the walk, through `ContentDeletionService` so artwork files go too. Because moved files are re-pointed during the walk (and therefore seen), a renamed folder costs one collection delete plus one create while its media rows keep their ids; `ScanResult.mediaMoved` reports how many. Two guards prevent a bad walk from emptying a library: reconciliation is skipped if any directory could not be read (`incomplete`), and if the walk saw nothing at all (an unmounted share presents as an empty folder), in which case the result carries an explanatory error. Media at the library root have no collection and are never reconciled.
@@ -128,6 +150,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 
 ## History
 
+- 2026-09-03 — Subtitle sidecars imported as external `MediaStream` rows and served by the subtitle route; admin-only `GET /api/libraries/browse` and a folder picker in the library dialog.
 - 2026-09-03 — Import polish: the walk and the library path validation moved to async `fs`, a visited real-path set and `MAX_SCAN_DEPTH` guard symlinks, chokidar `change` re-probes a re-encoded file, `sync()` rebuilds a watcher whose path or type changed, scan concurrency raised to two, and a dry-run scan that reports what it would remove.
 - `5282cf0` 2025-11-28 — Libraries, collections, and the first library scan worker/queue, LibrariesPage and LibraryDialog.
 - `dd02263` 2025-11-28 — Basic streaming; scan starts recording what streaming needs.
@@ -153,7 +176,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **ffprobe is still serial.** The walk itself is async now, but files are probed one at a time, one process spawn each, so a large import is bounded by that.
 - **Case sensitivity.** Collections are matched by exact `name` and Prisma/SQLite default comparison; on case-insensitive filesystems a folder renamed only in case yields a second collection. Extensions are lower-cased, but `.MKV` files are matched while a folder named `Season 1` vs `season 1` is not deduplicated.
 - **A symlinked branch is imported once, under whichever path is walked first**, which is the alphabetically earlier one; the other is reported as an error line rather than being merged.
-- **Non-media files are silently ignored**, including `.srt`/`.ass` subtitles, `.nfo` sidecars and cover art, so external subtitles are never imported.
+- **Only subtitles are read from sidecars.** `.nfo` files, cover art and `.idx`/`.sub` bitmap pairs are still ignored, and a subtitle whose name does not start with the video's is not matched.
 - **Cancellation granularity is one directory**, and a cancelled scan still leaves everything created so far (no rollback); the job is marked failed with "Scan cancelled by user".
 - **Progress is approximate and non-monotonic.**
 - **Changing `libraryType` does not re-type existing collections** until the next scan, though the watcher is rebuilt for the new type immediately.
@@ -161,6 +184,8 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Scan concurrency is two**, so a third library queues behind them; the number is a constant, not a setting.
 - **A dry run is a separate scan.** There is no "review then apply" flow: the report says how many rows would go, and acting on it means running a normal scan, which recomputes the set.
 - **The watcher has no tests.** The re-probe on `change` and the rebuild on a path change are covered only through `ImportService`.
+- **A new sidecar is only noticed by a scan.** The watcher filters events by media extension, so dropping a `.srt` next to a video does not import it until the next scan of that library.
+- **The directory picker shows the whole server filesystem** to an admin, who could already type any path; it lists folders only and hides dot-directories, but there is no configured root to stay inside.
 
 ## Opportunities
 
@@ -168,8 +193,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Probe a few files at once** (S): the walk is async now, but ffprobe still runs strictly serially, one process per file; a small concurrency limit would cut import time on a large library.
 - **List what a dry run would remove** (S): the counts are reported, but not the paths, so an admin cannot see which items are missing without querying the database.
 - **Tests for the untested parsers** (S): `parseEpisodeFromFilename` (`1x02`, `s1e2`, prefix show name, quality suffix) and `getShowNameFromCollectionPath` directly; the scan is now covered against a temp tree.
-- **Import subtitle sidecars** (M): `.srt`/`.vtt` next to a video could become `MediaStream` rows of type Subtitle with an external path, which the subtitle route in [Streaming & Transcoding](streaming-and-transcoding.md) could serve.
+- **Watch for sidecar subtitles too** (S): the watcher ignores `.srt` events, so a subtitle added after a scan waits for the next one.
 - **Read audio tags with ffprobe `format.tags`** (M): the probe already runs; capturing title/artist/album/track would give the music library real names ahead of any scraper.
 
-- **Directory-picker for `path`** (M): the dialog is a free-text field; a server-backed browse endpoint (admin-only) would prevent typos that are only caught by `existsSync`.
 - **Bounded `ScanResult` return value** (S): keep counts and errors in the job return, and drop `newMediaIds`/`newCollections` once the scrape jobs are enqueued.

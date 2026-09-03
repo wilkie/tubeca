@@ -220,6 +220,11 @@ model MediaStream {
   height      Int?        // Video height in pixels
   frameRate   Float?      // Frame rate (e.g., 23.976, 29.97, 60)
 
+  // Set for a subtitle that lives in its own file next to the video rather
+  // than inside it. Those carry a negative streamIndex, since the non-negative
+  // ones belong to ffmpeg's own numbering for the container.
+  externalPath String?
+
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 

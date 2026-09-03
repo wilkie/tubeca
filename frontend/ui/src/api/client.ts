@@ -24,6 +24,7 @@ import type {
   ScanStartResponse,
   ScanStatusResponse,
   ScanCancelResponse,
+  BrowseDirectoriesResponse,
   Collection,
   CollectionType,
   CollectionResponse,
@@ -118,6 +119,7 @@ export type {
   ScanStartResponse,
   ScanStatusResponse,
   ScanCancelResponse,
+  BrowseDirectoriesResponse,
   Collection,
   CollectionType,
   CollectionResponse,
@@ -504,6 +506,12 @@ class ApiClient {
   }
 
   // Library scan methods
+  /** List the sub-directories of a server path, for the library path picker. */
+  async browseDirectories(dirPath?: string): Promise<ApiResponse<BrowseDirectoriesResponse>> {
+    const query = dirPath ? `?path=${encodeURIComponent(dirPath)}` : '';
+    return this.request<BrowseDirectoriesResponse>(`/libraries/browse${query}`);
+  }
+
   async startLibraryScan(
     libraryId: string,
     options?: { fullScan?: boolean; dryRunRemovals?: boolean }

@@ -170,6 +170,7 @@ export class LibraryScanService {
     const isDir = (e: fs.Dirent) => e.isDirectory() || linkTypes.get(e.name)?.isDirectory() === true;
 
     const extensions = getMediaExtensions(library.libraryType);
+    const entryNames = entries.map((e) => e.name);
 
     for (const entry of entries.filter(isFile)) {
       if (!extensions.includes(path.extname(entry.name).toLowerCase())) continue;
@@ -182,6 +183,8 @@ export class LibraryScanService {
           filePath,
           parentCollectionId,
           collectionPath,
+          // Saves a readdir per file when looking for subtitle sidecars.
+          directoryEntries: entryNames,
         });
         state.seenMediaIds.add(imported.mediaId);
         if (imported.created) {

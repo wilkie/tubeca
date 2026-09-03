@@ -7,6 +7,7 @@ import { authenticate, isTokenCurrent } from '../middleware/auth';
 import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
+import { prisma } from '../config/database';
 import { getHlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
 
 const router = Router();
@@ -279,19 +280,35 @@ router.get('/subtitles/:id', mediaAccess, async (req, res) => {
       return res.status(404).json({ error: 'Video not found' });
     }
 
-    const videoPath = media.path;
-
-    if (!fs.existsSync(videoPath)) {
-      return res.status(404).json({ error: 'Video file not found' });
-    }
-
     // Get subtitle stream index from query parameter
     const streamIndex = req.query.streamIndex !== undefined
       ? parseInt(req.query.streamIndex as string, 10)
       : undefined;
 
-    if (streamIndex === undefined) {
+    if (streamIndex === undefined || Number.isNaN(streamIndex)) {
       return res.status(400).json({ error: 'streamIndex query parameter is required' });
+    }
+
+    // A negative index is a sidecar file next to the video rather than a
+    // stream inside it.
+    let sourcePath = media.path;
+    let mapArgs = ['-map', `0:${streamIndex}`];
+
+    if (streamIndex < 0) {
+      const external = await prisma.mediaStream.findFirst({
+        where: { mediaId: media.id, streamIndex, streamType: 'Subtitle' },
+        select: { externalPath: true },
+      });
+      if (!external?.externalPath) {
+        return res.status(404).json({ error: 'Subtitle track not found' });
+      }
+      sourcePath = external.externalPath;
+      // The sidecar holds one track, so there is nothing to select.
+      mapArgs = [];
+    }
+
+    if (!fs.existsSync(sourcePath)) {
+      return res.status(404).json({ error: streamIndex < 0 ? 'Subtitle file not found' : 'Video file not found' });
     }
 
     res.setHeader('Content-Type', 'text/vtt');
@@ -299,8 +316,8 @@ router.get('/subtitles/:id', mediaAccess, async (req, res) => {
 
     // Use ffmpeg to extract and convert subtitle to WebVTT
     const ffmpeg = spawn('ffmpeg', [
-      '-i', videoPath,
-      '-map', `0:${streamIndex}`,
+      '-i', sourcePath,
+      ...mapArgs,
       '-c:s', 'webvtt',
       '-f', 'webvtt',
       '-'

@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import * as path from 'path';
+import { promises as fsp } from 'fs';
 import { authenticate, requireRole } from '../middleware/auth';
 import { LibraryService } from '../services/libraryService';
 import { fileWatcherService } from '../services/fileWatcherService';
@@ -43,6 +45,100 @@ router.get('/', async (req, res) => {
     res.json({ libraries });
   } catch {
     res.status(500).json({ error: 'Failed to fetch libraries' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/libraries/browse:
+ *   get:
+ *     tags:
+ *       - Libraries
+ *     summary: List server directories
+ *     description: >
+ *       List the sub-directories of a path on the server, so the library dialog can
+ *       offer a picker instead of a free-text field (Admin only).
+ *     parameters:
+ *       - in: query
+ *         name: path
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Absolute path to list. Defaults to the filesystem root.
+ *     responses:
+ *       200:
+ *         description: Directory listing
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 path:
+ *                   type: string
+ *                 parent:
+ *                   type: string
+ *                   nullable: true
+ *                 directories:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       name:
+ *                         type: string
+ *                       path:
+ *                         type: string
+ *       400:
+ *         description: Path is not absolute
+ *       404:
+ *         description: Path does not exist or is not a directory
+ */
+router.get('/browse', requireRole('Admin'), async (req, res) => {
+  const requested = typeof req.query.path === 'string' && req.query.path.length > 0 ? req.query.path : path.parse(process.cwd()).root;
+
+  if (!path.isAbsolute(requested)) {
+    return res.status(400).json({ error: 'Path must be absolute' });
+  }
+
+  const target = path.resolve(requested);
+
+  try {
+    const entries = await fsp.readdir(target, { withFileTypes: true });
+
+    // Symlinked directories are worth offering: a library often lives behind one.
+    const directories = (
+      await Promise.all(
+        entries
+          .filter((entry) => !entry.name.startsWith('.'))
+          .map(async (entry) => {
+            const full = path.join(target, entry.name);
+            if (entry.isDirectory()) return { name: entry.name, path: full };
+            if (!entry.isSymbolicLink()) return null;
+            try {
+              return (await fsp.stat(full)).isDirectory() ? { name: entry.name, path: full } : null;
+            } catch {
+              return null;
+            }
+          })
+      )
+    )
+      .filter((entry): entry is { name: string; path: string } => entry !== null)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    const parent = path.dirname(target);
+    res.json({
+      path: target,
+      parent: parent === target ? null : parent,
+      directories,
+    });
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return res.status(404).json({ error: `Not a directory: ${target}` });
+    }
+    if (code === 'EACCES' || code === 'EPERM') {
+      return res.status(403).json({ error: `Cannot read: ${target}` });
+    }
+    res.status(500).json({ error: 'Failed to list directory' });
   }
 });
 

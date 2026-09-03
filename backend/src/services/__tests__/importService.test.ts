@@ -181,6 +181,104 @@ describe('ImportService', () => {
     expect(await prisma.media.findUnique({ where: { id: keptMedia.id } })).not.toBeNull();
   });
 
+  describe('external subtitles', () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-subs-'));
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    async function importVideo(name = 'Betty S01E01.mkv') {
+      const library = await createLibrary({ libraryType: 'Television' });
+      const filePath = path.join(dir, name);
+      fs.writeFileSync(filePath, '');
+      const imported = await service.importMediaFile({
+        libraryId: library.id,
+        libraryType: 'Television',
+        filePath,
+        parentCollectionId: null,
+        collectionPath: [],
+      });
+      return { libraryId: library.id, filePath, mediaId: imported.mediaId };
+    }
+
+    it('imports a sidecar found next to the video', async () => {
+      fs.writeFileSync(path.join(dir, 'Betty S01E01.eng.forced.srt'), '');
+      const { mediaId } = await importVideo();
+
+      const streams = await prisma.mediaStream.findMany({ where: { mediaId, streamType: 'Subtitle' } });
+      expect(streams).toHaveLength(1);
+      expect(streams[0]).toMatchObject({
+        streamIndex: -1,
+        codec: 'subrip',
+        language: 'eng',
+        isForced: true,
+        externalPath: path.join(dir, 'Betty S01E01.eng.forced.srt'),
+      });
+    });
+
+    it('numbers sidecars below the container streams', async () => {
+      fs.writeFileSync(path.join(dir, 'Betty S01E01.en.srt'), '');
+      fs.writeFileSync(path.join(dir, 'Betty S01E01.fr.srt'), '');
+      const { mediaId } = await importVideo();
+
+      const streams = await prisma.mediaStream.findMany({
+        where: { mediaId, streamType: 'Subtitle' },
+        orderBy: { streamIndex: 'desc' },
+      });
+      expect(streams.map((s) => s.streamIndex)).toEqual([-1, -2]);
+    });
+
+    it('picks up a subtitle added after the video was imported', async () => {
+      const { mediaId, filePath } = await importVideo();
+      expect(await prisma.mediaStream.count({ where: { mediaId, streamType: 'Subtitle' } })).toBe(0);
+
+      fs.writeFileSync(path.join(dir, 'Betty S01E01.en.srt'), '');
+      const result = await service.syncExternalSubtitles(mediaId, filePath);
+
+      expect(result).toEqual({ added: 1, removed: 0 });
+    });
+
+    it('drops a subtitle that was deleted from disk', async () => {
+      const sidecar = path.join(dir, 'Betty S01E01.en.srt');
+      fs.writeFileSync(sidecar, '');
+      const { mediaId, filePath } = await importVideo();
+
+      fs.rmSync(sidecar);
+      const result = await service.syncExternalSubtitles(mediaId, filePath);
+
+      expect(result).toEqual({ added: 0, removed: 1 });
+      expect(await prisma.mediaStream.count({ where: { mediaId, streamType: 'Subtitle' } })).toBe(0);
+    });
+
+    it('does not duplicate a sidecar on a second scan', async () => {
+      fs.writeFileSync(path.join(dir, 'Betty S01E01.en.srt'), '');
+      const { mediaId, filePath, libraryId } = await importVideo();
+
+      await service.importMediaFile({
+        libraryId,
+        libraryType: 'Television',
+        filePath,
+        parentCollectionId: null,
+        collectionPath: [],
+      });
+
+      expect(await prisma.mediaStream.count({ where: { mediaId, streamType: 'Subtitle' } })).toBe(1);
+    });
+
+    it('keeps sidecars when the video itself is re-probed', async () => {
+      fs.writeFileSync(path.join(dir, 'Betty S01E01.en.srt'), '');
+      const { mediaId, filePath } = await importVideo();
+
+      await service.reprobeMediaFile(filePath);
+
+      const streams = await prisma.mediaStream.findMany({ where: { mediaId, streamType: 'Subtitle' } });
+      expect(streams).toHaveLength(1);
+      expect(streams[0].externalPath).toBe(path.join(dir, 'Betty S01E01.en.srt'));
+    });
+  });
+
   describe('reprobeMediaFile', () => {
     it('refreshes duration and streams for a file that was re-encoded', async () => {
       const library = await createLibrary({ libraryType: 'Television' });

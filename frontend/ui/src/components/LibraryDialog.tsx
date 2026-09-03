@@ -20,6 +20,7 @@ import {
   OutlinedInput,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
+import { DirectoryPickerDialog } from './DirectoryPickerDialog';
 import {
   apiClient,
   type Library,
@@ -42,6 +43,7 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [libraryType, setLibraryType] = useState<LibraryType>('Film');
   const [watchForChanges, setWatchForChanges] = useState(false);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -146,14 +148,19 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
             autoFocus
           />
 
-          <TextField
-            label={t('libraries.path')}
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            fullWidth
-            required
-            helperText={t('libraries.pathHelp')}
-          />
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+            <TextField
+              label={t('libraries.path')}
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              fullWidth
+              required
+              helperText={t('libraries.pathHelp')}
+            />
+            <Button variant="outlined" sx={{ mt: 1 }} onClick={() => setPickerOpen(true)}>
+              {t('libraries.browse', 'Browse')}
+            </Button>
+          </Box>
 
           <FormControl fullWidth>
             <InputLabel>{t('libraries.libraryType')}</InputLabel>
@@ -223,6 +230,13 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
           {isSaving ? <CircularProgress size={24} /> : t('common.save')}
         </Button>
       </DialogActions>
+
+      <DirectoryPickerDialog
+        open={pickerOpen}
+        initialPath={path || undefined}
+        onClose={() => setPickerOpen(false)}
+        onSelect={setPath}
+      />
     </Dialog>
   );
 }

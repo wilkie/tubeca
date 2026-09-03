@@ -205,6 +205,27 @@ describe('LibraryScanService', () => {
     });
   });
 
+  it('imports subtitle sidecars alongside the video', async () => {
+    touch('Betty/Season 1/Betty S01E01.mkv');
+    touch('Betty/Season 1/Betty S01E01.en.srt');
+    touch('Betty/Season 1/Betty S01E01.fr.forced.srt');
+    touch('Betty/Season 1/Betty S01E01.nfo');
+    const library = await createLibrary({ libraryType: 'Television', path: root });
+
+    const summary = await scanner.scan({ id: library.id, path: root, libraryType: 'Television' });
+
+    // The subtitles are not media of their own.
+    expect(summary.filesFound).toBe(1);
+    const media = await prisma.media.findFirstOrThrow({ include: { streams: true } });
+    expect(media.streams.map((s) => [s.language, s.isForced])).toEqual(
+      expect.arrayContaining([
+        ['eng', false],
+        ['fra', true],
+      ])
+    );
+    expect(media.streams.every((s) => s.streamIndex < 0)).toBe(true);
+  });
+
   it('throws for a missing library path', async () => {
     await expect(scanner.scan({ id: 'x', path: '/nope/nothing', libraryType: 'Film' })).rejects.toThrow(/does not exist/);
   });

@@ -90,7 +90,7 @@ and cached by browsers.
 | Route | Params | Behaviour |
 |-------|--------|-----------|
 | `GET /video/:id` | `start`, `audioTrack`, `token` | Progressive. `.mp4`/`.webm` with no `audioTrack`: range-request file serving. Otherwise spawns FFmpeg to chunked fragmented MP4 (`stream.ts:115-195`). |
-| `GET /subtitles/:id` | `streamIndex` (required), `token` | Spawns `ffmpeg -i file -map 0:N -c:s webvtt -f webvtt -` and pipes to the response with `text/vtt`, `max-age=3600`. |
+| `GET /subtitles/:id` | `streamIndex` (required), `token` | Spawns `ffmpeg -i file -map 0:N -c:s webvtt -f webvtt -` and pipes to the response with `text/vtt`, `max-age=3600`. A negative index is a sidecar file: the row's `externalPath` becomes the input and no `-map` is needed. |
 | `GET /audio/:id` | `token` | Range-request file serving; content type from extension map (mp3/m4a/aac/ogg/wav/flac). Never transcodes. |
 | `GET /trickplay/:id` | `token` | Scans `Media.thumbnails` directory for `"{width} - {cols}x{rows}"` folders, counts `N.jpg` sprites, reads tile size from `0.jpg` via sharp, hardcodes `interval: 10`. |
 | `GET /trickplay/:id/:width/:index` | `token` | Serves the sprite JPEG with `max-age=86400`. |
@@ -370,7 +370,8 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   membership; tokens appear in URLs.
 - **Subtitles**: every subtitle stream is offered, including bitmap formats that cannot become
   WebVTT; extraction re-reads the whole file on each request with no caching beyond the browser's 1
-  h.
+  h. Sidecar files (negative stream indices, see [Libraries](libraries-and-scanning.md)) are
+  converted the same way, so a large `.srt` is re-parsed per request too.
 - **Probing happens once**; file replacement keeps stale duration/streams, and a probe failure
   yields `duration 0` and therefore an unplayable empty playlist.
 - **Trickplay is external only**; the `thumbnail` job that might have generated sprites is a stub,

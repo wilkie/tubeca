@@ -4,6 +4,7 @@ import { Prisma, type CollectionType, type LibraryType, type ScrapeStatus, type 
 import { prisma } from '../config/database';
 import { probeMediaFile, type StreamInfo } from '../utils/ffprobe';
 import { VIDEO_EXTENSIONS, getCollectionType } from '../utils/libraryLayout';
+import { listDirectory, matchSidecars } from '../utils/subtitleSidecars';
 import {
   parseEpisodeFromFilename,
   parseTitleAndYear,
@@ -238,8 +239,10 @@ export class ImportService {
     filePath: string
     parentCollectionId: string | null
     collectionPath: string[]
+    /** The containing folder's listing, when the caller already has it. */
+    directoryEntries?: string[]
   }): Promise<ImportedMedia> {
-    const { libraryId, libraryType, filePath, parentCollectionId, collectionPath } = opts;
+    const { libraryId, libraryType, filePath, parentCollectionId, collectionPath, directoryEntries } = opts;
     const ext = path.extname(filePath).toLowerCase();
     const fileBaseName = path.basename(filePath, ext);
     const mediaType: 'Video' | 'Audio' = VIDEO_EXTENSIONS.includes(ext) ? 'Video' : 'Audio';
@@ -255,6 +258,8 @@ export class ImportService {
       if (existing.fileSize === null && identity) {
         await prisma.media.update({ where: { id: existing.id }, data: identity });
       }
+      // Subtitles can arrive long after the video did.
+      if (mediaType === 'Video') await this.syncExternalSubtitles(existing.id, filePath, directoryEntries);
       return { mediaId: existing.id, created: false, moved: false, scrapeStatus: existing.scrapeStatus, hints: hintsFor(existing.id) };
     }
 
@@ -270,6 +275,8 @@ export class ImportService {
           ...(moved.scrapeStatus === 'Matched' ? {} : { name: hints.name }),
         },
       });
+      // The old location's sidecars are gone; this one's apply now.
+      if (mediaType === 'Video') await this.syncExternalSubtitles(moved.id, filePath, directoryEntries);
       return { mediaId: moved.id, created: false, moved: true, scrapeStatus: moved.scrapeStatus, hints };
     }
 
@@ -318,6 +325,7 @@ export class ImportService {
         },
         select: { id: true },
       });
+      if (mediaType === 'Video') await this.syncExternalSubtitles(media.id, filePath, directoryEntries);
       return { mediaId: media.id, created: true, moved: false, scrapeStatus: null, hints: hintsFor(media.id) };
     } catch (error) {
       // Unique violation: someone (the watcher, another scan) imported it first.
@@ -386,6 +394,62 @@ export class ImportService {
    * along with their artwork.
    */
   /**
+   * Match the external subtitle rows for a video to the sidecar files that are
+   * next to it now.
+   *
+   * Sidecars come and go independently of the video: one downloaded next week
+   * should appear on the next scan, and one deleted should stop being offered.
+   * External rows take negative stream indices so they never collide with
+   * ffmpeg's numbering for the container itself.
+   */
+  async syncExternalSubtitles(
+    mediaId: string,
+    videoPath: string,
+    directoryEntries?: string[]
+  ): Promise<{ added: number; removed: number }> {
+    // The scan already read the folder to find this file, so it hands the
+    // listing over rather than making us read it once per episode.
+    const entries = directoryEntries ?? (await listDirectory(path.dirname(videoPath)));
+    const sidecars = matchSidecars(videoPath, entries);
+
+    const existing = await prisma.mediaStream.findMany({
+      where: { mediaId, streamType: 'Subtitle', NOT: { externalPath: null } },
+      select: { id: true, externalPath: true },
+    });
+
+    const wanted = new Set(sidecars.map((s) => s.path));
+    const stale = existing.filter((row) => !row.externalPath || !wanted.has(row.externalPath));
+    if (stale.length > 0) {
+      await prisma.mediaStream.deleteMany({ where: { id: { in: stale.map((row) => row.id) } } });
+    }
+
+    const known = new Set(
+      existing.filter((row) => row.externalPath && wanted.has(row.externalPath)).map((row) => row.externalPath!)
+    );
+    const toAdd = sidecars.filter((s) => !known.has(s.path));
+
+    // Keep numbering below any index the container could use.
+    let nextIndex = -1;
+    for (const sidecar of toAdd) {
+      await prisma.mediaStream.create({
+        data: {
+          mediaId,
+          streamIndex: nextIndex--,
+          streamType: 'Subtitle',
+          codec: sidecar.codec,
+          language: sidecar.language,
+          title: sidecar.title,
+          isDefault: sidecar.isDefault,
+          isForced: sidecar.isForced,
+          externalPath: sidecar.path,
+        },
+      });
+    }
+
+    return { added: toAdd.length, removed: stale.length };
+  }
+
+  /**
    * Re-read a file that changed on disk and refresh what the probe told us.
    *
    * A re-encode keeps the path but changes the duration, the codecs and the
@@ -404,7 +468,8 @@ export class ImportService {
     const [probe, identity] = await Promise.all([this.deps.probe(filePath), readFileIdentity(filePath)]);
 
     await prisma.$transaction([
-      prisma.mediaStream.deleteMany({ where: { mediaId: existing.id } }),
+      // Only the container's own streams; sidecar rows are not in the file.
+      prisma.mediaStream.deleteMany({ where: { mediaId: existing.id, externalPath: null } }),
       prisma.media.update({
         where: { id: existing.id },
         data: {
@@ -433,6 +498,7 @@ export class ImportService {
       }),
     ]);
 
+    await this.syncExternalSubtitles(existing.id, filePath);
     return { updated: true, streams: probe.streams.length };
   }
 

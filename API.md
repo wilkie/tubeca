@@ -397,6 +397,23 @@ Update a library. **Requires Admin role.**
 
 Delete a library and all its content. **Requires Admin role.**
 
+### GET /libraries/browse
+
+List the sub-directories of a path on the server, for the library path picker. **Requires Admin
+role.** Without `path`, the filesystem root is listed. Folders only; dot-directories are hidden.
+
+**Query Parameters:**
+- `path` - absolute path to list
+
+**Response:**
+```json
+{
+  "path": "/media",
+  "parent": "/",
+  "directories": [{ "name": "Films", "path": "/media/Films" }]
+}
+```
+
 ### POST /libraries/:id/scan
 
 Start a library scan. **Requires Admin role.**
