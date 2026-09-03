@@ -80,12 +80,23 @@ model Collection {
   scrapeMessage String?
   scrapedAt     DateTime?
 
+  // Denormalised sort keys, copied from whichever *Details row this collection
+  // has (film, show, season or album). Prisma cannot order across a union of
+  // optional relations, so sorting a paginated list needs them on the row
+  // itself; maintained by syncCollectionSortFields().
+  sortReleaseDate DateTime?
+  sortRating      Float?
+  sortRuntime     Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([libraryId])
   @@index([parentId])
   @@index([collectionType])
+  @@index([libraryId, parentId, sortReleaseDate])
+  @@index([libraryId, parentId, sortRating])
+  @@index([libraryId, parentId, sortRuntime])
 }
 
 enum LibraryType {

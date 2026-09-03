@@ -329,6 +329,10 @@ export interface KeywordsResponse {
 }
 
 export interface Collection extends ScrapeState {
+  /** Denormalised sort keys copied from the collection's details row */
+  sortReleaseDate?: string | null
+  sortRating?: number | null
+  sortRuntime?: number | null
   id: string
   name: string
   collectionType: CollectionType

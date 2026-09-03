@@ -7,6 +7,7 @@ import { PersonService } from '../services/personService';
 import type { CollectionScrapeJobData } from '../queues/collectionScrapeQueue';
 import type { SeriesMetadata, SeasonMetadata, VideoMetadata } from '@tubeca/scraper-types';
 import { parseTitleAndYear } from '../utils/mediaParser';
+import { syncCollectionSortFields } from '../services/collectionSortFields';
 import {
   resolveByIdentity,
   resolveBySearch,
@@ -367,6 +368,9 @@ async function applyShowMetadata(
   if (metadata.keywords && metadata.keywords.length > 0) {
     await saveKeywords(collectionId, metadata.keywords);
   }
+
+  // Keep the denormalised sort keys in step with the details row just written.
+  await syncCollectionSortFields(collectionId);
 }
 
 /**
@@ -430,6 +434,9 @@ async function applySeasonMetadata(
       console.warn(`Failed to download season poster:`, error);
     }
   }
+
+  // Keep the denormalised sort keys in step with the details row just written.
+  await syncCollectionSortFields(collectionId);
 }
 
 /**
@@ -636,6 +643,9 @@ async function applyFilmMetadata(
   if (metadata.keywords && metadata.keywords.length > 0) {
     await saveKeywords(collectionId, metadata.keywords);
   }
+
+  // Keep the denormalised sort keys in step with the details row just written.
+  await syncCollectionSortFields(collectionId);
 }
 
 /**

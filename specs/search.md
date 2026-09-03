@@ -200,8 +200,9 @@ external scrapers and belongs to Metadata Scraping.
 - **Search page filter options are sampled from page 1.** Keywords/ratings not present in
   the first 50 unfiltered, alphabetically-first collections are never offered, and the
   option list is not rebuilt when `q` changes after the first load of the session cache.
-- **Sort by release date / rating / runtime is only page-local** in
-  `getPaginatedCollections`; combined with infinite scroll the visible order is wrong.
+- **Search itself offers no sort control** (always `name` ascending), though the columns the
+  library view sorts on (`sortReleaseDate`, `sortRating`, `sortRuntime`) are now on `Collection`
+  and available to it.
 - **Quick search cannot type non-ASCII or punctuation** (accents, CJK, `-`, `'`), and it
   captures keys on any focused non-input element with no opt-out beyond dialogs.
 - **Search page has no sort, no live search, no library/type facet**, and no way to
@@ -229,9 +230,8 @@ external scrapers and belongs to Metadata Scraping.
 - **Search keyword names and people** in the same query (`keywords.some.name contains`,
   credits via `Person.name`) so free-text search covers tags and cast; the `Keyword` table
   also makes a "browse by tag" page and library/type/year facets natural. M.
-- **Move releaseDate/rating/runtime sorting into SQL** (nullable relation `orderBy` with
-  `nulls: 'last'`, or a denormalised `sortDate`/`sortRating` column on `Collection`) so
-  sorting is correct across pages. M.
+- **Offer the library's sort fields on the Search page** by ordering on the denormalised
+  `sortReleaseDate` / `sortRating` / `sortRuntime` columns, as the library view already does. S.
 - **Serve Search-page filter options from the server** (a global `/keywords` and a
   distinct-ratings endpoint, or `facets` in the search response) rather than sampling page
   1. S.

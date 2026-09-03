@@ -1,6 +1,7 @@
 import type { CollectionType, LibraryType, Role } from '@prisma/client';
 import { prisma } from '../config/database';
 import { AuthService } from '../services/authService';
+import { syncCollectionSortFields } from '../services/collectionSortFields';
 
 const authService = new AuthService();
 
@@ -80,7 +81,7 @@ export async function createCollection(opts: {
   filmDetails?: { releaseDate?: Date; rating?: number; runtime?: number; contentRating?: string };
   keywords?: string[];
 }) {
-  return prisma.collection.create({
+  const collection = await prisma.collection.create({
     data: {
       libraryId: opts.libraryId,
       name: opts.name,
@@ -98,6 +99,9 @@ export async function createCollection(opts: {
     },
     include: { filmDetails: true, keywords: true },
   });
+  // Mirror the scrape workers: details written means sort keys refreshed.
+  await syncCollectionSortFields(collection.id);
+  return collection;
 }
 
 export async function createVideoMedia(opts: {

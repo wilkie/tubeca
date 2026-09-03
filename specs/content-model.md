@@ -134,10 +134,12 @@ Flow (`collectionService.ts:103-286`):
    `AND` of one `keywords.some` clause per id.
 2. `count()` then `findMany()` with the card projection (children ids, parent, first primary
    poster, `_count`, sortable fields from show/film/album details, keywords).
-3. `name` and `dateAdded` sort in SQL. `releaseDate`, `rating` and `runtime` fall back to
-   `createdAt` in SQL and then **sort the returned page in memory**
-   (`collectionService.ts:161-178, 242-277`), coalescing film -> show -> album values and pushing
-   nulls last.
+3. All five sorts run in SQL. `name` and `dateAdded` order by their own columns; `releaseDate`,
+   `rating` and `runtime` order by the denormalised `sortReleaseDate` / `sortRating` /
+   `sortRuntime` columns with `nulls: 'last'`, so a page is a slice of the globally sorted list
+   in either direction. The columns are copied from whichever details row the collection has
+   (film, then show, then season, then album) by `syncCollectionSortFields`, which the scrape
+   workers call after every metadata write and the Identify route calls immediately.
 
 `GET /library/:libraryId/keywords` returns keywords used by any collection in the library.
 
@@ -305,15 +307,16 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - 2026-09-03 `Media.path` unique; recursive, file-cleaning deletes for collections, media and libraries via `ContentDeletionService`.
 - 2026-09-03 `ScrapeStatus` enum and `scrapeStatus`/`scrapeMessage`/`scrapedAt` columns on `Collection` and `Media`.
 - 2026-09-03 `Media.fileSize` and `fileMtimeMs` added for rename detection.
+- 2026-09-03 `Collection.sortReleaseDate` / `sortRating` / `sortRuntime` denormalised for SQL ordering (migration `20260903170000_collection_sort_fields`, which backfills from the details tables).
 
 ## Known Limitations
 
 - **Person rows themselves are visible to everyone** (name, biography, photo); only the
   filmography is scoped to the viewer's libraries. A person credited solely in restricted
   libraries still resolves at `/api/persons/:id`, with an empty filmography.
-- **Sort by releaseDate/rating/runtime is per-page only.** SQL orders by `createdAt`, then the
-  50-item page is sorted in memory (`collectionService.ts:242-277`), so infinite scroll shows
-  each page internally sorted but globally unordered.
+- **The sort columns are denormalised**, so a direct write to a `*Details` row that bypasses
+  `syncCollectionSortFields` leaves them stale until the next scrape. Only the scrape workers
+  and Identify write those rows today.
 - **Identify leaks image files.** `/:id/identify` deletes `Image` rows with `deleteMany` but never
   unlinks the files; the rows' `path`s are lost.
 - **Identify does not clear keywords or stale details.** `saveKeywords` only connects; a film
@@ -350,9 +353,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 
 ## Opportunities
 
-- **Push relation sorts into SQL**: either denormalise `releaseDate`/`rating`/`runtime` onto
-  `Collection` (updated by the scrape workers) or use `orderBy: { filmDetails: { releaseDate } }`
-  with nulls-last, so pagination is globally ordered. (M)
 - **Route not-found deletes to 404 instead of 500** in `collections.ts`/`media.ts`. (S)
 - **Unlink files in Identify** by calling the existing image-deletion helper before
   `image.deleteMany`, and `set: []` on keywords so re-identification starts clean. (S)

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { contentDeletionService } from './contentDeletionService';
 
@@ -148,38 +149,26 @@ export class CollectionService {
       }));
     }
 
-    // Build orderBy based on sortField
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let orderBy: any;
-
-    switch (sortField) {
-      case 'dateAdded':
-        orderBy = { createdAt: sortDirection };
-        break;
-      case 'releaseDate':
-        // Sort by filmDetails.releaseDate, then showDetails.releaseDate, then albumDetails.releaseDate
-        // Prisma doesn't support complex ordering across relations, so we'll sort by createdAt as fallback
-        // and handle proper sorting in the query with raw SQL or post-processing
-        orderBy = { createdAt: sortDirection };
-        break;
-      case 'rating':
-        // Similar limitation - fall back to createdAt
-        orderBy = { createdAt: sortDirection };
-        break;
-      case 'runtime':
-        orderBy = { createdAt: sortDirection };
-        break;
-      case 'name':
-      default:
-        orderBy = { name: sortDirection };
-        break;
-    }
+    // Order in the database. The relation values are denormalised onto
+    // Collection (see syncCollectionSortFields), so a page is a slice of the
+    // globally sorted list; nulls sort last whichever direction is asked for.
+    const nullsLast = { sort: sortDirection, nulls: 'last' } as const;
+    const orderBy: Prisma.CollectionOrderByWithRelationInput =
+      sortField === 'dateAdded'
+        ? { createdAt: sortDirection }
+        : sortField === 'releaseDate'
+          ? { sortReleaseDate: nullsLast }
+          : sortField === 'rating'
+            ? { sortRating: nullsLast }
+            : sortField === 'runtime'
+              ? { sortRuntime: nullsLast }
+              : { name: sortDirection };
 
     // Get total count for pagination
     const total = await prisma.collection.count({ where: baseWhere });
 
     // Get paginated collections
-    let collections = await prisma.collection.findMany({
+    const collections = await prisma.collection.findMany({
       where: baseWhere,
       include: {
         children: {
@@ -236,43 +225,6 @@ export class CollectionService {
       skip,
       take: limit,
     });
-
-    // For complex sorting (releaseDate, rating, runtime), sort in memory
-    if (sortField === 'releaseDate' || sortField === 'rating' || sortField === 'runtime') {
-      collections = collections.sort((a, b) => {
-        let aValue: Date | number | null = null;
-        let bValue: Date | number | null = null;
-
-        switch (sortField) {
-          case 'releaseDate':
-            aValue = a.filmDetails?.releaseDate ?? a.showDetails?.releaseDate ?? a.albumDetails?.releaseDate ?? null;
-            bValue = b.filmDetails?.releaseDate ?? b.showDetails?.releaseDate ?? b.albumDetails?.releaseDate ?? null;
-            break;
-          case 'rating':
-            aValue = a.filmDetails?.rating ?? a.showDetails?.rating ?? null;
-            bValue = b.filmDetails?.rating ?? b.showDetails?.rating ?? null;
-            break;
-          case 'runtime':
-            aValue = a.filmDetails?.runtime ?? null;
-            bValue = b.filmDetails?.runtime ?? null;
-            break;
-        }
-
-        // Handle nulls - push to end
-        if (aValue === null && bValue === null) return 0;
-        if (aValue === null) return 1;
-        if (bValue === null) return -1;
-
-        let comparison = 0;
-        if (aValue instanceof Date && bValue instanceof Date) {
-          comparison = aValue.getTime() - bValue.getTime();
-        } else {
-          comparison = (aValue as number) - (bValue as number);
-        }
-
-        return sortDirection === 'desc' ? -comparison : comparison;
-      });
-    }
 
     return {
       collections,

@@ -6,6 +6,8 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- Library sorting by release date, rating and runtime is applied by the database, so
+  paging through a sorted library no longer shows a locally-sorted, globally wrong order.
 - The Docker image and the Arch package ship only the backend's production dependencies,
   bundle, Prisma files and a prebuilt `openapi.json`; sources and dev tooling no longer ship.
 - Person filmographies and user-collection items are scoped to the viewer's libraries.

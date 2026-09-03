@@ -5,6 +5,7 @@ import { requireLibraryAccess, collectionParam, libraryParam, entityInBody } fro
 import { addCollectionScrapeJob, type CollectionScrapeType } from '../queues/collectionScrapeQueue';
 import { scraperManager } from '../plugins/scraperLoader';
 import { prisma } from '../config/database';
+import { syncCollectionSortFields } from '../services/collectionSortFields';
 
 const router = Router();
 const collectionService = new CollectionService();
@@ -783,6 +784,9 @@ router.post('/:id/identify', requireRole('Editor'), collectionAccess, async (req
     }
 
     // Queue a scrape job with the specific external ID
+    // The queued scrape will refresh these, but keep them consistent meanwhile.
+    await syncCollectionSortFields(collection.id);
+
     const job = await addCollectionScrapeJob({
       collectionId: collection.id,
       collectionName: collection.name,

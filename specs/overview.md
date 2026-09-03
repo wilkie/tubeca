@@ -148,8 +148,9 @@ nine test files covering auth, middleware, library access, collection pagination
 parsers and HLS playlist synthesis. The scan and scrape workers, the stream routes, images,
 user collections and search remain untested. Bugs the specs found are the kind a route test
 catches immediately: `GET /api/persons/search` was unreachable for nine months because `/:id`
-was registered first; sorting by release date, rating or runtime is applied per page in memory
-so infinite scroll is globally unordered (pinned with `it.failing`); the search endpoint applies
+was registered first; sorting by release date, rating or runtime was applied per page in memory
+so infinite scroll was globally unordered (found by a deliberately failing test, fixed
+2026-09-03); the search endpoint applies
 the same offset to two parallel queries. The pre-commit hook now runs both suites, so the
 frontend's 860 cases cannot silently rot again the way 29 of them did between December and
 September.
@@ -260,11 +261,9 @@ Drawn from the Opportunities sections after the first nine items landed.
 Ranked 2026-09-03 from the roughly 120 items still open in the specs' Opportunities sections.
 Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 
-1. **Fix library sorting across pages** (M): release date, rating and runtime sorts are applied
-   per page in memory, so infinite scroll shows a globally wrong order. A failing-by-design
-   test already pins it; push the sort into SQL (denormalise onto `Collection` or use a
-   relation `orderBy`) and the same fix serves search. ([Content Model](content-model.md),
-   [Search](search.md))
+1. ~~**Fix library sorting across pages**~~ Done 2026-09-03: sort keys denormalised onto
+   `Collection` and maintained by the scrape workers; all five sorts run in SQL with nulls
+   last ([Content Model](content-model.md)).
 2. **Playback quality of life** (S each, one batch): real keyboard shortcuts, bounded error
    recovery with a visible error state, flush progress on tab close, skip watched episodes in
    Up Next, quality preference stored by height, the audio double-play fix, and the Media
