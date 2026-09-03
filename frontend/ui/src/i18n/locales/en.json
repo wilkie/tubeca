@@ -85,7 +85,8 @@
     },
     "watchForChanges": "Watch for changes",
     "watchForChangesHelp": "Automatically detect and import new media files added to this library",
-    "notWatching": "Not watching for changes"
+    "notWatching": "Not watching for changes",
+    "scanResultRemoved": "Removed {{media}} media items and {{collections}} collections that were no longer on disk"
   },
   "library": {
     "notFound": "Library not found",

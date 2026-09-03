@@ -41,8 +41,9 @@
 - **People are first-class.** Commit `a3f2f55` introduced `Person` specifically so the same actor
   shown on a film, a show and an episode resolves to one page; matching prefers stable external
   ids over names (`personService.ts:87-136`).
-- **Deletes leave no orphans on disk.** Both delete paths walk images (including credit photos)
-  and unlink files before letting Prisma cascade the rows.
+- **Deletes leave no orphans on disk or in the database.** `ContentDeletionService` collects a
+  collection tree, its media and every image they or their credits own, unlinks the files, deletes
+  the media explicitly (since `Media.collectionId` is `SetNull`) and lets the root cascade.
 - **Filterable browsing without a search engine.** Keyword AND-filtering, content-rating
   exclusion, substring name filter and five sort fields are all expressed in Prisma `where`/`orderBy`
   on SQLite, with in-memory fallback where Prisma cannot order by a relation.
@@ -74,12 +75,13 @@
   `collectionType` defaulting to `Generic`, five optional one-to-one detail relations, `media[]`,
   `images[]`, `keywords[]` (implicit join table `_CollectionToKeyword`) and `userCollectionItems[]`.
   Indexed on `libraryId`, `parentId`, `collectionType`. There is no uniqueness constraint on
-  `(libraryId, parentId, name)`; the scanner de-duplicates with `findFirst` before create
-  (`libraryScanWorker.ts:436-450`).
+  `(libraryId, parentId, name)`; `ImportService.ensureCollection` de-duplicates with `findFirst`
+  before create.
 - **Media** is single-table inheritance: `path`, `duration Int` (seconds, from ffprobe), `name`,
   `type`, optional `thumbnails` (trickplay folder path), `collectionId` with **`onDelete: SetNull`**
-  (`schema.prisma:107`). Indexed on `type` and `collectionId`. `path` is not unique; the scanner and
-  file watcher look up by `findFirst({ where: { path } })`.
+  (`schema.prisma:107`). Indexed on `type` and `collectionId`. `path` is unique since
+  `20260903120000_unique_media_path`; `ImportService.importMediaFile` looks up by `findUnique`
+  and tolerates a concurrent insert.
 - **MediaStream** one row per ffprobe stream, `@@unique([mediaId, streamIndex])`, cascade on media.
 - **Detail tables** all share the pattern `collectionId @unique` (or `mediaId @unique`), cascade
   delete, nullable `scraperId`/`externalId` with a composite index. `FilmDetails` is the widest
@@ -297,6 +299,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - 2026-09-03 `collectionService.test.ts` added on the new SQLite test scaffolding; cross-page relation sort bug pinned with `it.failing`.
 - 2026-09-03 Collections and media routes guarded by `requireLibraryAccess`; route tests added under `routes/__tests__/`.
 - 2026-09-03 `WatchProgress` model added (migration `20260903093221_add_watch_progress`).
+- 2026-09-03 `Media.path` unique; recursive, file-cleaning deletes for collections, media and libraries via `ContentDeletionService`.
 
 ## Known Limitations
 
@@ -306,9 +309,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - **Sort by releaseDate/rating/runtime is per-page only.** SQL orders by `createdAt`, then the
   50-item page is sorted in memory (`collectionService.ts:242-277`), so infinite scroll shows
   each page internally sorted but globally unordered.
-- **Deleting a Show orphans season content.** `deleteCollection` only handles the target's own
-  media and images. Child Seasons are removed by DB cascade, but their `Media` rows survive with
-  `collectionId = null` (`onDelete: SetNull`), and season/episode image files stay on disk.
 - **Identify leaks image files.** `/:id/identify` deletes `Image` rows with `deleteMany` but never
   unlinks the files; the rows' `path`s are lost.
 - **Identify does not clear keywords or stale details.** `saveKeywords` only connects; a film
@@ -322,8 +322,9 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   `image.findFirst`; keywords are an upsert plus a `collection.update` per keyword.
 - **Cycle check is O(depth) queries** (`collectionService.ts:497-508`) and not transactional, so a
   concurrent re-parent can still create a cycle.
-- **`Media.path` and `Collection (libraryId, parentId, name)` are not unique**, so a scan racing
-  the file watcher can create duplicates; the DB will not stop it.
+- **`Collection (libraryId, parentId, name)` is not unique** (SQLite treats `NULL` parents as
+  distinct, so a plain unique index would not cover root collections); duplicates are prevented
+  only by the find-then-create in `ImportService`.
 - **Person detail does network I/O on GET** (`persons.ts:53-115`), so a cold person page blocks on
   TMDB/TVDB latency and fails silently to a bare record on error.
 - **Genres and keywords are strings.** `genres` is a comma-separated column on four tables and is
@@ -349,16 +350,13 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - **Push relation sorts into SQL**: either denormalise `releaseDate`/`rating`/`runtime` onto
   `Collection` (updated by the scrape workers) or use `orderBy: { filmDetails: { releaseDate } }`
   with nulls-last, so pagination is globally ordered. (M)
-- **Make `deleteCollection` recursive**: collect descendant collection ids, delete their media via
-  `mediaService.deleteMedia` semantics, unlink all image files, then delete the root. Also route
-  not-found to 404 instead of 500. (M)
+- **Route not-found deletes to 404 instead of 500** in `collections.ts`/`media.ts`. (S)
 - **Unlink files in Identify** by calling the existing image-deletion helper before
   `image.deleteMany`, and `set: []` on keywords so re-identification starts clean. (S)
 - **Batch credit and keyword writes**: resolve persons first (one `findMany` on the id set), then
   `createMany` credits and a single `collection.update({ keywords: { connect: [...] } })`. (M)
-- **Add `@@unique([libraryId, parentId, name])` on `Collection` and `@unique` on `Media.path`**,
-  with the scanner switched to `upsert`. Requires a data-dedupe migration on SQLite (table
-  rebuild). (M)
+- **Uniqueness for root collections**: a generated column (`parentId` coalesced to `''`) or a
+  partial unique index would let the database enforce `(libraryId, parentId, name)`. (S)
 - **Order episodes by `videoDetails.season, episode`** in `getCollectionById` and fall back to
   name; the data is already loaded. (S)
 - **Move person auto-fetch off the request path**: enqueue a person-scrape job on first view and

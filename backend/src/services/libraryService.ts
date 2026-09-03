@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import { contentDeletionService } from './contentDeletionService';
 import type { LibraryType } from '@prisma/client';
 import * as fs from 'fs';
 
@@ -208,7 +209,9 @@ export class LibraryService {
     });
   }
 
+  /** Delete a library with all of its collections, media and artwork files. */
   async deleteLibrary(id: string) {
+    await contentDeletionService.deleteLibraryContents(id);
     return prisma.library.delete({
       where: { id },
     });

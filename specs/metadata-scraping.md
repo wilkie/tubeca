@@ -107,14 +107,14 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 ### What enqueues scrapes
 
 - **Library scan** (`libraryScanWorker.ts:103-190`): after a scan, new media get `metadata-scrape` jobs **unless the library type is Film** (ffb9d2d: the Film collection already carries the metadata). New Show/Season/Film/Artist/Album collections get `collection-scrape` jobs via the bulk helper; Film jobs carry a `year` parsed with `parseMovieFromFilename`. With `fullScan: true` (ffb9d2d), existing media and collections are pushed into the same "new" lists (`:381`, `:489`) and therefore re-scraped **with images re-downloaded** (no `skipImages`).
-- **File watcher** (`fileWatcherService.ts:467-495`, `:555-581`): new files and directories are enqueued individually. Unlike the scan worker, the watcher does **not** skip media-level scrapes for Film libraries, so a film dropped into a running server gets both a collection scrape and a media scrape.
+- **File watcher**: new files and directories are enqueued individually through the same `ImportService.queueMediaScrapes`/`queueCollectionScrapes` the scanner uses, so (since 2026-09-03) it also skips media-level scrapes for Film libraries.
 - **Refresh metadata** (`collections.ts:532`, `media.ts:136`): Editor+; re-enqueues with the stored `scraperId`/`externalId` (collections only) and `skipImages: true`. The frontend fires the request and immediately clears its spinner; there is no completion feedback.
 - **Refresh images**: same with `imagesOnly: true`.
 - **Identify** (`collections.ts:730`): Editor+, Show/Film only. Deletes every `Image` row for the collection, upserts `ShowDetails`/`FilmDetails` with the chosen `scraperId`/`externalId`, and enqueues a collection scrape carrying both. `POST /api/collections/search` (`:223`) fans out to every configured scraper (`searchSeries` for Show, `searchVideo` with `year` and `videoType: 'movie'` for Film) and returns a flat list; unlike the dead `ScraperService.searchVideo`, it does not sort by confidence. `IdentifyDialog` pre-fills the query and year from `parseTitleAndYear(collectionName)` (frontend mirror), lets the user edit both, shows poster/title/year/overview per result, and on selection calls `identifyCollection` then `onIdentified()`, which reloads the page while the scrape is still queued.
 
 ### Title parsing (27c0663)
 
-`parseTitleAndYear` prefers a bracketed year (`"Blade Runner 2049 (2017)"` keeps its digits) and falls back to a bare trailing year (`"Dune 2021"`). It is used in both workers and the dialog, replacing the earlier behaviour of sending `"Name (Year)"` verbatim to TMDB. `parseMovieFromFilename` (release-name oriented, strips quality tags) is still used by the scan worker and watcher to compute the `year` hint. The two parsers can disagree on the same string.
+`parseTitleAndYear` prefers a bracketed year (`"Blade Runner 2049 (2017)"` keeps its digits) and falls back to a bare trailing year (`"Dune 2021"`). It is used in both workers and the dialog, replacing the earlier behaviour of sending `"Name (Year)"` verbatim to TMDB. The import path now derives the `year` hint with `parseTitleAndYear` as well, so the scanner, watcher and scrape workers agree; `parseMovieFromFilename` (release-name oriented, strips quality tags) remains only as a utility.
 
 ### Failure and no-match semantics
 
@@ -156,7 +156,6 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 - **Media rows cannot be refreshed by ID or identified**: `VideoDetails` lacks `scraperId`/`externalId`; media-level refresh re-searches by name, and there is no Identify for episodes.
 - **`Media.name` is overwritten** with the scraped episode title with no record of the original filename-derived name; a wrong match renames the file's entry.
 - **Full scan re-downloads all artwork** for every existing item because re-queued jobs omit `skipImages`.
-- **Duplicate work for films added at runtime**: the file watcher enqueues both collection and media scrapes for Film libraries, unlike the scan worker.
 - **Person merging by exact name** as the last resort in `findOrCreatePerson` can conflate different people with the same name across works; TMDB credits never include an IMDB ID, so the "most reliable" key is never populated.
 - **No caching of provider responses**: every episode job re-fetches `/tv/{id}` for the show name, every show/film job re-fetches `/images`; refreshes redo full detail calls; a season's episodes each trigger a fresh series search.
 - **Sequential, non-transactional credit rewrite**: `deleteMany` then per-credit `create` (+ person lookup + photo fetch) runs outside a transaction; a crash mid-way leaves a collection with partial credits.
@@ -174,7 +173,6 @@ Image types written for Show/Film collections: `Poster`, `Backdrop`, `Thumbnail`
 - **Pass language/region through config** (S): forward `language`, `region`, `imageSize` from `tubeca.config.json` to `initialize()`; make certification country follow region.
 - **Cache provider responses** (S/M): an in-memory or Redis TTL cache keyed by endpoint+params would remove the repeated `/tv/{id}` and `/images` calls and make refreshes/full scans cheap.
 - **Skip image re-download on full scan** (S): set `skipImages: true` for re-queued existing items, or compare `Image.sourceUrl` before fetching.
-- **Align watcher with scan worker** (S): skip media-level scrapes for Film libraries in `fileWatcherService`.
 - **Harden TVDB or drop it** (M): add `getSeriesMetadata`/`getSeasonMetadata`, timeouts, retries, and the pooled agent; or remove it from `/collections/search` results for Shows until it can complete the job.
 - **Real plugin discovery** (M): scan `scrapers/*` or a configured directory for packages with `pluginType: "scraper"` instead of hard-coded imports, and expose `scraperManager.list()` in an admin UI.
 - **Music scrapers** (L): implement MusicBrainz (or similar) against the already-defined `AudioMetadata`/`ArtistMetadata`/`AlbumMetadata` shapes and the stubbed worker branches.

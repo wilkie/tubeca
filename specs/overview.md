@@ -163,8 +163,7 @@ disconnect or shutdown. Three modules register competing SIGINT/SIGTERM handlers
 
 ### Copy-paste that has already diverged
 
-The scan worker and file watcher duplicate collection and media creation and disagree about
-film scrape jobs and media naming. The image download loop exists three times and
+The image download loop exists three times and
 `mapCreditType` four times across the scrape workers and an unused `scraperService`.
 Favorites and Watch Later pages differ by about 40 of 380 lines, and "add to most recent
 collection" is pasted into five components. Title/year parsing is mirrored in the frontend
@@ -172,14 +171,14 @@ because `shared-types` is types-only. See [Libraries](libraries-and-scanning.md)
 [Metadata Scraping](metadata-scraping.md), [User Collections](user-collections.md),
 [Frontend App](frontend-app.md).
 
-### Orphans on disk and in the database
+### Orphans: mostly closed
 
-Rescans never remove media or collections for files that vanished, and `Media.path` has no
-unique index so scans racing the watcher create duplicates. Deleting a show orphans its
-seasons' media rows. Identify and library deletion delete `Image` rows but not files. HLS cache
-size limits are parsed but never enforced, and media deletion never evicts its segments. See
-[Libraries](libraries-and-scanning.md), [Content Model](content-model.md), [Images](images.md),
-[Streaming](streaming-and-transcoding.md).
+Since 2026-09-03 rescans remove media and collections whose files vanished, `Media.path` is
+unique, and deleting a show, media item or library removes the whole tree with its artwork
+files. What remains: renames lose metadata (no size/mtime matching), Identify still deletes
+`Image` rows without files, HLS cache size limits are parsed but never enforced, and media
+deletion never evicts its segments. See [Libraries](libraries-and-scanning.md),
+[Images](images.md), [Streaming](streaming-and-transcoding.md).
 
 ### Watch state exists but is only surfaced in one place
 
@@ -223,8 +222,9 @@ Ordered by leverage. Each item's details are in the linked spec.
 4. ~~**Watch state**~~ Done 2026-09-03: `WatchProgress` table, `/api/watch` endpoints, resume
    on play, Continue Watching strip. Surfacing watched state on cards and lists is a follow-up
    ([Playback](playback.md)).
-5. **Import integrity** (M): shared import service used by scanner and watcher, unique index
-   on `Media.path`, orphan reconciliation on rescan, recursive delete that cleans files.
+5. ~~**Import integrity**~~ Done 2026-09-03: `ImportService` shared by scanner and watcher,
+   unique `Media.path`, orphan reconciliation after complete scans, file-cleaning recursive
+   deletes. Rename detection is the follow-up.
    ([Libraries](libraries-and-scanning.md), [Content Model](content-model.md))
 6. **Scrape quality and visibility** (M): score candidates on title and year instead of
    taking the first result, stop the fall-through that can undo an Identify, and surface

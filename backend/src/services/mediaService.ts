@@ -1,11 +1,9 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import { prisma } from '../config/database';
 import { Media, MediaType } from '@prisma/client';
 import { Video, Audio, CreateVideoInput, CreateAudioInput, isVideo, isAudio } from '../types/media';
 import { addTranscodeJob, addThumbnailJob, addAnalyzeJob } from '../queues/videoQueue';
 import type { TranscodeJobData, ThumbnailJobData, AnalyzeJobData } from '../queues/videoQueue';
-import { getImageStoragePath } from '../config/appConfig';
+import { contentDeletionService } from './contentDeletionService';
 
 export class MediaService {
   // Create a new video
@@ -138,65 +136,12 @@ export class MediaService {
   }
 
   // Delete media with all associated images
+  /** Delete a media row and its artwork files. */
   async deleteMedia(id: string): Promise<void> {
-    const imageStoragePath = getImageStoragePath();
-
-    // Get media with all images and credit images
-    const media = await prisma.media.findUnique({
-      where: { id },
-      include: {
-        images: true,
-        videoDetails: {
-          include: {
-            credits: {
-              include: {
-                images: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!media) {
+    const deleted = await contentDeletionService.deleteMedia(id);
+    if (!deleted) {
       throw new Error('Media not found');
     }
-
-    // Helper to delete image file from disk
-    const deleteImageFile = (imagePath: string) => {
-      try {
-        const fullPath = path.join(imageStoragePath, imagePath);
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-          // Try to remove parent directory if empty
-          const parentDir = path.dirname(fullPath);
-          if (fs.existsSync(parentDir) && fs.readdirSync(parentDir).length === 0) {
-            fs.rmdirSync(parentDir);
-          }
-        }
-      } catch (error) {
-        console.warn(`Failed to delete image file: ${imagePath}`, error);
-      }
-    };
-
-    // Delete media images from disk
-    for (const image of media.images) {
-      deleteImageFile(image.path);
-    }
-
-    // Delete credit images from disk
-    if (media.videoDetails?.credits) {
-      for (const credit of media.videoDetails.credits) {
-        for (const image of credit.images) {
-          deleteImageFile(image.path);
-        }
-      }
-    }
-
-    // Delete media (cascades to images, videoDetails, audioDetails, credits in DB)
-    await prisma.media.delete({
-      where: { id },
-    });
   }
 
   // Search media by name

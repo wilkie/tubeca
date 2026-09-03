@@ -81,7 +81,7 @@ The backend pre-selects one image for list payloads: collection listings and chi
 
 ### Deletion
 
-`ImageService.deleteImage` unlinks the file and deletes the row. `collectionService.deleteCollection` and `mediaService.deleteMedia` walk the included images, unlink each file and remove the now-empty entity directory (`collectionService.ts:594-608`, `mediaService.ts:165-178`). Deletions that go straight through Prisma, such as `libraryService.deleteLibrary` (`:212`), the file watcher removing vanished media (`fileWatcherService.ts:348`), and the identify `deleteMany`, rely on the FK cascade and leave files on disk.
+`ImageService.deleteImage` unlinks the file and deletes the row. Collection, media and library deletes, the file watcher's `unlink` handling and scan reconciliation all go through `ContentDeletionService`, which resolves every image owned by the affected collections, media and their credits, unlinks each file (removing the now-empty entity directory) and then deletes the rows. Only the identify `deleteMany` still relies on the FK cascade and leaves files on disk.
 
 ### Trickplay thumbnails
 
@@ -115,7 +115,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - One image per entity per type: the model has `isPrimary` and the dialog highlights it, but there is never a second candidate to choose from, and no endpoint sets primary. `ImagesDialog` is display-only.
 - No resizing or thumbnail generation: TMDB `original` backdrops and logos are stored and served at full size to every grid tile; `sharp` is imported but only reads metadata.
 - No dedup or hashing: the same person photo is downloaded once per entity directory; re-downloads overwrite even when bytes are unchanged, bumping `updatedAt` and `Last-Modified`.
-- Orphaned files: a format change (`poster.jpg` then `poster.png`), identify's `deleteMany`, library deletion, and watcher-driven media deletion all leave files behind; there is no sweep.
+- Orphaned files: a format change (`poster.jpg` then `poster.png`) and identify's `deleteMany` leave files behind; there is no sweep. (Library deletion, watcher-driven media deletion and scan reconciliation clean up through `ContentDeletionService` since 2026-09-03.)
 - No library-level authorisation on `/api/images/:id/file`; any valid token can fetch any image by UUID.
 - JWT in the query string of every image URL: it lands in server logs, browser history and any `Referer`, and the `public` cache directive makes the token-bearing URL cacheable by intermediaries. URLs also change whenever the token changes, defeating browser caching across logins.
 - Download has no timeout, size limit or MIME validation; a hostile or slow scraper URL can block a worker or write arbitrary bytes.
@@ -131,7 +131,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - **Candidate galleries and set-primary** (M): let scrapers return `posterUrls[]`, store multiple rows per type with unique filenames, add `PUT /api/images/:id/primary`, and make `ImagesDialog` selectable. The model already supports it; only the filename scheme and upsert block it.
 - **Resize on ingest** (M): use `sharp` to write a bounded-size variant (and a small grid thumbnail) next to the original; serve via a `?size=` parameter. Removes multi-megabyte `original` backdrops from list pages.
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
-- **Orphan cleanup** (S): make identify and library deletion go through `ImageService`, and add an admin "prune images" job that diffs disk against `Image.path`.
+- **Orphan cleanup** (S): make identify go through `ContentDeletionService.imagePathsFor`, and add an admin "prune images" job that diffs disk against `Image.path`.
 - **Short-lived signed image URLs or cookie auth** (M): replace the long-lived JWT query param with a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.
 - **Download hardening** (S): `AbortSignal.timeout`, a max byte size, and rejecting non-image `Content-Type`; validate the URL host against the scraper's known image base.
 - **Static serving** (S/M): expose the image directory via `express.static` behind the same auth, or document a reverse-proxy `X-Accel-Redirect` path for production.

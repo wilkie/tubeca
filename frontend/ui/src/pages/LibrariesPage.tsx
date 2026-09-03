@@ -309,11 +309,21 @@ export function LibrariesPage() {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           {scanState?.status === 'completed' && scanState.result && (
                             <Tooltip
-                              title={t('libraries.scanResult', {
-                                files: scanState.result.filesProcessed,
-                                collections: scanState.result.collectionsCreated,
-                                media: scanState.result.mediaCreated,
-                              })}
+                              title={[
+                                t('libraries.scanResult', {
+                                  files: scanState.result.filesProcessed,
+                                  collections: scanState.result.collectionsCreated,
+                                  media: scanState.result.mediaCreated,
+                                }),
+                                (scanState.result.mediaRemoved || scanState.result.collectionsRemoved)
+                                  ? t('libraries.scanResultRemoved', {
+                                      media: scanState.result.mediaRemoved ?? 0,
+                                      collections: scanState.result.collectionsRemoved ?? 0,
+                                    })
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join('. ')}
                             >
                               <Chip
                                 label={t('libraries.scanComplete')}

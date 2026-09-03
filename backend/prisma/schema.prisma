@@ -109,7 +109,7 @@ model Media {
   id          String    @id @default(uuid())
 
   // Shared properties for both Video and Audio
-  path        String    // File location/path
+  path        String    @unique // Absolute file path; one row per file
   duration    Int       // Length in seconds
   name        String    // Human-readable name
 

@@ -1,18 +1,9 @@
 import { watch, type FSWatcher } from 'chokidar';
 import { prisma } from '../config/database';
-import { probeMediaFile, type StreamInfo } from '../utils/ffprobe';
-import { VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, getCollectionType } from '../utils/libraryLayout';
-import {
-  parseEpisodeFromFilename,
-  parseMovieFromFilename,
-  getShowNameFromCollectionPath,
-} from '../utils/mediaParser';
-import { addMetadataScrapeJob } from '../queues/metadataScrapeQueue';
-import {
-  addCollectionScrapeJob,
-  type CollectionScrapeType,
-} from '../queues/collectionScrapeQueue';
-import type { LibraryType, CollectionType, StreamType, Collection } from '@prisma/client';
+import { getMediaExtensions } from '../utils/libraryLayout';
+import { importService } from './importService';
+import { contentDeletionService } from './contentDeletionService';
+import type { LibraryType } from '@prisma/client';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -158,7 +149,7 @@ export class FileWatcherService {
       return;
     }
 
-    const extensions = libraryType === 'Music' ? AUDIO_EXTENSIONS : VIDEO_EXTENSIONS;
+    const extensions = getMediaExtensions(libraryType);
 
     // In polling mode chokidar runs an fs.stat over every watched file each cycle.
     // On a network mount (SMB/CIFS) those stat calls are slow and run on libuv's
@@ -344,9 +335,7 @@ export class FileWatcherService {
         });
 
         if (media) {
-          await prisma.media.delete({
-            where: { id: media.id },
-          });
+          await contentDeletionService.deleteMedia(media.id);
           console.log(`📁 Removed media: ${relativePath}`);
         }
       } catch (error) {
@@ -383,115 +372,36 @@ export class FileWatcherService {
     libraryType: LibraryType
   ): Promise<void> {
     const fullPath = path.join(libraryPath, relativePath);
-    const ext = path.extname(fullPath).toLowerCase();
-    const mediaName = path.basename(fullPath, ext);
+    const dirRelativePath = path.dirname(relativePath);
+    const collectionPath = dirRelativePath !== '.' ? dirRelativePath.split(path.sep) : [];
 
-    // Determine media type
-    const mediaType = VIDEO_EXTENSIONS.includes(ext) ? 'Video' : 'Audio';
+    // Make sure the folder chain exists (a file can arrive before its addDir event)
+    const { leafId, collections } = await importService.ensureCollectionPath(
+      libraryId,
+      libraryType,
+      collectionPath
+    );
+    await importService.queueCollectionScrapes(
+      collections.filter((c) => c.created).map((c) => c.hints)
+    );
 
-    // Check if already exists
-    const existing = await prisma.media.findFirst({
-      where: { path: fullPath },
+    const imported = await importService.importMediaFile({
+      libraryType,
+      filePath: fullPath,
+      parentCollectionId: leafId,
+      collectionPath,
     });
 
-    if (existing) {
+    if (!imported.created) {
       console.log(`📁 Media already exists: ${relativePath}`);
       return;
     }
 
-    console.log(`📁 Processing new media: ${relativePath}`);
-
-    // Get or create parent collection
-    const dirRelativePath = path.dirname(relativePath);
-    const parentCollectionId = await this.getOrCreateCollectionPath(
-      libraryId,
-      libraryPath,
-      dirRelativePath,
-      libraryType
-    );
-
-    // Check for .trickplay folder
-    let thumbnails: string | null = null;
-    if (mediaType === 'Video') {
-      const trickplayPath = path.join(path.dirname(fullPath), `${mediaName}.trickplay`);
-      if (fs.existsSync(trickplayPath) && fs.statSync(trickplayPath).isDirectory()) {
-        thumbnails = trickplayPath;
-      }
+    console.log(`📁 Created media record: ${imported.hints.name}`);
+    const queued = await importService.queueMediaScrapes(libraryType, [imported.hints]);
+    if (queued > 0) {
+      console.log(`📁 Queued metadata scrape for: ${imported.hints.name}`);
     }
-
-    // Probe the media file
-    const probeResult = await probeMediaFile(fullPath);
-
-    // Create media record
-    const newMedia = await prisma.media.create({
-      data: {
-        path: fullPath,
-        name: mediaName,
-        duration: probeResult.duration,
-        type: mediaType,
-        ...(thumbnails && { thumbnails }),
-        collectionId: parentCollectionId,
-      },
-    });
-
-    // Store stream information
-    if (probeResult.streams.length > 0) {
-      await prisma.mediaStream.createMany({
-        data: probeResult.streams.map((stream: StreamInfo) => ({
-          mediaId: newMedia.id,
-          streamIndex: stream.streamIndex,
-          streamType: stream.streamType as StreamType,
-          codec: stream.codec,
-          codecLong: stream.codecLong,
-          language: stream.language,
-          title: stream.title,
-          isDefault: stream.isDefault,
-          isForced: stream.isForced,
-          channels: stream.channels,
-          channelLayout: stream.channelLayout,
-          sampleRate: stream.sampleRate,
-          bitRate: stream.bitRate,
-          width: stream.width,
-          height: stream.height,
-          frameRate: stream.frameRate,
-        })),
-      });
-    }
-
-    console.log(`📁 Created media record: ${mediaName}`);
-
-    // Build collection path for metadata hints
-    const collectionPath = dirRelativePath !== '.' ? dirRelativePath.split(path.sep) : [];
-
-    // Parse filename for metadata hints and queue scrape job
-    const scrapeJobData: Parameters<typeof addMetadataScrapeJob>[0] = {
-      mediaId: newMedia.id,
-      mediaName: mediaName,
-      mediaType: mediaType as 'Video' | 'Audio',
-    };
-
-    if (mediaType === 'Video') {
-      const episodeInfo = parseEpisodeFromFilename(mediaName);
-      if (episodeInfo) {
-        scrapeJobData.season = episodeInfo.season;
-        scrapeJobData.episode = episodeInfo.episode;
-        scrapeJobData.showName = episodeInfo.showName || getShowNameFromCollectionPath(collectionPath);
-      } else {
-        // For films, use folder name if available, otherwise use filename
-        const searchName = collectionPath.length > 0 ? collectionPath[collectionPath.length - 1] : mediaName;
-        const movieInfo = parseMovieFromFilename(searchName);
-        if (movieInfo.year) {
-          scrapeJobData.year = movieInfo.year;
-        }
-        // Use the parsed title (with year/quality stripped) for better search results
-        if (movieInfo.title) {
-          scrapeJobData.mediaName = movieInfo.title;
-        }
-      }
-    }
-
-    await addMetadataScrapeJob(scrapeJobData);
-    console.log(`📁 Queued metadata scrape for: ${scrapeJobData.mediaName}${scrapeJobData.year ? ` (${scrapeJobData.year})` : ''}`);
   }
 
   /**
@@ -499,136 +409,27 @@ export class FileWatcherService {
    */
   private async processNewDirectory(
     libraryId: string,
-    libraryPath: string,
-    relativePath: string,
-    libraryType: LibraryType
-  ): Promise<void> {
-    const dirName = path.basename(relativePath);
-    const depth = relativePath.split(path.sep).length - 1;
-
-    // Determine collection type
-    const collectionType = getCollectionType(libraryType, depth);
-
-    // Get parent collection ID
-    const parentRelativePath = path.dirname(relativePath);
-    let parentCollectionId: string | null = null;
-
-    if (parentRelativePath !== '.') {
-      parentCollectionId = await this.getOrCreateCollectionPath(
-        libraryId,
-        libraryPath,
-        parentRelativePath,
-        libraryType
-      );
-    }
-
-    // Check if collection already exists
-    const existing = await prisma.collection.findFirst({
-      where: {
-        libraryId,
-        name: dirName,
-        parentId: parentCollectionId,
-      },
-    });
-
-    if (existing) {
-      console.log(`📁 Collection already exists: ${relativePath}`);
-      return;
-    }
-
-    console.log(`📁 Creating collection: ${relativePath}`);
-
-    // Create collection
-    const collection = await prisma.collection.create({
-      data: {
-        name: dirName,
-        libraryId,
-        parentId: parentCollectionId,
-        collectionType,
-      },
-    });
-
-    console.log(`📁 Created collection: ${dirName} (${collectionType})`);
-
-    // Queue collection scraping for supported types
-    const scrapeableTypes: CollectionType[] = ['Show', 'Season', 'Film', 'Artist', 'Album'];
-    if (scrapeableTypes.includes(collectionType)) {
-      const scrapeJobData: Parameters<typeof addCollectionScrapeJob>[0] = {
-        collectionId: collection.id,
-        collectionName: dirName,
-        collectionType: collectionType as CollectionScrapeType,
-      };
-
-      // Add season number for Season collections
-      if (collectionType === 'Season') {
-        const seasonMatch = dirName.match(/season\s*(\d+)/i);
-        if (seasonMatch) {
-          scrapeJobData.seasonNumber = parseInt(seasonMatch[1], 10);
-        }
-        scrapeJobData.parentShowId = parentCollectionId ?? undefined;
-      }
-
-      // Add year for Film collections
-      if (collectionType === 'Film') {
-        const movieInfo = parseMovieFromFilename(dirName);
-        if (movieInfo.year) {
-          scrapeJobData.year = movieInfo.year;
-        }
-      }
-
-      await addCollectionScrapeJob(scrapeJobData);
-      console.log(`📁 Queued collection scrape for: ${dirName}`);
-    }
-  }
-
-  /**
-   * Get or create collection hierarchy for a relative path
-   */
-  private async getOrCreateCollectionPath(
-    libraryId: string,
     _libraryPath: string,
     relativePath: string,
     libraryType: LibraryType
-  ): Promise<string | null> {
-    if (!relativePath || relativePath === '.') {
-      return null;
+  ): Promise<void> {
+    const { collections } = await importService.ensureCollectionPath(
+      libraryId,
+      libraryType,
+      relativePath.split(path.sep)
+    );
+    const created = collections.filter((c) => c.created);
+    if (created.length === 0) {
+      console.log(`📁 Collection already exists: ${relativePath}`);
+      return;
     }
-
-    const parts = relativePath.split(path.sep);
-    let parentId: string | null = null;
-
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      if (!part || part === '.') continue;
-
-      const collectionType = getCollectionType(libraryType, i);
-
-      // Try to find existing collection
-      let collection: Collection | null = await prisma.collection.findFirst({
-        where: {
-          libraryId,
-          name: part,
-          parentId,
-        },
-      });
-
-      // Create if doesn't exist
-      if (!collection) {
-        collection = await prisma.collection.create({
-          data: {
-            name: part,
-            libraryId,
-            parentId,
-            collectionType,
-          },
-        });
-        console.log(`📁 Auto-created collection: ${part} (${collectionType})`);
-      }
-
-      parentId = collection.id;
+    for (const c of created) {
+      console.log(`📁 Created collection: ${c.hints.name} (${c.collectionType})`);
     }
-
-    return parentId;
+    const queued = await importService.queueCollectionScrapes(created.map((c) => c.hints));
+    if (queued > 0) {
+      console.log(`📁 Queued collection scrape for: ${relativePath}`);
+    }
   }
 }
 

@@ -26,13 +26,17 @@
 
 | File | Role |
 |------|------|
-| `backend/prisma/schema.prisma` (`Library`, `LibraryType`, `CollectionType`, `Media`) | Library model; `Collection.libraryId` cascades on library delete; `Media.collectionId` is `SetNull` on collection delete. `Media.path` is not unique. |
+| `backend/prisma/schema.prisma` (`Library`, `LibraryType`, `CollectionType`, `Media`) | Library model; `Collection.libraryId` cascades on library delete; `Media.collectionId` is `SetNull` on collection delete. `Media.path` is unique (migration `20260903120000_unique_media_path` deduplicated existing rows). |
 | `backend/src/services/libraryService.ts` | CRUD plus `getAccessibleLibraries` / `canUserAccessLibrary` group-based visibility. Path validation uses `fs.existsSync`/`statSync`. |
 | `backend/src/routes/libraries.ts` | `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, `DELETE /:id`, `POST/GET/DELETE /:id/scan`. Calls `fileWatcherService.sync()` after create/update. |
 | `backend/src/queues/libraryScanQueue.ts` | `library-scan` queue; deterministic job id `scan-<libraryId>`, `attempts: 1`, `addLibraryScanJob` / `getLibraryScanJob` / `cancelLibraryScanJob`. |
-| `backend/src/workers/libraryScanWorker.ts` | The scan itself: recursive `scanDirectory`, collection/media creation, ffprobe, hint parsing, bulk enqueue of scrape jobs. `concurrency: 1`. |
-| `backend/src/services/fileWatcherService.ts` | Singleton chokidar wrapper: `start/stop/sync/watchLibrary/unwatchLibrary`, debounced add handlers, unlink handler; duplicates the worker's collection/media creation logic. |
+| `backend/src/workers/libraryScanWorker.ts` | Thin BullMQ handler: loads the library, runs `LibraryScanService.scan` with cancel/progress callbacks, queues scrapes from the summary, returns a `ScanResult`. `concurrency: 1`. |
+| `backend/src/services/libraryScanService.ts` | The walk: `readdirSync` per directory, symlink classification, hidden/`.trickplay` skipping, `ImportService` calls, seen-id tracking, and post-walk orphan reconciliation. Testable against a temp tree. |
+| `backend/src/services/importService.ts` | Shared by scanner and watcher: `ensureCollection`/`ensureCollectionPath`, `importMediaFile` (probe, streams, trickplay, unique-path race handling), pure `buildMediaHints`/`buildCollectionHints`, `queueMediaScrapes`/`queueCollectionScrapes`, `removeMissing`. |
+| `backend/src/services/contentDeletionService.ts` | `deleteMedia`, `deleteCollectionTree`, `deleteLibraryContents`: remove rows and every artwork file they own (including credit photos). Used by the collection/media/library services, the watcher and reconciliation. |
+| `backend/src/services/fileWatcherService.ts` | Singleton chokidar wrapper: `start/stop/sync/watchLibrary/unwatchLibrary`, debounced add handlers, unlink handler; delegates all creation to `ImportService`. |
 | `backend/src/utils/mediaParser.ts` | `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear`, `getShowNameFromCollectionPath`, `extractYear`. |
+| `backend/src/services/__tests__/{importService,libraryScanService,contentDeletionService}.test.ts` | Hint building, collection chains, idempotent import, scrape queueing order, reconciliation, temp-tree scans, tree deletes with file cleanup. |
 | `backend/src/utils/__tests__/mediaParser.test.ts` | 7 Jest cases, all for `parseTitleAndYear` only. |
 | `backend/src/utils/ffprobe.ts` | `probeMediaFile` (duration + normalised `StreamInfo[]`) via `execFile('ffprobe', ...)`; swallows errors and returns `{duration: 0, streams: []}`. |
 | `backend/src/config/appConfig.ts` (`FileWatcherConfig`) | `fileWatcher.enabled / usePolling / pollInterval` from `tubeca.config.json`. |
@@ -46,15 +50,15 @@
 
 ### Library model and access
 
-`Library` has `path`, `libraryType`, `watchForChanges` (default false) and a many-to-many `groups` relation. A library with no groups is public to every authenticated user; otherwise a non-admin must be in at least one of its groups (`libraryService.ts:45-85`). `GET /api/libraries/:id` returns 404 rather than 403 when access is denied. Validation on the routes is minimal: `libraryType` must be one of the three enum strings; `groupIds` are passed straight to Prisma `connect`/`set` (an unknown id yields a Prisma error surfaced as a 400 with the raw message). Deleting a library cascades to its collections in the DB; media are detached (`SetNull`), not deleted, and image files on disk are not touched (contrast `collectionService.deleteCollection`, which does clean up).
+`Library` has `path`, `libraryType`, `watchForChanges` (default false) and a many-to-many `groups` relation. A library with no groups is public to every authenticated user; otherwise a non-admin must be in at least one of its groups (`libraryService.ts:45-85`). `GET /api/libraries/:id` returns 404 rather than 403 when access is denied. Validation on the routes is minimal: `libraryType` must be one of the three enum strings; `groupIds` are passed straight to Prisma `connect`/`set` (an unknown id yields a Prisma error surfaced as a 400 with the raw message). Deleting a library runs `contentDeletionService.deleteLibraryContents` first, so every collection tree, its media and their artwork files go with it (before 2026-09-03 media were detached and files left behind).
 
 ### Scan lifecycle
 
 1. `POST /api/libraries/:id/scan` (Admin) checks for an existing `scan-<id>` job in `active`/`waiting` and returns 409 if found; otherwise `addLibraryScanJob` removes any completed/failed job with that id and adds a new one with `{libraryId, libraryPath, libraryName, fullScan}`. Because the job id is fixed, BullMQ itself prevents two queued scans per library.
-2. The worker (`concurrency: 1`, so scans of different libraries are serialised too) re-checks the path exists, loads the library to get its type, picks `VIDEO_EXTENSIONS` or `AUDIO_EXTENSIONS`, and calls `scanDirectory(root, parent=null, depth=0)`.
-3. `scanDirectory` first re-reads the job from Redis to look for a `cancelled: true` flag (`libraryScanWorker.ts:237`) — cancellation is cooperative and checked once per directory, so a directory with thousands of files cannot be interrupted mid-way. It then `readdirSync`s the directory, follows symlinks with `statSync` to classify them as file/dir (broken links are dropped), processes files, then recurses into subdirectories.
-4. Progress is `min(95, filesProcessed/filesFound * 95)` updated after each directory; since `filesFound` grows as the walk proceeds, the bar is not monotonic and typically sits near 95% for most of the run. `updateProgress(100)` is set only at the end.
-5. On completion the worker bulk-adds scrape jobs (see below) and returns a `ScanResult` (`filesFound`, `filesProcessed`, `collectionsCreated`, `mediaCreated`, `errors[]`, plus the full `newMediaIds`/`newCollections` arrays, which are stored as the job return value in Redis). The UI reads `result` from `GET /:id/scan` and shows it in a tooltip.
+2. The worker (`concurrency: 1`, so scans of different libraries are serialised too) loads the library and calls `LibraryScanService.scan`, passing a `checkCancelled` callback that re-reads the job from Redis for a `cancelled: true` flag and an `onProgress` callback bound to `job.updateProgress`.
+3. The walk checks cancellation once per directory (cooperative; a directory with thousands of files cannot be interrupted mid-way), `readdirSync`s it, follows symlinks with `statSync` to classify entries (broken links are dropped), imports files through `ImportService.importMediaFile`, then recurses into subdirectories through `ImportService.ensureCollection`. Every collection and media id touched, new or existing, is recorded in a seen-set.
+4. Progress is `min(95, filesProcessed/filesFound * 95)` updated after each directory; since `filesFound` grows as the walk proceeds, the bar is not monotonic and typically sits near 95% for most of the run. 100 is reported at the end.
+5. After a complete walk, `ImportService.removeMissing` deletes media and collections in the library whose ids were not seen, with their artwork files (see Orphan reconciliation below). The worker then queues scrapes and returns a `ScanResult` (`filesFound`, `filesProcessed`, `collectionsCreated`, `mediaCreated`, `mediaRemoved`, `collectionsRemoved`, `errors[]`) as the job return value. The UI reads `result` from `GET /:id/scan` and shows it in a tooltip, including a second sentence when anything was removed.
 
 ### Folder → Collection mapping
 
@@ -73,31 +77,33 @@ Every non-hidden directory that does not end in `.trickplay` becomes a collectio
 For each file whose lower-cased extension is in the library's list:
 
 - `Media.name` is the file basename, except in Film libraries where it is the immediate folder name (so "The Matrix (1999)" rather than "the.matrix.1999.1080p") — files directly in a Film library root fall back to the file basename.
-- `Media.path` is the absolute joined path; existence is checked with `findFirst({ where: { path } })`. There is no unique index, so a race between the scan worker and the file watcher can insert duplicates.
-- New files are probed with `probeMediaFile`; `duration` (rounded seconds, 0 on failure) is stored on `Media` and each video/audio/subtitle stream becomes a `MediaStream` row (`createMany`). Data/attachment streams are skipped. The watcher does the same on add.
+- `Media.path` is the absolute joined path and is unique. `importMediaFile` looks it up with `findUnique`; if a concurrent import (the watcher, another scan) wins the insert, the resulting `P2002` is caught and the existing row is used, so the scanner and watcher can no longer produce duplicates.
+- New files are probed with `probeMediaFile`; `duration` (rounded seconds, 0 on failure) is stored on `Media` and each video/audio/subtitle stream becomes a `MediaStream` row in the same create. Data/attachment streams are skipped. The watcher goes through the identical code.
 - A sibling `<basename>.trickplay` directory is stored as `Media.thumbnails` (consumed by [Streaming & Transcoding](streaming-and-transcoding.md)).
-- Existing files are counted in `filesProcessed` and otherwise untouched (no re-probe, no rename detection); in full-scan mode they are re-added to `newMediaIds` so they get re-scraped.
+- Existing files are counted in `filesProcessed` and otherwise untouched (no re-probe); in full-scan mode their hints are re-added to `mediaToScrape` so they get re-scraped. A renamed file is a new path: it is imported fresh and the old row is removed by reconciliation at the end of the scan.
 
 Music libraries go through exactly the same path (Artist/Album folders, Audio media, ffprobe streams), but the downstream `collectionScrapeWorker` logs "Artist/Album scraping not yet implemented" and `scrapeAudioMetadata` depends on a scraper exposing `searchAudio`, which neither bundled plugin does. So music imports produce a browsable tree with durations and no metadata.
 
 ### Scrape hints and enqueueing
 
-For Video media the worker tries `parseEpisodeFromFilename(mediaName)` (`S01E02`, `1x02`, with separators `. _ - space`); if it matches, `showName` comes from the filename prefix or, failing that, from `getShowNameFromCollectionPath` (grandparent if the parent folder looks like "Season N"). Otherwise it is treated as a film: `parseMovieFromFilename` runs on the folder name if there is one, and only the `year` is kept — the `title` is discarded in the scan worker (the watcher, by contrast, replaces `mediaName` with the parsed title at `fileWatcherService.ts:489`).
+Hints are built by the pure `buildMediaHints` and `buildCollectionHints` in `importService.ts`, so the scanner and watcher produce identical jobs. For Video media, `parseEpisodeFromFilename(fileBaseName)` (`S01E02`, `1x02`, with separators `. _ - space`) wins if it matches; `showName` then comes from the filename prefix or, failing that, from `getShowNameFromCollectionPath` (grandparent if the parent folder looks like "Season N"). Otherwise `parseTitleAndYear` runs on the folder name (or the file name at the library root) and only the `year` is kept; the name sent to the scraper is the folder name for Film libraries and the file base name otherwise, and the scrape workers apply `parseTitleAndYear` to it again (27c0663). Collections get `seasonNumber` from `/season\s*(\d+)/i` and films `year` from `parseTitleAndYear`, which unlike the old `parseMovieFromFilename` does not read "2001 A Space Odyssey" as year 2001.
 
-After the walk:
+Queueing goes through `ImportService.queueMediaScrapes` and `queueCollectionScrapes`:
 
-- Media scrape jobs are bulk-added for all `newMediaIds` **unless the library is Film** (`libraryScanWorker.ts:104`): film metadata is attached to the Film collection, not the media. The watcher does not apply this rule and queues a media scrape for every new film file.
-- Collection scrape jobs are bulk-added for Show, Season, Film, Artist and Album collections, ordered Shows → Seasons → Films → Artists → Albums so a season's parent show is likely scraped first. Seasons carry `parentShowId` and `seasonNumber`; films carry `year`. Everything else about matching lives in [Metadata Scraping](metadata-scraping.md).
+- Media scrape jobs are skipped entirely for Film libraries (`shouldScrapeMedia`): film metadata is attached to the Film collection, not the media. The watcher now applies the same rule.
+- Collection scrape jobs are added for Show, Season, Film, Artist and Album collections, ordered Shows → Seasons → Films → Artists → Albums so a season's parent show is likely scraped first. Seasons and albums carry `parentShowId`; seasons carry `seasonNumber`; films carry `year`. Everything else about matching lives in [Metadata Scraping](metadata-scraping.md).
 
-Note that Film-library media names are the folder name, so a subsequent `parseTitleAndYear` in the scrape workers (27c0663) yields a clean title+year for both the collection and, in the watcher path, the media.
+### Orphan reconciliation
+
+At the end of a scan, `removeMissing` deletes every media row in the library (via its collection) and every collection whose id was not seen during the walk, through `ContentDeletionService` so artwork files go too. Two guards prevent a bad walk from emptying a library: reconciliation is skipped if any directory could not be read (`incomplete`), and if the walk saw nothing at all (an unmounted share presents as an empty folder), in which case the result carries an explanatory error. Media at the library root have no collection and are never reconciled.
 
 ### File watcher
 
 Enabled at boot if `FILE_WATCHER_ENABLED=true` or `fileWatcher.enabled` in `tubeca.config.json`; `usePolling` and `pollInterval` come only from the config file. One chokidar watcher per library with `watchForChanges`, `ignoreInitial: true`, `depth: 10`, `awaitWriteFinish` (2 s stability), hidden and `.trickplay` paths ignored. Events:
 
-- `add` → filtered by extension, debounced 2 s per path, then `processNewFile`: `getOrCreateCollectionPath` walks the relative path creating any missing collections by depth, probes the file, creates `Media`/`MediaStream`, and enqueues a single metadata-scrape job.
-- `addDir` → debounced, `processNewDirectory` creates the collection (and its ancestors) and enqueues a collection-scrape job for scrape-able types.
-- `unlink` → after 100 ms, `prisma.media.delete` for the matching path (cascades details/images/streams in the DB; image files on disk are left behind, unlike `mediaService.deleteMedia`).
+- `add` → filtered by extension, debounced 2 s per path, then `processNewFile`: `ImportService.ensureCollectionPath` creates any missing folders in the chain (queueing their scrapes), `importMediaFile` imports the file, and `queueMediaScrapes` enqueues a job unless the library is Film.
+- `addDir` → debounced, `processNewDirectory` runs `ensureCollectionPath` and queues scrapes for whatever it created.
+- `unlink` → after 100 ms, `contentDeletionService.deleteMedia` for the matching path, which also removes the media's artwork files.
 - `unlinkDir` → deliberately a no-op, to survive folder renames (which chokidar reports as unlinkDir+addDir). Collections are therefore never removed by the watcher.
 - `change` is not handled, so an in-place re-encode does not re-probe.
 
@@ -134,33 +140,31 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - `7052d0c` 2026-07-01 — DNS-threadpool starvation fix: 30 s poll + `binaryInterval`, `UV_THREADPOOL_SIZE=24`, c-ares DNS in TMDB scraper.
 - `27c0663` 2026-09-02 — `parseTitleAndYear` (+ first parser tests) used by scrape workers and IdentifyDialog; frontend mirror in `utils/parseTitle.ts`.
 - 2026-09-03 `getCollectionType` and media extension lists extracted to `utils/libraryLayout.ts` (with tests) and used by both the scan worker and file watcher.
+- 2026-09-03 Import integrity: `ImportService`, `LibraryScanService` and `ContentDeletionService` extracted; scanner and watcher share one import path; `Media.path` unique with a dedupe migration; orphan reconciliation after each complete scan; library, collection and media deletes clean artwork files.
 
 ## Known Limitations
 
-- **No orphan cleanup on scan.** Files deleted or moved while the watcher is off (or for unwatched libraries) leave `Media` rows pointing at missing paths forever; a rename produces a duplicate row. Only the watcher's `unlink` removes media, and nothing ever removes collections for vanished folders.
+- **Renames lose metadata.** Reconciliation treats a renamed file or folder as delete-plus-create, so scraped details, images and watch progress for the old row are gone; there is no size/mtime matching to carry them over.
+- **Root-level media are never reconciled** because they have no collection and therefore no link to the library.
 - **Blocking filesystem I/O in the API process.** The scan uses `readdirSync`/`statSync`/`existsSync` and all workers run inside the Express process, so a large directory on a slow mount stalls request handling. `libraryService` validation is also sync.
-- **Duplicate `Media` possible.** `Media.path` has no unique index and both the scan worker and watcher use find-then-create; a scan running while the watcher imports the same file creates two rows.
-- **Watcher and worker logic are copy-pasted** (extension lists, `getCollectionType`, media creation, hint parsing) and have already diverged: the watcher queues media scrapes for Film libraries and uses the parsed title as `mediaName`; the worker does neither.
 - **Case sensitivity.** Collections are matched by exact `name` and Prisma/SQLite default comparison; on case-insensitive filesystems a folder renamed only in case yields a second collection. Extensions are lower-cased, but `.MKV` files are matched while a folder named `Season 1` vs `season 1` is not deduplicated.
 - **Symlink loops are not guarded.** Symlinked directories are followed with no visited-set, so a cycle recurses until stack overflow (the watcher's `depth: 10` bounds it there, the scan has no depth limit).
 - **Non-media files are silently ignored**, including `.srt`/`.ass` subtitles, `.nfo` sidecars and cover art, so external subtitles are never imported.
 - **Cancellation granularity is one directory**, and a cancelled scan still leaves everything created so far (no rollback); the job is marked failed with "Scan cancelled by user".
-- **Progress is approximate and non-monotonic**, and `ScanResult.newMediaIds`/`newCollections` are stored in Redis as the return value for 24 h, which for a large library is a sizeable payload.
+- **Progress is approximate and non-monotonic.**
 - **Library `path` edits are not applied to a running watcher**, and changing `libraryType` does not re-type existing collections until the next scan.
 - **Music is import-only**: correct tree and durations, but no tag reading (ID3/Vorbis) and no scraper implementation.
-- **Deleting a library orphans media rows** (`SetNull`) and leaves their image files on disk.
 - **Single global scan concurrency** means one huge library blocks scans of every other library.
 
 ## Opportunities
 
-- **Orphan reconciliation in the scan** (M): after the walk, `findMany` media/collections for the library not seen during this scan and delete or flag them; would also fix moved files if paired with size+mtime matching. Closes the biggest gap against "idempotent rescan".
-- **Extract a shared `importService`** (M): `getCollectionType` and the extension lists already live in `utils/libraryLayout.ts`; move `createMediaFromFile`, `getOrCreateCollectionPath` and hint building there too so the worker and watcher stop diverging (Film media-scrape rule, parsed-title `mediaName`).
-- **Add `@unique` on `Media.path`** (S) and switch the find-then-create to `upsert`/`create` with P2002 handling; makes worker/watcher races safe.
+- **Rename detection** (M): before reconciliation deletes a row, look for a new file with the same size and mtime (or a content hash) and re-point `Media.path` instead, preserving metadata and watch progress.
+- **Dry-run / review for removals** (S): expose what a scan would remove and let an admin confirm, for libraries on flaky mounts.
 - **Use `fs.promises.readdir`/`stat`** in the scan and `libraryService` (S) so the API process stays responsive; consider `Promise.all` with a small concurrency limit for ffprobe (currently strictly serial, one process spawn per file).
 - **Track visited real paths when following symlinks** (S) and add a depth cap to match the watcher.
 - **Handle chokidar `change`** (S) to re-probe a re-encoded file and refresh `duration`/`MediaStream`.
 - **Re-watch on path change** (S): in `sync()`, compare the stored path/type with the DB row and rebuild the watcher when they differ.
-- **Tests for the untested parsers** (S): `parseEpisodeFromFilename` (`1x02`, `s1e2`, prefix show name, quality suffix), `parseMovieFromFilename` (the "2001 A Space Odyssey" case), `getShowNameFromCollectionPath`; and a worker test with an in-memory tree.
+- **Tests for the untested parsers** (S): `parseEpisodeFromFilename` (`1x02`, `s1e2`, prefix show name, quality suffix) and `getShowNameFromCollectionPath` directly; the scan is now covered against a temp tree.
 - **Import subtitle sidecars** (M): `.srt`/`.vtt` next to a video could become `MediaStream` rows of type Subtitle with an external path, which the subtitle route in [Streaming & Transcoding](streaming-and-transcoding.md) could serve.
 - **Read audio tags with ffprobe `format.tags`** (M): the probe already runs; capturing title/artist/album/track would give the music library real names ahead of any scraper.
 - **Use `parseTitleAndYear` in the scan worker** (S): the worker still discards the parsed title and only forwards `year`; passing the clean title as `mediaName` would align it with the watcher and the 27c0663 intent.

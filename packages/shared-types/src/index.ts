@@ -151,6 +151,10 @@ export interface ScanResult {
   filesProcessed: number
   collectionsCreated: number
   mediaCreated: number
+  /** Media rows removed because their files were no longer on disk */
+  mediaRemoved?: number
+  /** Collections removed because their folders were no longer on disk */
+  collectionsRemoved?: number
   errors: string[]
 }
 
