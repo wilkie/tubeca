@@ -14,6 +14,9 @@ export interface ScanResult {
   mediaMoved: number
   mediaRemoved: number
   collectionsRemoved: number
+  /** Set by a dry run: what a real scan would have removed. */
+  mediaWouldRemove: number
+  collectionsWouldRemove: number
   errors: string[]
 }
 
@@ -28,6 +31,8 @@ function toResult(summary: ScanSummary): ScanResult {
     mediaMoved: summary.mediaMoved,
     mediaRemoved: summary.mediaRemoved,
     collectionsRemoved: summary.collectionsRemoved,
+    mediaWouldRemove: summary.mediaWouldRemove,
+    collectionsWouldRemove: summary.collectionsWouldRemove,
     errors: summary.errors,
   };
 }
@@ -36,7 +41,7 @@ function toResult(summary: ScanSummary): ScanResult {
 export const libraryScanWorker = new Worker(
   'library-scan',
   async (job: Job<LibraryScanJobData & { cancelled?: boolean }>) => {
-    const { libraryId, libraryPath, libraryName, fullScan } = job.data;
+    const { libraryId, libraryPath, libraryName, fullScan, dryRunRemovals } = job.data;
     console.log(`📂 Starting scan for library: ${libraryName} (${libraryId})`);
     console.log(`   Path: ${libraryPath}`);
 
@@ -50,6 +55,7 @@ export const libraryScanWorker = new Worker(
         { id: library.id, path: libraryPath, libraryType: library.libraryType },
         {
           fullScan,
+          dryRunRemovals,
           checkCancelled: async () => {
             const freshJob = await libraryScanQueue.getJob(job.id!);
             if (freshJob?.data?.cancelled) {
@@ -80,7 +86,10 @@ export const libraryScanWorker = new Worker(
   },
   {
     connection: redisConnection,
-    concurrency: 1, // Only one scan at a time
+    // Two libraries can be scanned at once. A job id per library already stops
+    // a library being scanned twice, and a long scan of one library used to
+    // block every other library behind it.
+    concurrency: 2,
   }
 );
 

@@ -1,7 +1,7 @@
 import { prisma } from '../config/database';
 import { contentDeletionService } from './contentDeletionService';
 import type { LibraryType } from '@prisma/client';
-import * as fs from 'fs';
+import { promises as fsp } from 'fs';
 
 export interface CreateLibraryInput {
   name: string
@@ -140,16 +140,7 @@ export class LibraryService {
   async createLibrary(input: CreateLibraryInput) {
     const { name, path, libraryType, groupIds, watchForChanges } = input;
 
-    // Validate that the path exists
-    if (!fs.existsSync(path)) {
-      throw new Error(`Path does not exist: ${path}`);
-    }
-
-    // Validate that the path is a directory
-    const stats = fs.statSync(path);
-    if (!stats.isDirectory()) {
-      throw new Error(`Path is not a directory: ${path}`);
-    }
+    await assertDirectory(path);
 
     return prisma.library.create({
       data: {
@@ -177,14 +168,7 @@ export class LibraryService {
 
     // If path is being updated, validate it exists
     if (path) {
-      if (!fs.existsSync(path)) {
-        throw new Error(`Path does not exist: ${path}`);
-      }
-
-      const stats = fs.statSync(path);
-      if (!stats.isDirectory()) {
-        throw new Error(`Path is not a directory: ${path}`);
-      }
+      await assertDirectory(path);
     }
 
     return prisma.library.update({
@@ -215,5 +199,23 @@ export class LibraryService {
     return prisma.library.delete({
       where: { id },
     });
+  }
+}
+
+/**
+ * A library path has to be a directory that exists right now.
+ *
+ * Checked asynchronously: the API process serves streams while this runs, and
+ * a path on an unresponsive network mount can take seconds to answer.
+ */
+async function assertDirectory(target: string): Promise<void> {
+  let stats;
+  try {
+    stats = await fsp.stat(target);
+  } catch {
+    throw new Error(`Path does not exist: ${target}`);
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(`Path is not a directory: ${target}`);
   }
 }

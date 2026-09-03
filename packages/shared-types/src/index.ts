@@ -157,6 +157,10 @@ export interface ScanResult {
   mediaRemoved?: number
   /** Collections removed because their folders were no longer on disk */
   collectionsRemoved?: number
+  /** Media rows a dry-run scan would have removed */
+  mediaWouldRemove?: number
+  /** Collections a dry-run scan would have removed */
+  collectionsWouldRemove?: number
   errors: string[]
 }
 

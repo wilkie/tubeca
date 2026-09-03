@@ -306,7 +306,7 @@ describe('LibrariesPage', () => {
       await user.click(refreshButtons[0].closest('button')!);
 
       // The scan button starts a quick scan; full scans go through the scan options menu
-      expect(mockApiClient.startLibraryScan).toHaveBeenCalledWith('lib-1', { fullScan: false });
+      expect(mockApiClient.startLibraryScan).toHaveBeenCalledWith('lib-1', {});
     });
 
     it('shows progress when scanning', async () => {

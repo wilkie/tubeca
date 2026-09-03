@@ -122,8 +122,11 @@ export function LibrariesPage() {
     await loadLibraries();
   };
 
-  const handleStartScan = async (libraryId: string, fullScan: boolean = false) => {
-    const result = await apiClient.startLibraryScan(libraryId, { fullScan });
+  const handleStartScan = async (
+    libraryId: string,
+    options: { fullScan?: boolean; dryRunRemovals?: boolean } = {}
+  ) => {
+    const result = await apiClient.startLibraryScan(libraryId, options);
     if (result.error) {
       setError(result.error);
     } else {
@@ -147,9 +150,9 @@ export function LibrariesPage() {
     setScanMenuAnchor(null);
   };
 
-  const handleScanMenuAction = (fullScan: boolean) => {
+  const handleScanMenuAction = (options: { fullScan?: boolean; dryRunRemovals?: boolean }) => {
     if (scanMenuAnchor) {
-      handleStartScan(scanMenuAnchor.libraryId, fullScan);
+      handleStartScan(scanMenuAnchor.libraryId, options);
       handleScanMenuClose();
     }
   };
@@ -301,6 +304,14 @@ export function LibrariesPage() {
                                       collections: scanState.result.collectionsRemoved ?? 0,
                                     })
                                   : null,
+                                (scanState.result.mediaWouldRemove || scanState.result.collectionsWouldRemove)
+                                  ? t('libraries.scanResultWouldRemove', {
+                                      defaultValue:
+                                        'Missing but kept: {{media}} media, {{collections}} collections',
+                                      media: scanState.result.mediaWouldRemove ?? 0,
+                                      collections: scanState.result.collectionsWouldRemove ?? 0,
+                                    })
+                                  : null,
                               ]
                                 .filter(Boolean)
                                 .join('. ')}
@@ -327,7 +338,7 @@ export function LibrariesPage() {
                             <Tooltip title={t('libraries.startScan')}>
                               <IconButton
                                 size="small"
-                                onClick={() => handleStartScan(library.id, false)}
+                                onClick={() => handleStartScan(library.id)}
                                 color="primary"
                               >
                                 <Refresh />
@@ -380,17 +391,29 @@ export function LibrariesPage() {
         open={Boolean(scanMenuAnchor)}
         onClose={handleScanMenuClose}
       >
-        <MenuItem onClick={() => handleScanMenuAction(false)}>
+        <MenuItem onClick={() => handleScanMenuAction({})}>
           <ListItemIcon>
             <Refresh fontSize="small" />
           </ListItemIcon>
           <ListItemText primary={t('libraries.scanNormal')} secondary={t('libraries.scanNormalDesc')} />
         </MenuItem>
-        <MenuItem onClick={() => handleScanMenuAction(true)}>
+        <MenuItem onClick={() => handleScanMenuAction({ fullScan: true })}>
           <ListItemIcon>
             <Refresh fontSize="small" />
           </ListItemIcon>
           <ListItemText primary={t('libraries.scanFull')} secondary={t('libraries.scanFullDesc')} />
+        </MenuItem>
+        <MenuItem onClick={() => handleScanMenuAction({ dryRunRemovals: true })}>
+          <ListItemIcon>
+            <Refresh fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary={t('libraries.scanNoRemove', 'Scan without removing')}
+            secondary={t(
+              'libraries.scanNoRemoveDesc',
+              'Import new files and report what is missing, but delete nothing'
+            )}
+          />
         </MenuItem>
       </Menu>
     </Container>

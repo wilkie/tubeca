@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { LibraryScanService } from '../libraryScanService';
+import { LibraryScanService, MAX_SCAN_DEPTH } from '../libraryScanService';
 import { ImportService } from '../importService';
 import { ContentDeletionService } from '../contentDeletionService';
 import { prisma, resetDatabase, createLibrary } from '../../test/db';
@@ -130,6 +130,79 @@ describe('LibraryScanService', () => {
       )
     ).rejects.toThrow('Scan cancelled by user');
     expect(progress.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('follows a symlink to a directory but never walks it twice', async () => {
+    touch('Shows/Betty/Betty S01E01.mkv');
+    fs.symlinkSync(path.join(root, 'Shows'), path.join(root, 'Mirror'), 'dir');
+    const library = await createLibrary({ libraryType: 'Television', path: root });
+
+    const summary = await scanner.scan({ id: library.id, path: root, libraryType: 'Television' });
+
+    // The episode is imported once; the mirror is reported, not walked.
+    expect(summary.mediaCreated).toBe(1);
+    expect(summary.errors.some((e) => e.includes('already visited'))).toBe(true);
+    expect(await prisma.media.count()).toBe(1);
+  });
+
+  it('does not loop on a symlink pointing at its own parent', async () => {
+    touch('Shows/Betty/Betty S01E01.mkv');
+    fs.symlinkSync(path.join(root, 'Shows'), path.join(root, 'Shows/Betty/loop'), 'dir');
+    const library = await createLibrary({ libraryType: 'Television', path: root });
+
+    const summary = await scanner.scan({ id: library.id, path: root, libraryType: 'Television' });
+
+    expect(summary.mediaCreated).toBe(1);
+    expect(summary.errors.some((e) => e.includes('already visited'))).toBe(true);
+  });
+
+  it('stops at the depth cap', async () => {
+    // One level past MAX_SCAN_DEPTH.
+    const deep = Array.from({ length: MAX_SCAN_DEPTH + 1 }, (_, i) => `level${i}`).join('/');
+    touch(`${deep}/too-deep.mkv`);
+    const library = await createLibrary({ libraryType: 'Television', path: root });
+
+    const summary = await scanner.scan({ id: library.id, path: root, libraryType: 'Television' });
+
+    expect(summary.mediaCreated).toBe(0);
+    expect(summary.errors.some((e) => e.includes(`depth ${MAX_SCAN_DEPTH}`))).toBe(true);
+  });
+
+  describe('dry run', () => {
+    it('reports what is missing without removing it', async () => {
+      touch('Gone (1999)/gone.mkv');
+      touch('Kept (2000)/kept.mkv');
+      const library = await createLibrary({ libraryType: 'Film', path: root });
+      const lib = { id: library.id, path: root, libraryType: 'Film' as const };
+      await scanner.scan(lib);
+
+      fs.rmSync(path.join(root, 'Gone (1999)'), { recursive: true });
+      const summary = await scanner.scan(lib, { dryRunRemovals: true });
+
+      expect(summary).toMatchObject({
+        mediaRemoved: 0,
+        collectionsRemoved: 0,
+        mediaWouldRemove: 1,
+        collectionsWouldRemove: 1,
+      });
+      expect(await prisma.media.count()).toBe(2);
+      expect(await prisma.collection.count()).toBe(2);
+    });
+
+    it('removes the same items once a real scan runs', async () => {
+      touch('Gone (1999)/gone.mkv');
+      touch('Kept (2000)/kept.mkv');
+      const library = await createLibrary({ libraryType: 'Film', path: root });
+      const lib = { id: library.id, path: root, libraryType: 'Film' as const };
+      await scanner.scan(lib);
+      fs.rmSync(path.join(root, 'Gone (1999)'), { recursive: true });
+      await scanner.scan(lib, { dryRunRemovals: true });
+
+      const summary = await scanner.scan(lib);
+
+      expect(summary).toMatchObject({ mediaRemoved: 1, collectionsRemoved: 1, mediaWouldRemove: 0 });
+      expect(await prisma.media.count()).toBe(1);
+    });
   });
 
   it('throws for a missing library path', async () => {

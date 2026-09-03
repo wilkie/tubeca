@@ -6,6 +6,8 @@ export interface LibraryScanJobData {
   libraryPath: string
   libraryName: string
   fullScan?: boolean
+  /** Report what would be removed instead of removing it. */
+  dryRunRemovals?: boolean
 }
 
 // Create library scan queue

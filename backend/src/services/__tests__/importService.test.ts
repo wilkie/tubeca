@@ -181,6 +181,67 @@ describe('ImportService', () => {
     expect(await prisma.media.findUnique({ where: { id: keptMedia.id } })).not.toBeNull();
   });
 
+  describe('reprobeMediaFile', () => {
+    it('refreshes duration and streams for a file that was re-encoded', async () => {
+      const library = await createLibrary({ libraryType: 'Television' });
+      const { leafId } = await service.ensureCollectionPath(library.id, 'Television', ['Betty', 'Season 1']);
+      const filePath = '/lib/Betty/Season 1/Betty S01E01.mkv';
+      const imported = await service.importMediaFile({
+        libraryId: library.id,
+        libraryType: 'Television',
+        filePath,
+        parentCollectionId: leafId,
+        collectionPath: ['Betty', 'Season 1'],
+      });
+
+      probe.mockResolvedValueOnce({
+        duration: 2000,
+        streams: [
+          { streamIndex: 0, streamType: 'Video', codec: 'hevc', isDefault: true, isForced: false },
+          { streamIndex: 1, streamType: 'Audio', codec: 'opus', language: 'eng', isDefault: true, isForced: false },
+          { streamIndex: 2, streamType: 'Subtitle', codec: 'subrip', language: 'eng', isDefault: false, isForced: false },
+        ],
+      } as never);
+
+      const result = await service.reprobeMediaFile(filePath);
+
+      expect(result).toEqual({ updated: true, streams: 3 });
+      const stored = await prisma.media.findUniqueOrThrow({
+        where: { id: imported.mediaId },
+        include: { streams: { orderBy: { streamIndex: 'asc' } } },
+      });
+      expect(stored.duration).toBe(2000);
+      expect(stored.streams.map((s) => s.codec)).toEqual(['hevc', 'opus', 'subrip']);
+    });
+
+    it('keeps the row, its name and its collection', async () => {
+      const library = await createLibrary({ libraryType: 'Television' });
+      const { leafId } = await service.ensureCollectionPath(library.id, 'Television', ['Betty', 'Season 1']);
+      const filePath = '/lib/Betty/Season 1/Betty S01E01.mkv';
+      const imported = await service.importMediaFile({
+        libraryId: library.id,
+        libraryType: 'Television',
+        filePath,
+        parentCollectionId: leafId,
+        collectionPath: ['Betty', 'Season 1'],
+      });
+      await prisma.media.update({ where: { id: imported.mediaId }, data: { name: 'Scraped Title' } });
+
+      await service.reprobeMediaFile(filePath);
+
+      const stored = await prisma.media.findUniqueOrThrow({ where: { id: imported.mediaId } });
+      expect(stored.name).toBe('Scraped Title');
+      expect(stored.collectionId).toBe(leafId);
+    });
+
+    it('does nothing for a path it has never imported', async () => {
+      const result = await service.reprobeMediaFile('/lib/unknown.mkv');
+
+      expect(result).toEqual({ updated: false, streams: 0 });
+      expect(probe).not.toHaveBeenCalled();
+    });
+  });
+
   describe('rename detection', () => {
     let dir: string;
     beforeEach(() => {

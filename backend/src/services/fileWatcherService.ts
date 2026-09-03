@@ -82,10 +82,21 @@ class FileWatcherService {
 
     // Add watchers for libraries with watchForChanges enabled
     for (const library of libraries) {
-      if (library.watchForChanges && !this.watchers.has(library.id)) {
+      const watched = this.watchers.get(library.id);
+
+      if (library.watchForChanges && !watched) {
         await this.watchLibrary(library.id, library.path, library.libraryType);
-      } else if (!library.watchForChanges && this.watchers.has(library.id)) {
+      } else if (!library.watchForChanges && watched) {
         await this.unwatchLibrary(library.id);
+      } else if (
+        watched &&
+        (watched.path !== library.path || watched.libraryType !== library.libraryType)
+      ) {
+        // An edited library was still being watched at its old path, and with
+        // the old type's file extensions, until the server restarted.
+        console.log(`📁 Library ${library.id.slice(0, 8)} moved or changed type; rebuilding its watcher`);
+        await this.unwatchLibrary(library.id);
+        await this.watchLibrary(library.id, library.path, library.libraryType);
       }
     }
 
@@ -201,6 +212,16 @@ class FileWatcherService {
       this.handleDirectoryAdd(libraryId, libraryPath, relativePath, libraryType);
     });
 
+    // Handle a file being rewritten in place (a re-encode, a repair)
+    watcher.on('change', (filePath) => {
+      const ext = path.extname(filePath).toLowerCase();
+      if (!watchedExtensions.has(ext)) {
+        return;
+      }
+      const relativePath = path.relative(libraryPath, filePath);
+      this.handleFileChange(libraryPath, relativePath);
+    });
+
     // Handle file deletions
     watcher.on('unlink', (filePath) => {
       const ext = path.extname(filePath).toLowerCase();
@@ -275,6 +296,36 @@ class FileWatcherService {
         await this.processNewFile(libraryId, libraryPath, relativePath, libraryType);
       } catch (error) {
         console.error(`📁 Error processing new file ${fullPath}:`, error);
+      }
+    }, this.debounceMs);
+
+    this.debounceTimers.set(debounceKey, timer);
+  }
+
+  /**
+   * Handle a file being rewritten under the same name.
+   *
+   * The row stays, but what ffprobe said about it no longer holds, so the
+   * duration and the stream list are read again. Debounced on the same clock
+   * as an add, since a re-encode writing in place emits a burst of events.
+   */
+  private handleFileChange(libraryPath: string, relativePath: string): void {
+    const fullPath = path.join(libraryPath, relativePath);
+    const debounceKey = `change:${fullPath}`;
+    const existingTimer = this.debounceTimers.get(debounceKey);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(async () => {
+      this.debounceTimers.delete(debounceKey);
+      try {
+        const result = await importService.reprobeMediaFile(fullPath);
+        if (result.updated) {
+          console.log(`📁 Re-probed changed file: ${relativePath} (${result.streams} streams)`);
+        }
+      } catch (error) {
+        console.error(`📁 Error re-probing changed file ${fullPath}:`, error);
       }
     }, this.debounceMs);
 

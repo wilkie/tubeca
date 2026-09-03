@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { Prisma, type CollectionType, type LibraryType, type ScrapeStatus, type StreamType } from '@prisma/client';
 import { prisma } from '../config/database';
@@ -59,9 +59,9 @@ export interface FileIdentity {
   fileMtimeMs: number
 }
 
-export function readFileIdentity(filePath: string): FileIdentity | null {
+export async function readFileIdentity(filePath: string): Promise<FileIdentity | null> {
   try {
-    const stat = fs.statSync(filePath);
+    const stat = await fsp.stat(filePath);
     return { fileSize: stat.size, fileMtimeMs: stat.mtimeMs };
   } catch {
     return null;
@@ -244,7 +244,7 @@ export class ImportService {
     const fileBaseName = path.basename(filePath, ext);
     const mediaType: 'Video' | 'Audio' = VIDEO_EXTENSIONS.includes(ext) ? 'Video' : 'Audio';
     const hintsFor = (id: string) => buildMediaHints(id, libraryType, fileBaseName, collectionPath, mediaType);
-    const identity = readFileIdentity(filePath);
+    const identity = await readFileIdentity(filePath);
 
     const existing = await prisma.media.findUnique({
       where: { path: filePath },
@@ -277,7 +277,7 @@ export class ImportService {
     if (mediaType === 'Video') {
       const trickplayPath = path.join(path.dirname(filePath), `${fileBaseName}.trickplay`);
       try {
-        if (fs.statSync(trickplayPath).isDirectory()) thumbnails = trickplayPath;
+        if ((await fsp.stat(trickplayPath)).isDirectory()) thumbnails = trickplayPath;
       } catch {
         // no trickplay folder
       }
@@ -340,7 +340,9 @@ export class ImportService {
       select: { id: true, path: true, scrapeStatus: true },
       take: 10,
     });
-    return candidates.find((c) => !fs.existsSync(c.path)) ?? null;
+    // Whichever candidate's own file has gone is the one that moved here.
+    const gone = await Promise.all(candidates.map(async (c) => !(await pathExists(c.path))));
+    return candidates.find((_, index) => gone[index]) ?? null;
   }
 
   /** Queue metadata scrapes for media hints (no-op for Film libraries, whose metadata lives on the collection). */
@@ -383,6 +385,81 @@ export class ImportService {
    * see. Files that disappeared while nothing was watching are cleaned up here,
    * along with their artwork.
    */
+  /**
+   * Re-read a file that changed on disk and refresh what the probe told us.
+   *
+   * A re-encode keeps the path but changes the duration, the codecs and the
+   * audio and subtitle tracks. Without this the player would keep offering
+   * tracks that are no longer there and a playlist built from the old
+   * duration would run past the end of the file. Metadata, images and watch
+   * progress are left alone: it is the same title, in a new encoding.
+   */
+  async reprobeMediaFile(filePath: string): Promise<{ updated: boolean; streams: number }> {
+    const existing = await prisma.media.findUnique({
+      where: { path: filePath },
+      select: { id: true },
+    });
+    if (!existing) return { updated: false, streams: 0 };
+
+    const [probe, identity] = await Promise.all([this.deps.probe(filePath), readFileIdentity(filePath)]);
+
+    await prisma.$transaction([
+      prisma.mediaStream.deleteMany({ where: { mediaId: existing.id } }),
+      prisma.media.update({
+        where: { id: existing.id },
+        data: {
+          duration: probe.duration,
+          ...(identity ?? {}),
+          streams: {
+            create: probe.streams.map((stream: StreamInfo) => ({
+              streamIndex: stream.streamIndex,
+              streamType: stream.streamType as StreamType,
+              codec: stream.codec,
+              codecLong: stream.codecLong,
+              language: stream.language,
+              title: stream.title,
+              isDefault: stream.isDefault,
+              isForced: stream.isForced,
+              channels: stream.channels,
+              channelLayout: stream.channelLayout,
+              sampleRate: stream.sampleRate,
+              bitRate: stream.bitRate,
+              width: stream.width,
+              height: stream.height,
+              frameRate: stream.frameRate,
+            })),
+          },
+        },
+      }),
+    ]);
+
+    return { updated: true, streams: probe.streams.length };
+  }
+
+  /**
+   * What a scan did not see, and would therefore remove. Nothing is deleted.
+   *
+   * Used by a dry-run scan so an admin can look at the list before letting a
+   * scan act on it: on a flaky mount, "not seen" and "gone" are not the same.
+   */
+  async findMissing(
+    libraryId: string,
+    seenCollectionIds: Set<string>,
+    seenMediaIds: Set<string>
+  ): Promise<{ collections: Array<{ id: string; name: string }>; media: Array<{ id: string; path: string }> }> {
+    const [media, collections] = await Promise.all([
+      prisma.media.findMany({
+        where: { collection: { libraryId }, id: { notIn: [...seenMediaIds] } },
+        select: { id: true, path: true },
+      }),
+      prisma.collection.findMany({
+        where: { libraryId, id: { notIn: [...seenCollectionIds] } },
+        select: { id: true, name: true },
+      }),
+    ]);
+    return { media, collections };
+  }
+
   async removeMissing(
     libraryId: string,
     seenCollectionIds: Set<string>,
@@ -409,6 +486,15 @@ export class ImportService {
     }
 
     return removed;
+  }
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fsp.access(target);
+    return true;
+  } catch {
+    return false;
   }
 }
 

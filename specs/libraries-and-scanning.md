@@ -30,9 +30,9 @@
 | `backend/src/services/libraryService.ts` | CRUD plus `getAccessibleLibraries` / `canUserAccessLibrary` group-based visibility. Path validation uses `fs.existsSync`/`statSync`. |
 | `backend/src/routes/libraries.ts` | `GET /`, `GET /:id`, `POST /`, `PATCH /:id`, `DELETE /:id`, `POST/GET/DELETE /:id/scan`. Calls `fileWatcherService.sync()` after create/update. |
 | `backend/src/queues/libraryScanQueue.ts` | `library-scan` queue; deterministic job id `scan-<libraryId>`, `attempts: 1`, `addLibraryScanJob` / `getLibraryScanJob` / `cancelLibraryScanJob`. |
-| `backend/src/workers/libraryScanWorker.ts` | Thin BullMQ handler: loads the library, runs `LibraryScanService.scan` with cancel/progress callbacks, queues scrapes from the summary, returns a `ScanResult`. `concurrency: 1`. |
-| `backend/src/services/libraryScanService.ts` | The walk: `readdirSync` per directory, symlink classification, hidden/`.trickplay` skipping, `ImportService` calls, seen-id tracking, and post-walk orphan reconciliation. Testable against a temp tree. |
-| `backend/src/services/importService.ts` | Shared by scanner and watcher: `ensureCollection`/`ensureCollectionPath`, `importMediaFile` (probe, streams, trickplay, unique-path race handling), pure `buildMediaHints`/`buildCollectionHints`, `queueMediaScrapes`/`queueCollectionScrapes`, `removeMissing`. |
+| `backend/src/workers/libraryScanWorker.ts` | Thin BullMQ handler: loads the library, runs `LibraryScanService.scan` with cancel/progress callbacks, queues scrapes from the summary, returns a `ScanResult`. `concurrency: 2`. |
+| `backend/src/services/libraryScanService.ts` | The walk: `fs.promises.readdir` per directory, symlink classification, a visited real-path set and `MAX_SCAN_DEPTH`, hidden/`.trickplay` skipping, `ImportService` calls, seen-id tracking, and post-walk orphan reconciliation (or a dry-run report). Testable against a temp tree. |
+| `backend/src/services/importService.ts` | Shared by scanner and watcher: `ensureCollection`/`ensureCollectionPath`, `importMediaFile` (probe, streams, trickplay, unique-path race handling), pure `buildMediaHints`/`buildCollectionHints`, `queueMediaScrapes`/`queueCollectionScrapes`, `reprobeMediaFile`, `findMissing`, `removeMissing`. |
 | `backend/src/services/contentDeletionService.ts` | `deleteMedia`, `deleteCollectionTree`, `deleteLibraryContents`: remove rows and every artwork file they own (including credit photos). Used by the collection/media/library services, the watcher and reconciliation. |
 | `backend/src/services/fileWatcherService.ts` | Singleton chokidar wrapper: `start/stop/sync/watchLibrary/unwatchLibrary`, debounced add handlers, unlink handler; delegates all creation to `ImportService`. |
 | `backend/src/utils/mediaParser.ts` | `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear`, `getShowNameFromCollectionPath`, `extractYear`. |
@@ -55,10 +55,10 @@
 ### Scan lifecycle
 
 1. `POST /api/libraries/:id/scan` (Admin) checks for an existing `scan-<id>` job in `active`/`waiting` and returns 409 if found; otherwise `addLibraryScanJob` removes any completed/failed job with that id and adds a new one with `{libraryId, libraryPath, libraryName, fullScan}`. Because the job id is fixed, BullMQ itself prevents two queued scans per library.
-2. The worker (`concurrency: 1`, so scans of different libraries are serialised too) loads the library and calls `LibraryScanService.scan`, passing a `checkCancelled` callback that re-reads the job from Redis for a `cancelled: true` flag and an `onProgress` callback bound to `job.updateProgress`.
-3. The walk checks cancellation once per directory (cooperative; a directory with thousands of files cannot be interrupted mid-way), `readdirSync`s it, follows symlinks with `statSync` to classify entries (broken links are dropped), imports files through `ImportService.importMediaFile`, then recurses into subdirectories through `ImportService.ensureCollection`. Every collection and media id touched, new or existing, is recorded in a seen-set.
+2. The worker (`concurrency: 2`, so a long scan of one library no longer blocks every other; a job id per library still prevents scanning one library twice) loads the library and calls `LibraryScanService.scan`, passing a `checkCancelled` callback that re-reads the job from Redis for a `cancelled: true` flag and an `onProgress` callback bound to `job.updateProgress`.
+3. The walk checks cancellation once per directory (cooperative; a directory with thousands of files cannot be interrupted mid-way), reads it with `fs.promises.readdir`, follows symlinks with an async `stat` to classify entries (broken links are dropped), imports files through `ImportService.importMediaFile`, then recurses into subdirectories through `ImportService.ensureCollection`. Every collection and media id touched, new or existing, is recorded in a seen-set. Before reading a directory the walk resolves its real path and skips one it has already visited, so a symlink pointing at an ancestor or sideways at another branch is reported rather than followed twice; `MAX_SCAN_DEPTH` (10, matching the watcher) is the backstop.
 4. Progress is `min(95, filesProcessed/filesFound * 95)` updated after each directory; since `filesFound` grows as the walk proceeds, the bar is not monotonic and typically sits near 95% for most of the run. 100 is reported at the end.
-5. After a complete walk, `ImportService.removeMissing` deletes media and collections in the library whose ids were not seen, with their artwork files (see Orphan reconciliation below). The worker then queues scrapes and returns a `ScanResult` (`filesFound`, `filesProcessed`, `collectionsCreated`, `mediaCreated`, `mediaRemoved`, `collectionsRemoved`, `errors[]`) as the job return value. The UI reads `result` from `GET /:id/scan` and shows it in a tooltip, including a second sentence when anything was removed.
+5. After a complete walk, `ImportService.removeMissing` deletes media and collections in the library whose ids were not seen, with their artwork files (see Orphan reconciliation below). With `dryRunRemovals` the walk imports as usual but calls `findMissing` instead, so the result reports `mediaWouldRemove`/`collectionsWouldRemove` and nothing is deleted. The worker then queues scrapes and returns a `ScanResult` (`filesFound`, `filesProcessed`, `collectionsCreated`, `mediaCreated`, `mediaRemoved`, `collectionsRemoved`, `mediaWouldRemove`, `collectionsWouldRemove`, `errors[]`) as the job return value. The UI reads `result` from `GET /:id/scan` and shows it in a tooltip, including a second sentence when anything was removed.
 
 ### Folder → Collection mapping
 
@@ -106,9 +106,9 @@ Enabled at boot if `FILE_WATCHER_ENABLED=true` or `fileWatcher.enabled` in `tube
 - `addDir` → debounced, `processNewDirectory` runs `ensureCollectionPath` and queues scrapes for whatever it created.
 - `unlink` → after a 10 s grace period (`RENAME_GRACE_MS`), `contentDeletionService.deleteMedia` for the row still at that path, provided the file is still absent. chokidar reports a rename as `unlink` + `add`; the `add` re-points the row through `importMediaFile`'s size/mtime match, so by the time the timer fires the old path matches nothing and no delete happens.
 - `unlinkDir` → deliberately a no-op, to survive folder renames (which chokidar reports as unlinkDir+addDir). Collections are therefore never removed by the watcher.
-- `change` is not handled, so an in-place re-encode does not re-probe.
+- `change` → debounced like an add, then `importService.reprobeMediaFile`: the row keeps its name, collection, artwork and watch progress, but its `duration` and `MediaStream` rows are read again, because a re-encode changes the codecs, the track list and the length a playlist is computed from.
 
-`sync()` is called after every library create/update and reconciles the watcher map against the DB. Changing a library's `path` while it is watched is not detected — `sync` only checks whether the id is present, so the old path stays watched until restart.
+`sync()` is called after every library create/update and reconciles the watcher map against the DB. A library whose `path` or `libraryType` changed while it was being watched has its watcher torn down and rebuilt, so the new path is watched with that type's extensions instead of the old ones staying in place until restart.
 
 ### The DNS-threadpool / network-mount fix (7052d0c)
 
@@ -128,6 +128,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 
 ## History
 
+- 2026-09-03 — Import polish: the walk and the library path validation moved to async `fs`, a visited real-path set and `MAX_SCAN_DEPTH` guard symlinks, chokidar `change` re-probes a re-encoded file, `sync()` rebuilds a watcher whose path or type changed, scan concurrency raised to two, and a dry-run scan that reports what it would remove.
 - `5282cf0` 2025-11-28 — Libraries, collections, and the first library scan worker/queue, LibrariesPage and LibraryDialog.
 - `dd02263` 2025-11-28 — Basic streaming; scan starts recording what streaming needs.
 - `41cf2f0` 2025-11-29 — Scrapers added; `mediaParser.ts` created and scan begins enqueueing scrape jobs with filename hints.
@@ -149,28 +150,26 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 
 - **Rename detection needs an unchanged file.** Matching is exact on size and mtime, so a file that was re-encoded, re-muxed or touched while being moved is treated as new and the old row is reconciled away. Rows from before 2026-09-03 have no identity until a scan or watcher event backfills it.
 - **Root-level media are never reconciled** because they have no collection and therefore no link to the library.
-- **Blocking filesystem I/O in the API process.** The scan uses `readdirSync`/`statSync`/`existsSync` and all workers run inside the Express process, so a large directory on a slow mount stalls request handling. `libraryService` validation is also sync.
+- **ffprobe is still serial.** The walk itself is async now, but files are probed one at a time, one process spawn each, so a large import is bounded by that.
 - **Case sensitivity.** Collections are matched by exact `name` and Prisma/SQLite default comparison; on case-insensitive filesystems a folder renamed only in case yields a second collection. Extensions are lower-cased, but `.MKV` files are matched while a folder named `Season 1` vs `season 1` is not deduplicated.
-- **Symlink loops are not guarded.** Symlinked directories are followed with no visited-set, so a cycle recurses until stack overflow (the watcher's `depth: 10` bounds it there, the scan has no depth limit).
+- **A symlinked branch is imported once, under whichever path is walked first**, which is the alphabetically earlier one; the other is reported as an error line rather than being merged.
 - **Non-media files are silently ignored**, including `.srt`/`.ass` subtitles, `.nfo` sidecars and cover art, so external subtitles are never imported.
 - **Cancellation granularity is one directory**, and a cancelled scan still leaves everything created so far (no rollback); the job is marked failed with "Scan cancelled by user".
 - **Progress is approximate and non-monotonic.**
-- **Library `path` edits are not applied to a running watcher**, and changing `libraryType` does not re-type existing collections until the next scan.
+- **Changing `libraryType` does not re-type existing collections** until the next scan, though the watcher is rebuilt for the new type immediately.
 - **Music is hidden and import-only**: existing Music libraries get a correct tree and durations, but no tag reading (ID3/Vorbis), no scraper, and no audio player beyond the progressive route. Reviving the type means: read `format.tags` at import, a MusicBrainz-style scraper implementing `searchAudio`/`getAudioMetadata` and the Artist/Album branches of `collectionScrapeWorker`, an audio player path in `PlayerContext`, and re-adding `Music` to `LibraryDialog` and the create-route allow-list.
-- **Single global scan concurrency** means one huge library blocks scans of every other library.
+- **Scan concurrency is two**, so a third library queues behind them; the number is a constant, not a setting.
+- **A dry run is a separate scan.** There is no "review then apply" flow: the report says how many rows would go, and acting on it means running a normal scan, which recomputes the set.
+- **The watcher has no tests.** The re-probe on `change` and the rebuild on a path change are covered only through `ImportService`.
 
 ## Opportunities
 
 - **Content hashing for renames** (M): a partial hash (first/last MB) as a second identity key would survive touched mtimes and cross-library moves.
-- **Dry-run / review for removals** (S): expose what a scan would remove and let an admin confirm, for libraries on flaky mounts.
-- **Use `fs.promises.readdir`/`stat`** in the scan and `libraryService` (S) so the API process stays responsive; consider `Promise.all` with a small concurrency limit for ffprobe (currently strictly serial, one process spawn per file).
-- **Track visited real paths when following symlinks** (S) and add a depth cap to match the watcher.
-- **Handle chokidar `change`** (S) to re-probe a re-encoded file and refresh `duration`/`MediaStream`.
-- **Re-watch on path change** (S): in `sync()`, compare the stored path/type with the DB row and rebuild the watcher when they differ.
+- **Probe a few files at once** (S): the walk is async now, but ffprobe still runs strictly serially, one process per file; a small concurrency limit would cut import time on a large library.
+- **List what a dry run would remove** (S): the counts are reported, but not the paths, so an admin cannot see which items are missing without querying the database.
 - **Tests for the untested parsers** (S): `parseEpisodeFromFilename` (`1x02`, `s1e2`, prefix show name, quality suffix) and `getShowNameFromCollectionPath` directly; the scan is now covered against a temp tree.
 - **Import subtitle sidecars** (M): `.srt`/`.vtt` next to a video could become `MediaStream` rows of type Subtitle with an external path, which the subtitle route in [Streaming & Transcoding](streaming-and-transcoding.md) could serve.
 - **Read audio tags with ffprobe `format.tags`** (M): the probe already runs; capturing title/artist/album/track would give the music library real names ahead of any scraper.
 
-- **Per-library worker concurrency** (S): give the queue a `libraryId`-based group or raise `concurrency` to 2 so one long scan does not block the others.
 - **Directory-picker for `path`** (M): the dialog is a free-text field; a server-backed browse endpoint (admin-only) would prevent typos that are only caught by `existsSync`.
 - **Bounded `ScanResult` return value** (S): keep counts and errors in the job return, and drop `newMediaIds`/`newCollections` once the scrape jobs are enqueued.

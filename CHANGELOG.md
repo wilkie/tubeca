@@ -20,8 +20,16 @@ All notable changes to Tubeca are recorded here. The format follows
 - An admin can pin a specific video encoder in Settings; a choice this machine cannot run is
   ignored in favour of the detected one.
 - A library remembers whether you browse it as posters or as a list, and how you sort it.
+- A library can be scanned without removing anything: new files are imported and the result says
+  how many items are missing, which is safer on a network share that comes and goes.
 
 ### Fixed
+- Re-encoding a file in place now updates its length and its audio and subtitle tracks, instead
+  of leaving the player offering tracks that are no longer there.
+- Editing a watched library's path or type rebuilds its watcher, rather than watching the old
+  path until the server restarts.
+- A symlinked folder inside a library no longer makes a scan walk the same files twice, or loop
+  forever when it points at its own parent.
 - Seeking no longer waits behind segments being encoded for the position you left: the player's
   segment takes an encoder slot first, and the stale work is abandoned.
 - Hardware encoding works on machines whose only accelerator is VAAPI.
@@ -40,6 +48,8 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- Scanning reads the filesystem asynchronously, so a large folder on a slow mount no longer
+  stalls the rest of the server, and two libraries can be scanned at once.
 - Pages share one data cache, so the library list is fetched once for the header, the sidebar
   and the home page rather than three times, and returning to a page you just left is instant.
 - Each page's code is downloaded when you first open it instead of all of it up front.

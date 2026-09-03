@@ -320,6 +320,11 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
  *               fullScan:
  *                 type: boolean
  *                 description: If true, re-scrape metadata for all existing items
+ *               dryRunRemovals:
+ *                 type: boolean
+ *                 description: >
+ *                   If true, import as usual but do not delete rows for files that
+ *                   were not seen; the job result reports how many there were.
  *     responses:
  *       202:
  *         description: Scan started
@@ -350,7 +355,7 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
  */
 router.post('/:id/scan', requireRole('Admin'), async (req, res) => {
   try {
-    const { fullScan } = req.body || {};
+    const { fullScan, dryRunRemovals } = req.body || {};
     const library = await libraryService.getLibraryById(req.params.id);
     if (!library) {
       return res.status(404).json({ error: 'Library not found' });
@@ -374,10 +379,15 @@ router.post('/:id/scan', requireRole('Admin'), async (req, res) => {
       libraryPath: library.path,
       libraryName: library.name,
       fullScan: !!fullScan,
+      dryRunRemovals: !!dryRunRemovals,
     });
 
     res.status(202).json({
-      message: fullScan ? 'Full scan started' : 'Scan started',
+      message: dryRunRemovals
+        ? 'Scan started; nothing will be removed'
+        : fullScan
+          ? 'Full scan started'
+          : 'Scan started',
       jobId: job.id,
     });
   } catch (error) {

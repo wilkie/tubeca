@@ -1,12 +1,24 @@
 import * as fs from 'fs';
+import { promises as fsp } from 'fs';
 import * as path from 'path';
 import type { LibraryType } from '@prisma/client';
 import { getMediaExtensions } from '../utils/libraryLayout';
 import { ImportService, type CollectionHints, type MediaHints } from './importService';
 
+/**
+ * How deep a library tree is walked.
+ *
+ * Matches the file watcher's `depth: 10`, so what a scan imports and what the
+ * watcher notices are the same set. It is also a backstop against a symlink
+ * loop the real-path guard cannot see, such as one crossing a network mount.
+ */
+export const MAX_SCAN_DEPTH = 10;
+
 export interface ScanOptions {
   /** Re-queue scrapes for media and collections that already existed. */
   fullScan?: boolean
+  /** Report what would be removed instead of removing it. */
+  dryRunRemovals?: boolean
   /** Polled once per directory; throw from here to abort. */
   checkCancelled?: () => Promise<void>
   /** Approximate progress, 0-100. */
@@ -22,6 +34,9 @@ export interface ScanSummary {
   mediaMoved: number
   mediaRemoved: number
   collectionsRemoved: number
+  /** With `dryRunRemovals`, what a real scan would have removed. */
+  mediaWouldRemove: number
+  collectionsWouldRemove: number
   errors: string[]
   mediaToScrape: MediaHints[]
   collectionsToScrape: CollectionHints[]
@@ -33,6 +48,12 @@ interface WalkState {
   seenMediaIds: Set<string>
   /** Set when a directory could not be read; reconciliation is skipped then. */
   incomplete: boolean
+  /**
+   * Real paths of directories already walked. A symlink pointing at an
+   * ancestor would otherwise walk forever, and one pointing sideways would
+   * import the same files twice under two collections.
+   */
+  visitedDirs: Set<string>
 }
 
 /**
@@ -46,7 +67,7 @@ export class LibraryScanService {
     library: { id: string; path: string; libraryType: LibraryType },
     options: ScanOptions = {}
   ): Promise<ScanSummary> {
-    if (!fs.existsSync(library.path)) {
+    if (!(await pathExists(library.path))) {
       throw new Error(`Library path does not exist: ${library.path}`);
     }
 
@@ -59,6 +80,8 @@ export class LibraryScanService {
         mediaMoved: 0,
         mediaRemoved: 0,
         collectionsRemoved: 0,
+        mediaWouldRemove: 0,
+        collectionsWouldRemove: 0,
         errors: [],
         mediaToScrape: [],
         collectionsToScrape: [],
@@ -66,6 +89,7 @@ export class LibraryScanService {
       seenCollectionIds: new Set(),
       seenMediaIds: new Set(),
       incomplete: false,
+      visitedDirs: new Set(),
     };
 
     await this.walk(library, options, library.path, null, [], 0, state);
@@ -73,7 +97,17 @@ export class LibraryScanService {
     // Reconcile only after a complete, non-empty walk: an unmounted share
     // presents as an empty directory and must not wipe the library.
     const sawAnything = state.seenCollectionIds.size > 0 || state.seenMediaIds.size > 0;
-    if (!state.incomplete && sawAnything) {
+    if (!state.incomplete && sawAnything && options.dryRunRemovals) {
+      // Say what a real scan would drop, and drop nothing. For a library on a
+      // flaky mount this is the difference between a report and a deletion.
+      const pending = await this.importer.findMissing(
+        library.id,
+        state.seenCollectionIds,
+        state.seenMediaIds
+      );
+      state.summary.mediaWouldRemove = pending.media.length;
+      state.summary.collectionsWouldRemove = pending.collections.length;
+    } else if (!state.incomplete && sawAnything) {
       const removed = await this.importer.removeMissing(
         library.id,
         state.seenCollectionIds,
@@ -101,20 +135,39 @@ export class LibraryScanService {
     await options.checkCancelled?.();
     const { summary } = state;
 
+    if (depth > MAX_SCAN_DEPTH) {
+      summary.errors.push(`Stopped at depth ${MAX_SCAN_DEPTH}: ${dirPath}`);
+      return;
+    }
+
+    // Symlinks are followed, so the same directory can be reached twice.
+    const realPath = (await safeRealPath(dirPath)) ?? dirPath;
+    if (state.visitedDirs.has(realPath)) {
+      summary.errors.push(`Skipped a directory already visited through another path: ${dirPath}`);
+      return;
+    }
+    state.visitedDirs.add(realPath);
+
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      entries = await fsp.readdir(dirPath, { withFileTypes: true });
     } catch {
       summary.errors.push(`Cannot read directory: ${dirPath}`);
       state.incomplete = true;
       return;
     }
 
-    const isFile = (e: fs.Dirent) =>
-      e.isFile() || (e.isSymbolicLink() && safeStat(path.join(dirPath, e.name))?.isFile() === true);
-    const isDir = (e: fs.Dirent) =>
-      e.isDirectory() ||
-      (e.isSymbolicLink() && safeStat(path.join(dirPath, e.name))?.isDirectory() === true);
+    // A symlink's own type says nothing about its target, so those are stat'd.
+    const linkTypes = new Map<string, fs.Stats | null>();
+    await Promise.all(
+      entries
+        .filter((e) => e.isSymbolicLink())
+        .map(async (e) => {
+          linkTypes.set(e.name, await safeStat(path.join(dirPath, e.name)));
+        })
+    );
+    const isFile = (e: fs.Dirent) => e.isFile() || linkTypes.get(e.name)?.isFile() === true;
+    const isDir = (e: fs.Dirent) => e.isDirectory() || linkTypes.get(e.name)?.isDirectory() === true;
 
     const extensions = getMediaExtensions(library.libraryType);
 
@@ -188,10 +241,27 @@ export class LibraryScanService {
   }
 }
 
-function safeStat(p: string): fs.Stats | null {
+async function safeStat(p: string): Promise<fs.Stats | null> {
   try {
-    return fs.statSync(p);
+    return await fsp.stat(p);
   } catch {
     return null;
+  }
+}
+
+async function safeRealPath(p: string): Promise<string | null> {
+  try {
+    return await fsp.realpath(p);
+  } catch {
+    return null;
+  }
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fsp.access(p);
+    return true;
+  } catch {
+    return false;
   }
 }

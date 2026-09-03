@@ -401,6 +401,18 @@ Delete a library and all its content. **Requires Admin role.**
 
 Start a library scan. **Requires Admin role.**
 
+**Request Body:** (both optional)
+```json
+{
+  "fullScan": false,
+  "dryRunRemovals": false
+}
+```
+
+`fullScan` re-queues metadata scrapes for items that already existed. `dryRunRemovals` imports as
+usual but deletes nothing; the job result then reports `mediaWouldRemove` and
+`collectionsWouldRemove` instead of `mediaRemoved` and `collectionsRemoved`.
+
 **Response:**
 ```json
 {
@@ -419,7 +431,18 @@ Get scan status for a library.
   "status": "idle|waiting|active|completed|failed",
   "scanning": true,
   "progress": 50,
-  "result": {},
+  "result": {
+    "filesFound": 0,
+    "filesProcessed": 0,
+    "collectionsCreated": 0,
+    "mediaCreated": 0,
+    "mediaMoved": 0,
+    "mediaRemoved": 0,
+    "collectionsRemoved": 0,
+    "mediaWouldRemove": 0,
+    "collectionsWouldRemove": 0,
+    "errors": []
+  },
   "failedReason": "string"
 }
 ```
