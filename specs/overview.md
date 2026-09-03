@@ -283,10 +283,11 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
    persisted per library, and one `useAddToRecentCollection` in place of five copies. Only
    `SearchPage` and `SettingsPage` still hand-roll their fetches
    ([Frontend App](frontend-app.md)).
-7. **Import polish** (S batch, plus M for sidecars): async `fs` in the scan, symlink cycle guard
-   and depth cap, handle chokidar `change`, re-watch on library path change, per-library scan
-   concurrency, dry-run for removals; then subtitle sidecar import and a directory picker.
-   ([Libraries](libraries-and-scanning.md))
+7. ~~**Import polish**~~ Done 2026-09-03: async `fs` in the scan and the path validation, a
+   visited real-path set and depth cap for symlinks, chokidar `change` re-probing a re-encode,
+   watchers rebuilt when a library's path or type changes, scan concurrency raised to two, a
+   dry-run scan that removes nothing, subtitle sidecars imported as external streams, and a
+   folder picker for the library path ([Libraries](libraries-and-scanning.md)).
 8. **Search depth** (M): SQLite FTS5 over titles, keywords and people, people results on the
    search page, server-served filter options, live search. ([Search](search.md))
 9. **Images** (M): resize on ingest with a size parameter, download hardening (timeouts, size
