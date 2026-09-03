@@ -13,7 +13,8 @@ import {
 } from '@mui/material';
 import { Movie, MusicNote, Tv } from '@mui/icons-material';
 import { apiClient } from '../api/client';
-import type { Library, LibraryType } from '../api/client';
+import type { ContinueWatchingEntry, Library, LibraryType } from '../api/client';
+import { ContinueWatchingRow } from '../components/ContinueWatchingRow';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -33,6 +34,7 @@ export function HomePage() {
   const { user } = useAuth();
   const { setActiveLibrary } = useActiveLibrary();
   const [libraries, setLibraries] = useState<Library[]>([]);
+  const [continueWatching, setContinueWatching] = useState<ContinueWatchingEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +42,10 @@ export function HomePage() {
     let cancelled = false;
 
     async function load() {
-      const result = await apiClient.getLibraries();
+      const [result, progressResult] = await Promise.all([
+        apiClient.getLibraries(),
+        apiClient.getContinueWatching(),
+      ]);
       if (cancelled) return;
 
       if (result.error) {
@@ -48,6 +53,8 @@ export function HomePage() {
       } else if (result.data) {
         setLibraries(result.data.libraries);
       }
+      // Continue Watching is decorative; a failure there should not blank the page.
+      setContinueWatching(progressResult?.data?.items ?? []);
       setLoading(false);
     }
 
@@ -80,6 +87,8 @@ export function HomePage() {
 
   return (
     <Box sx={{ p: 3 }}>
+      <ContinueWatchingRow items={continueWatching} />
+
       <Typography variant="h4" gutterBottom>
         {t('home.title')}
       </Typography>

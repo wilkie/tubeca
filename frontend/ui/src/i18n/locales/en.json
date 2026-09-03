@@ -259,6 +259,9 @@
   "home": {
     "title": "Your Libraries",
     "empty": "No libraries are available yet.",
-    "addLibrary": "Add a library"
+    "addLibrary": "Add a library",
+    "continueWatching": "Continue Watching",
+    "timeLeft": "{{time}} left",
+    "episodeCode": "S{{season}}E{{episode}}"
   }
 }

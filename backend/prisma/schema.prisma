@@ -16,6 +16,7 @@ model User {
   role            Role             @default(Viewer)
   groups          Group[]
   userCollections UserCollection[]
+  watchProgress   WatchProgress[]
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 }
@@ -134,6 +135,9 @@ model Media {
 
   // User collection items referencing this media
   userCollectionItems UserCollectionItem[]
+
+  // Per-user playback positions
+  watchProgress WatchProgress[]
 
   // Timestamps
   createdAt   DateTime  @default(now())
@@ -722,4 +726,26 @@ model UserCollectionItem {
   @@unique([userCollectionId, mediaId])
   @@unique([userCollectionId, itemUserCollectionId])
   @@index([userCollectionId])
+}
+
+// Per-user playback position for a media item. One row per (user, media);
+// `completed` flips once the position passes the completion threshold and is
+// what "watched" badges and Continue Watching read.
+model WatchProgress {
+  id        String   @id @default(uuid())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId   String
+
+  position  Int      // Last reported playback position, seconds
+  duration  Int      // Media duration at the time of the report, seconds
+  completed Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, mediaId])
+  @@index([userId, updatedAt])
 }

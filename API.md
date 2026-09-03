@@ -1064,74 +1064,53 @@ Note: Provide either `collectionId` or `mediaId`, not both.
 
 ---
 
-## Jobs Endpoints
+## Watch Progress Endpoints
 
-Background job management endpoints.
+Per-user playback positions. All routes require authentication and enforce library access on the
+media item (inaccessible media answers 404).
 
-### POST /jobs/transcode
+### GET /watch/continue
 
-Queue a transcode job.
-
-**Request Body:**
-```json
-{
-  "mediaId": "string",
-  "inputPath": "string",
-  "outputPath": "string",
-  "resolution": "1080p|720p|480p",
-  "format": "mp4|webm"
-}
-```
+Media the current user has started but not finished, most recently played first. Optional
+`?limit=` (default 20, max 100). Only items in libraries the user can see are returned.
 
 **Response:**
 ```json
 {
-  "jobId": "string",
-  "message": "Transcode job queued"
+  "items": [
+    {
+      "progress": { "id": "string", "mediaId": "string", "position": 600, "duration": 1200, "completed": false, "updatedAt": "datetime" },
+      "media": { "id": "string", "name": "string", "collection": { "...": "..." }, "videoDetails": { "season": 1, "episode": 1 } }
+    }
+  ]
 }
 ```
 
-### POST /jobs/thumbnail
+### GET /watch/:mediaId
 
-Queue a thumbnail generation job.
-
-**Request Body:**
-```json
-{
-  "mediaId": "string",
-  "videoPath": "string",
-  "thumbnailPath": "string",
-  "timestamp": 30
-}
-```
+Saved progress for one item, or `null` when never played.
 
 **Response:**
 ```json
-{
-  "jobId": "string",
-  "message": "Thumbnail job queued"
-}
+{ "progress": { "position": 600, "duration": 1200, "completed": false } }
 ```
 
-### POST /jobs/analyze
+### PUT /watch/:mediaId
 
-Queue a media analysis job.
+Report a playback position. `completed` is derived server-side (at or past 90% of the duration).
 
 **Request Body:**
 ```json
-{
-  "mediaId": "string",
-  "filePath": "string"
-}
+{ "position": 600, "duration": 1200 }
 ```
 
-**Response:**
-```json
-{
-  "jobId": "string",
-  "message": "Analyze job queued"
-}
-```
+### POST /watch/:mediaId/complete
+
+Mark the item as watched.
+
+### DELETE /watch/:mediaId
+
+Clear progress and watched state. Returns 204.
 
 ---
 

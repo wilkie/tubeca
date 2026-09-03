@@ -2,6 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { configure } from '@testing-library/react';
 import { PlayerProvider, usePlayer } from '../PlayerContext';
 import type { ReactNode } from 'react';
+import { apiClient } from '../../api/client';
 
 // PlayerContext uses useLayoutEffect to move video elements between containers
 // via direct DOM manipulation. This causes issues during test cleanup because
@@ -30,7 +31,8 @@ beforeAll(() => {
 
 // Mock HLS.js
 jest.mock('hls.js', () => {
-  function MockHls() {
+  function MockHls(config?: Record<string, unknown>) {
+    (MockHls as unknown as { lastConfig?: Record<string, unknown> }).lastConfig = config;
     return {
       loadSource: jest.fn(),
       attachMedia: jest.fn(),
@@ -61,7 +63,7 @@ jest.mock('hls.js', () => {
     BUFFER_STALLED_ERROR: 'bufferStalledError',
     BUFFER_NUDGE_ON_STALL: 'bufferNudgeOnStall',
   };
-  return { default: MockHls };
+  return { __esModule: true, default: MockHls };
 });
 
 // Mock the API client
@@ -73,6 +75,9 @@ jest.mock('../../api/client', () => ({
     getVideoStreamUrl: jest.fn(),
     getSubtitleUrl: jest.fn(),
     getImageUrl: jest.fn(),
+    getWatchProgress: jest.fn(() => Promise.resolve({ data: { progress: null } })),
+    updateWatchProgress: jest.fn(() => Promise.resolve({ data: { progress: null } })),
+    markWatched: jest.fn(() => Promise.resolve({ data: { progress: null } })),
   },
 }));
 
@@ -425,6 +430,86 @@ describe('PlayerContext', () => {
       });
 
       expect(result.current.registerClickHandler).toBeDefined();
+    });
+  });
+
+  describe('watch progress', () => {
+    const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+    const media = {
+      id: 'm1',
+      name: 'Pilot',
+      path: '/p.mkv',
+      duration: 1200,
+      type: 'Video',
+      thumbnails: null,
+      collectionId: null,
+      videoDetails: null,
+      audioDetails: null,
+      streams: [],
+      images: [],
+      createdAt: '',
+      updatedAt: '',
+    };
+    const lastHlsConfig = () =>
+      (jest.requireMock('hls.js') as { default: { lastConfig?: Record<string, unknown> } }).default.lastConfig;
+
+    beforeEach(() => {
+      mockApi.getMedia.mockResolvedValue({ data: { media } } as never);
+      mockApi.getTrickplayInfo.mockResolvedValue({ data: undefined } as never);
+      mockApi.getHlsMasterPlaylistUrl.mockReturnValue('/hls/m1/master.m3u8');
+    });
+
+    it('starts from the saved position when one is worth resuming', async () => {
+      mockApi.getWatchProgress.mockResolvedValue({
+        data: { progress: { id: 'p', userId: 'u', mediaId: 'm1', position: 600, duration: 1200, completed: false, createdAt: '', updatedAt: '' } },
+      } as never);
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+
+      await act(async () => {
+        await result.current.playMedia('m1');
+      });
+
+      expect(mockApi.getWatchProgress).toHaveBeenCalledWith('m1');
+      expect(lastHlsConfig()?.startPosition).toBe(600);
+      expect(result.current.currentTime).toBe(600);
+    });
+
+    it.each([
+      ['completed', { position: 600, completed: true }],
+      ['barely started', { position: 10, completed: false }],
+      ['at the tail', { position: 1195, completed: false }],
+    ])('starts over when the saved position is %s', async (_label, partial) => {
+      mockApi.getWatchProgress.mockResolvedValue({
+        data: { progress: { id: 'p', userId: 'u', mediaId: 'm1', duration: 1200, createdAt: '', updatedAt: '', ...partial } },
+      } as never);
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+
+      await act(async () => {
+        await result.current.playMedia('m1');
+      });
+
+      expect(lastHlsConfig()?.startPosition).toBe(0);
+    });
+
+    it('reports the position on pause and marks watched on ended', async () => {
+      mockApi.getWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+      await act(async () => {
+        await result.current.playMedia('m1');
+      });
+
+      const video = document.querySelector('video') as HTMLVideoElement;
+      Object.defineProperty(video, 'currentTime', { value: 123.7, configurable: true, writable: true });
+
+      act(() => {
+        video.dispatchEvent(new Event('pause'));
+      });
+      expect(mockApi.updateWatchProgress).toHaveBeenCalledWith('m1', { position: 123, duration: 1200 });
+
+      act(() => {
+        video.dispatchEvent(new Event('ended'));
+      });
+      expect(mockApi.markWatched).toHaveBeenCalledWith('m1');
     });
   });
 });

@@ -9,6 +9,8 @@ import { useActiveLibrary } from '../../context/ActiveLibraryContext';
 jest.mock('../../api/client', () => ({
   apiClient: {
     getLibraries: jest.fn(),
+    getContinueWatching: jest.fn(),
+    getImageUrl: jest.fn((id: string) => `/api/images/${id}/file`),
   },
 }));
 
@@ -67,6 +69,7 @@ describe('HomePage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUser('Viewer');
+    mockApiClient.getContinueWatching.mockResolvedValue({ data: { items: [] } });
     mockUseActiveLibrary.mockReturnValue({
       activeLibraryId: null,
       setActiveLibrary: mockSetActiveLibrary,
@@ -124,5 +127,66 @@ describe('HomePage', () => {
     render(<HomePage />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Network error');
+  });
+
+  it('renders a Continue Watching row that resumes playback', async () => {
+    const user = userEvent.setup();
+    mockApiClient.getLibraries.mockResolvedValue({ data: { libraries } });
+    mockApiClient.getContinueWatching.mockResolvedValue({
+      data: {
+        items: [
+          {
+            progress: {
+              id: 'p1',
+              userId: 'u1',
+              mediaId: 'm1',
+              position: 600,
+              duration: 1200,
+              completed: false,
+              createdAt: '',
+              updatedAt: '',
+            },
+            media: {
+              id: 'm1',
+              name: 'Pilot',
+              path: '/x.mkv',
+              duration: 1200,
+              type: 'Video',
+              thumbnails: null,
+              collectionId: 'c1',
+              collection: {
+                id: 'c1',
+                name: 'Season 1',
+                collectionType: 'Season',
+                images: [],
+                parent: { id: 's1', name: 'The Show', collectionType: 'Show', images: [] },
+              },
+              videoDetails: { season: 1, episode: 1 },
+              audioDetails: null,
+              images: [],
+              createdAt: '',
+              updatedAt: '',
+            },
+          },
+        ],
+      },
+    } as never);
+    render(<HomePage />);
+
+    expect(await screen.findByText('Continue Watching')).toBeInTheDocument();
+    expect(screen.getByText('The Show · S1E1')).toBeInTheDocument();
+    expect(screen.getByText(/left$/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Pilot' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/play/m1');
+  });
+
+  it('still renders libraries when Continue Watching fails', async () => {
+    mockApiClient.getLibraries.mockResolvedValue({ data: { libraries } });
+    mockApiClient.getContinueWatching.mockResolvedValue({ error: 'boom' });
+    render(<HomePage />);
+
+    expect(await screen.findByText('Movies')).toBeInTheDocument();
+    expect(screen.queryByText('Continue Watching')).not.toBeInTheDocument();
   });
 });

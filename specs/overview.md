@@ -181,12 +181,12 @@ size limits are parsed but never enforced, and media deletion never evicts its s
 [Libraries](libraries-and-scanning.md), [Content Model](content-model.md), [Images](images.md),
 [Streaming](streaming-and-transcoding.md).
 
-### No watch state
+### Watch state exists but is only surfaced in one place
 
-Nothing records that a user has watched, or how far into, a media item. The player hard-codes
-a zero start position. "Continue watching", resume, watched badges and unwatched counts all
-depend on a progress table that does not exist. See [Playback](playback.md) and
-[Content Model](content-model.md).
+Since 2026-09-03 playback position and watched state are persisted per user, resume works, and
+the home page has a Continue Watching strip. Episode lists, cards and the media page do not yet
+show progress or watched badges, and there is no mark-watched control. See
+[Playback](playback.md).
 
 ### Music is declared but unimplemented
 
@@ -220,8 +220,9 @@ Ordered by leverage. Each item's details are in the linked spec.
 3. ~~**Enforce library access on content**~~ Done 2026-09-03: `requireLibraryAccess`
    middleware on collections, media, images and streams; search unified with `LibraryService`.
    Persons and user-collection listings are the remaining gap ([Auth](auth-and-users.md)).
-4. **Watch state** (M): a progress table, a progress endpoint, resume on play, and a Continue
-   Watching row. This is the most visible missing feature for a media server. ([Playback](playback.md))
+4. ~~**Watch state**~~ Done 2026-09-03: `WatchProgress` table, `/api/watch` endpoints, resume
+   on play, Continue Watching strip. Surfacing watched state on cards and lists is a follow-up
+   ([Playback](playback.md)).
 5. **Import integrity** (M): shared import service used by scanner and watcher, unique index
    on `Media.path`, orphan reconciliation on rescan, recursive delete that cleans files.
    ([Libraries](libraries-and-scanning.md), [Content Model](content-model.md))

@@ -237,8 +237,8 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   and no "copy to my collections". Public collections are also not filtered by library access:
   `getCollectionById` returns item names and image ids regardless of which libraries the viewer
   can see.
-- **No watch history / continue watching / progress.** Nothing records that an item was played or
-  where; Watch Later is a manual list, and the queue is not consumed on playback.
+- **The queue is not consumed on playback**, and Watch Later is a manual list; neither reacts
+  to the `WatchProgress` rows that playback now writes (see [Playback](playback.md)).
 - **Set vs Playlist is UI-only.** The backend never reads `collectionType`; a `Set` still has
   positions and can be reordered via the API, and `PATCH` can flip the type silently.
 - **Reorder trusts the client** (see *Reorder integrity*): no membership/completeness check on
@@ -290,9 +290,9 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 - **Queue semantics**: consume-on-play (or a `currentIndex` on the queue row) and "Play next"
   (insert after current) alongside "Play after current" (append); the data model already supports
   both with `position`. (M)
-- **Watch history / continue watching** would fit as further system types
-  (`History`, `InProgress`) if items gained a `progress` column, reusing all existing plumbing;
-  the product gap is visible in the fact that Watch Later is the only "what to watch" surface. (L)
+- **Auto-remove from Watch Later on completion** (S): when `WatchProgress.completed` flips,
+  drop the item from the system Watch Later list; and a **History** view over completed
+  `WatchProgress` rows would reuse the list page pattern. (M)
 - **Nested collections properly**: let `AddToCollectionDialog` add a user collection to a `Set`,
   render `itemUserCollection` in `UserCollectionPage`, and add cycle detection. (M)
 - **Typed error classes** in the service (`NotFoundError`, `ValidationError`) instead of message

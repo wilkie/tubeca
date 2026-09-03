@@ -10,6 +10,7 @@ const authService = new AuthService();
  */
 export async function resetDatabase(): Promise<void> {
   await prisma.$transaction([
+    prisma.watchProgress.deleteMany(),
     prisma.userCollectionItem.deleteMany(),
     prisma.userCollection.deleteMany(),
     prisma.image.deleteMany(),

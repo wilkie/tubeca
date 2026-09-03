@@ -38,8 +38,8 @@
 - **One controls component.** `VideoControls` is shared by the full player and the mini player
   via a `compact` flag; menus are rendered inside the player container so they work in fullscreen.
 
-What the code does *not* optimise for: resuming where you left off, watched state, mobile/touch,
-or keyboard control of playback (see Known Limitations).
+What the code does *not* optimise for: mobile/touch or keyboard control of playback (see Known
+Limitations). Resume and watched state were added on 2026-09-03.
 
 ## Components
 
@@ -231,10 +231,24 @@ concurrently and the mini player appears alongside the native `<audio>`.
 
 ### Watch progress / resume
 
-Nothing is persisted. There is no Prisma model, route or `localStorage` key for playback
-position or watched state; `startPosition` is hard-coded to 0 and `playMedia` resets
-`currentTime`. The only persisted player data are the quality level index and the mini-player
-corner.
+Positions are persisted server-side in `WatchProgress` (one row per user and media; see
+[Content Model](content-model.md)) through `/api/watch/*`:
+
+1. `playMedia` fetches `GET /api/watch/:mediaId` alongside the media. The saved position is
+   used only if it is not `completed`, is at least 30 s in, and ends more than 10 s before the
+   end; otherwise playback starts at 0. For HLS.js it becomes the `startPosition` config; for
+   native HLS (Safari) and the audio `<audio src>` path it is applied as `currentTime` on
+   `loadedmetadata`.
+2. While playing, the `timeupdate` handler calls `reportProgress`, which is throttled to one
+   `PUT /api/watch/:mediaId` every 10 s of wall-clock time. `pause`, `close` and switching to
+   another item report immediately; `ended` calls `POST /api/watch/:mediaId/complete`.
+3. The server derives `completed` from the position: at or past 90% of the duration counts as
+   watched, and a later report below that (a rewatch) clears it.
+
+`HomePage` shows a Continue Watching strip (`ContinueWatchingRow`) from
+`GET /api/watch/continue`: in-progress items in accessible libraries, newest first, each with a
+progress bar and time left; clicking navigates to `/play/:id`, where the resume rule above
+applies. Only the quality level index and mini-player corner remain in `localStorage`.
 
 ## Interactions
 
@@ -271,11 +285,16 @@ corner.
 - `38a5bdc` 2025-12-17 Re-tuned for software transcoding: start lowest, conservative ABR, no aggressive nudge, 30 s timeouts; backend initial prefetch.
 - `fc7c3a8` 2025-12-17 Remember last stable quality level in `localStorage`.
 - `0fc5947` 2025-12-19 `maxConcurrentTranscodes` semaphore; prefetch count follows `prefetchSegments` (no forced minimum of 3).
+- 2026-09-03 Resume on play, throttled progress reporting, mark-watched on `ended`, and the Continue Watching strip on `HomePage` (`ContinueWatchingRow`); `PlayerContext` tests cover the resume rule and reporting.
 
 ## Known Limitations
 
-- **No resume, no watched state, no "continue watching".** Every play starts at 0; nothing is
-  reported to the server. Reloading `/play/:id` restarts the item.
+- **Watched state is not surfaced on cards.** Progress bars and watched badges appear only in
+  Continue Watching; episode lists, `MediaPage` and library grids do not show them, and there is
+  no "mark as watched/unwatched" control although the endpoints exist.
+- **Progress reports are fire-and-forget.** A failed `PUT /api/watch` is not retried, and the
+  last position can be lost if the tab is closed mid-playback without a pause (no
+  `beforeunload`/`visibilitychange` flush, no `sendBeacon`).
 - **No real keyboard shortcuts.** Space/arrows/`f`/`m` only reveal the controls (`PlayPage.tsx:117`).
 - **No touch handling.** Drag, hover trickplay, and auto-hide are mouse-event only; `MiniPlayer`
   cannot be moved on touch devices and the preview never appears.
@@ -311,10 +330,13 @@ corner.
 
 ## Opportunities
 
-- **Persist playback position and watched state** (M/L): add a `WatchProgress` model keyed by
-  user+media, throttle-report `currentTime` from the `timeupdate` handler, and use it as
-  `startPosition`/`video.currentTime` on load; enables Continue Watching rows and "resume" on
-  `MediaPage`. Natural given the single context already owns `currentTime`.
+- **Show watch state everywhere** (M): a batch `GET /api/watch?mediaIds=` (or progress embedded
+  in collection detail responses) so episode lists and cards can show progress bars, watched
+  ticks and unwatched counts; add mark watched/unwatched to `CardQuickActions` and `MediaPage`.
+- **Flush progress on tab close** (S): `visibilitychange`/`pagehide` handlers using
+  `navigator.sendBeacon` (the endpoint would need to accept a beacon-friendly body).
+- **Next-episode from Continue Watching** (S): when a completed episode has a successor, show
+  the successor in the strip instead of dropping the show.
 - **Real keyboard shortcuts** (S): extend `PlayPage`'s keydown handler to call `togglePlay`,
   `seekCommit(±10)`, `setVolume`, `toggleMute`, `handleFullscreenToggle`; ignore when focus is in
   an input.

@@ -99,9 +99,11 @@
   `filmCreditId`, `creditId`, `personId`), all cascade, with `imageType`, `isPrimary` and source
   tracking. Owned by [Images](images.md); referenced here because every read query filters on
   `{ isPrimary: true, imageType: 'Poster' }` etc.
-- **No watch-progress or playback-state table exists.** The only user state that references
-  content is `UserCollectionItem` (favorites, watch-later, queue), which cascades on collection
-  and media delete and is owned by [User Collections](user-collections.md).
+- **User state on content** lives in two tables: `UserCollectionItem` (favorites, watch-later,
+  queue; owned by [User Collections](user-collections.md)) and `WatchProgress` (per user and
+  media: `position`, `duration`, `completed`; unique on `(userId, mediaId)`, indexed on
+  `(userId, updatedAt)`, cascades on user and media delete; owned by
+  `services/watchProgressService.ts` and served by `/api/watch`, see [Playback](playback.md)).
 
 ### Type assignment
 
@@ -294,6 +296,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - 2026-09-03 `/api/persons/search` moved above `/:id` in `routes/persons.ts`.
 - 2026-09-03 `collectionService.test.ts` added on the new SQLite test scaffolding; cross-page relation sort bug pinned with `it.failing`.
 - 2026-09-03 Collections and media routes guarded by `requireLibraryAccess`; route tests added under `routes/__tests__/`.
+- 2026-09-03 `WatchProgress` model added (migration `20260903093221_add_watch_progress`).
 
 ## Known Limitations
 
@@ -369,9 +372,9 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - **More route/service tests** on the real-SQLite scaffolding in `backend/src/test/`: cycle
   detection, delete file cleanup, Identify upsert, person id-merge priority, and supertest
   coverage of the three routers. (M)
-- **Watch progress table** (`UserMediaProgress { userId, mediaId, positionSeconds, completed }`)
-  is the obvious missing user-state model; the `Media`/`User` FKs and cascade conventions already
-  exist to hang it on. See [Playback](playback.md). (M)
+- **Embed watch progress in detail responses** (S): `getCollectionById` and `getMediaById` do
+  not know the user; a per-user overlay (or a batch progress endpoint) is needed before cards
+  can show watched state. See [Playback](playback.md).
 - **Populate music details** or drop the unwritten tables/types to reduce surface area. (L to
   implement a MusicBrainz scraper; S to prune.)
 - **Delete dead service methods** (`searchMedia`, `processMedia`, `updateMedia`,

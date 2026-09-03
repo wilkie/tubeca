@@ -807,3 +807,37 @@ export interface ToggleWatchLaterResponse {
 export interface SetPlaybackQueueInput {
   items: AddUserCollectionItemInput[]
 }
+
+// ============================================
+// Watch Progress
+// ============================================
+
+export interface WatchProgress {
+  id: string
+  userId: string
+  mediaId: string
+  position: number
+  duration: number
+  completed: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WatchProgressResponse {
+  progress: WatchProgress | null
+}
+
+export interface UpdateWatchProgressInput {
+  position: number
+  duration?: number
+}
+
+/** A media item the user has started but not finished, with enough context to render a card. */
+export interface ContinueWatchingEntry {
+  progress: WatchProgress
+  media: Media
+}
+
+export interface ContinueWatchingResponse {
+  items: ContinueWatchingEntry[]
+}

@@ -6,6 +6,13 @@ import { MiniPlayer } from '../components/MiniPlayer';
 
 // localStorage key for remembering the last successful quality level
 const QUALITY_LEVEL_KEY = 'tubeca_last_quality_level';
+
+/** Do not resume from positions shorter than this (seconds); matches the backend's Continue Watching rule. */
+const RESUME_MIN_POSITION = 30;
+/** Do not resume if this close (seconds) to the end; start over instead. */
+const RESUME_END_MARGIN = 10;
+/** Minimum wall-clock gap between progress reports while playing. */
+const PROGRESS_REPORT_INTERVAL_MS = 10000;
 // Number of successful fragments before considering a quality level "stable"
 const STABLE_FRAGMENT_COUNT = 5;
 
@@ -155,6 +162,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Media whose playback position is being reported to the server
+  const progressTargetRef = useRef<{ id: string; duration: number } | null>(null);
+  const lastProgressReportRef = useRef(0);
   const hlsRef = useRef<Hls | null>(null);
   const seekOffset = useRef(0);
   const videoHandlersRef = useRef<{
@@ -168,6 +178,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   } | null>(null);
 
   // Destroy existing HLS instance
+  /**
+   * Send the current position to the server. Throttled while playing; pass
+   * `force` on pause/close/switch so the last position is never lost.
+   */
+  const reportProgress = useCallback((position: number, force = false) => {
+    const target = progressTargetRef.current;
+    if (!target) return;
+    const now = Date.now();
+    if (!force && now - lastProgressReportRef.current < PROGRESS_REPORT_INTERVAL_MS) return;
+    lastProgressReportRef.current = now;
+    void apiClient.updateWatchProgress(target.id, {
+      position: Math.floor(position),
+      duration: target.duration,
+    });
+  }, []);
+
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -176,7 +202,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Initialize HLS playback
-  const initHls = useCallback((mediaId: string, audioTrack?: number) => {
+  const initHls = useCallback((mediaId: string, audioTrack?: number, startPosition = 0) => {
     const video = videoRef.current;
     if (!video) return;
 
@@ -198,7 +224,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       let lastStableLevel = -1;
 
       const hls = new Hls({
-        startPosition: 0,
+        startPosition: startPosition > 0 ? startPosition : 0,
         debug: false,
         // Start at saved quality level, or lowest (0) if no saved preference
         // This remembers what worked last time for smoother startup
@@ -377,6 +403,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // Native HLS support (Safari)
       video.src = hlsUrl;
       video.addEventListener('loadedmetadata', () => {
+        if (startPosition > 0) {
+          video.currentTime = startPosition;
+        }
         video.play().catch(() => {
           // Autoplay might be blocked
         });
@@ -412,13 +441,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     // Create and store handlers
     const handlers = {
-      timeupdate: () => setCurrentTime(video.currentTime + seekOffset.current),
+      timeupdate: () => {
+        const position = video.currentTime + seekOffset.current;
+        setCurrentTime(position);
+        reportProgress(position);
+      },
       play: () => setIsPlaying(true),
-      pause: () => setIsPlaying(false),
+      pause: () => {
+        setIsPlaying(false);
+        reportProgress(video.currentTime + seekOffset.current, true);
+      },
       waiting: () => setIsLoading(true),
       canplay: () => setIsLoading(false),
       playing: () => setIsLoading(false),
-      ended: () => setIsPlaying(false),
+      ended: () => {
+        setIsPlaying(false);
+        const target = progressTargetRef.current;
+        if (target) {
+          void apiClient.markWatched(target.id);
+        }
+      },
     };
     videoHandlersRef.current = handlers;
 
@@ -430,7 +472,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     video.addEventListener('canplay', handlers.canplay);
     video.addEventListener('playing', handlers.playing);
     video.addEventListener('ended', handlers.ended);
-  }, []);
+  }, [reportProgress]);
 
   // Sync subtitle track mode
   useEffect(() => {
@@ -448,15 +490,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Actions
   const playMedia = useCallback(async (mediaId: string) => {
+    // Flush the position of whatever was playing before switching
+    if (videoRef.current && progressTargetRef.current) {
+      reportProgress(videoRef.current.currentTime + seekOffset.current, true);
+    }
+    progressTargetRef.current = null;
+    lastProgressReportRef.current = 0;
+
     setIsLoading(true);
     setCurrentTime(0);
     seekOffset.current = 0;
 
     try {
-      // Fetch media data
-      const [mediaResult, trickplayResult] = await Promise.all([
+      // Fetch media data and the user's saved position
+      const [mediaResult, trickplayResult, progressResult] = await Promise.all([
         apiClient.getMedia(mediaId),
         apiClient.getTrickplayInfo(mediaId),
+        apiClient.getWatchProgress(mediaId),
       ]);
 
       if (mediaResult.error || !mediaResult.data) {
@@ -534,15 +584,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentAudioTrack(defaultAudioTrack?.streamIndex);
       setCurrentSubtitleTrack(null);
 
+      // Resume from the saved position unless it is trivial, finished, or at the tail
+      const saved = progressResult?.data?.progress;
+      const resumePosition =
+        saved &&
+        !saved.completed &&
+        saved.position >= RESUME_MIN_POSITION &&
+        saved.position < media.duration - RESUME_END_MARGIN
+          ? saved.position
+          : 0;
+      setCurrentTime(resumePosition);
+      progressTargetRef.current = { id: media.id, duration: media.duration };
+
       // Set video source using HLS.js for video content
       if (media.type === 'Video') {
-        initHls(mediaId, defaultAudioTrack?.streamIndex);
+        initHls(mediaId, defaultAudioTrack?.streamIndex, resumePosition);
       } else {
         // For audio, use direct streaming
         const video = videoRef.current;
         if (video) {
           video.src = apiClient.getVideoStreamUrl(mediaId, 0, defaultAudioTrack?.streamIndex);
           video.load();
+          if (resumePosition > 0) {
+            const seekOnce = () => {
+              video.removeEventListener('loadedmetadata', seekOnce);
+              video.currentTime = resumePosition;
+            };
+            video.addEventListener('loadedmetadata', seekOnce);
+          }
           video.play().catch(() => {
             // Autoplay might be blocked
           });
@@ -554,7 +623,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       console.error('Failed to load media:', error);
       setIsLoading(false);
     }
-  }, [fullscreenContainer, initHls]);
+  }, [fullscreenContainer, initHls, reportProgress]);
 
   const play = useCallback(() => {
     videoRef.current?.play();
@@ -778,10 +847,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [currentMedia]);
 
   const close = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      reportProgress(video.currentTime + seekOffset.current, true);
+    }
+    progressTargetRef.current = null;
+
     // Clean up HLS instance
     destroyHls();
 
-    const video = videoRef.current;
     if (video) {
       video.pause();
       video.src = '';
@@ -792,7 +866,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setAvailableQualities([]);
     setCurrentQuality('auto');
     seekOffset.current = 0;
-  }, [destroyHls]);
+  }, [destroyHls, reportProgress]);
 
   const setMiniPlayerPosition = useCallback((position: MiniPlayerPosition) => {
     setMiniPlayerPositionState(position);

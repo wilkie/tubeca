@@ -340,8 +340,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   encoded twice concurrently into the same file.
 - **Orphaned/uncancellable encodes.** Segment FFmpegs have no timeout, are not killed on client
   disconnect, and are not tracked at shutdown; prefetch has no priority below live requests.
-- **No watch progress or resume.** The server stores nothing about playback position; `fc7c3a8`
-  persists only a quality level, client-side.
 - **Cache growth is TTL-only.** `maxSizeGB` is ignored; media deletion does not evict segments; the
   sweep relies on `atime` (patched by `touchFile` only on the read path) and does a full-tree `stat`
   walk.
@@ -387,9 +385,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   `format=nv12,hwupload` to the filter chain.
 - **Short-lived signed stream URLs** (M) instead of the login JWT in query strings; library
   authorization itself is now enforced per route.
-- **Watch-progress persistence** (M): a `PlaybackProgress` model and a `POST
-  /api/media/:id/progress` route; the player already tracks `currentTime`, and Up Next/continuation
-  features in playback.md would benefit.
 - **Filter subtitle streams by codec and cache extracted VTT** (S): only text codecs (`subrip`,
   `ass`, `webvtt`, `mov_text`) are convertible; write the VTT next to the HLS cache.
 - **Re-probe on file change and on demand** (S): the watcher already sees modifications; expose a

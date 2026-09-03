@@ -79,6 +79,11 @@ import type {
   CheckWatchLaterResponse,
   ToggleWatchLaterResponse,
   SetPlaybackQueueInput,
+  WatchProgressResponse,
+  UpdateWatchProgressInput,
+  ContinueWatchingResponse,
+  ContinueWatchingEntry,
+  WatchProgress,
 } from '@tubeca/shared-types';
 
 // Re-export types for convenience
@@ -163,6 +168,11 @@ export type {
   CheckWatchLaterResponse,
   ToggleWatchLaterResponse,
   SetPlaybackQueueInput,
+  WatchProgressResponse,
+  UpdateWatchProgressInput,
+  ContinueWatchingResponse,
+  ContinueWatchingEntry,
+  WatchProgress,
 };
 
 const API_BASE = '/api';
@@ -539,6 +549,37 @@ class ApiClient {
   // Media methods
   async getMedia(id: string): Promise<ApiResponse<MediaResponse>> {
     return this.request<MediaResponse>(`/media/${id}`);
+  }
+
+  // ============================================
+  // Watch progress
+  // ============================================
+
+  async getWatchProgress(mediaId: string): Promise<ApiResponse<WatchProgressResponse>> {
+    return this.request<WatchProgressResponse>(`/watch/${mediaId}`);
+  }
+
+  async updateWatchProgress(
+    mediaId: string,
+    input: UpdateWatchProgressInput
+  ): Promise<ApiResponse<WatchProgressResponse>> {
+    return this.request<WatchProgressResponse>(`/watch/${mediaId}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async markWatched(mediaId: string): Promise<ApiResponse<WatchProgressResponse>> {
+    return this.request<WatchProgressResponse>(`/watch/${mediaId}/complete`, { method: 'POST' });
+  }
+
+  async clearWatchProgress(mediaId: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/watch/${mediaId}`, { method: 'DELETE' });
+  }
+
+  async getContinueWatching(limit?: number): Promise<ApiResponse<ContinueWatchingResponse>> {
+    const query = limit ? `?limit=${limit}` : '';
+    return this.request<ContinueWatchingResponse>(`/watch/continue${query}`);
   }
 
   async deleteMedia(id: string): Promise<ApiResponse<void>> {
