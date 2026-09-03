@@ -1,6 +1,6 @@
 import type { CollectionType, LibraryType, Role } from '@prisma/client';
 import { prisma } from '../config/database';
-import { AuthService } from '../services/authService';
+import { AuthService, forgetTokenVersion } from '../services/authService';
 import { syncCollectionSortFields } from '../services/collectionSortFields';
 
 const authService = new AuthService();
@@ -10,6 +10,8 @@ const authService = new AuthService();
  * touch the database.
  */
 export async function resetDatabase(): Promise<void> {
+  // Token versions are cached per process; a fresh database means a fresh cache.
+  forgetTokenVersion();
   await prisma.$transaction([
     prisma.watchProgress.deleteMany(),
     prisma.userCollectionItem.deleteMany(),
@@ -52,7 +54,12 @@ export async function createUser(opts: { name?: string; role?: Role; groupIds?: 
       groups: opts.groupIds ? { connect: opts.groupIds.map((id) => ({ id })) } : undefined,
     },
   });
-  const token = authService.generateToken({ userId: user.id, name: user.name, role: user.role });
+  const token = authService.generateToken({
+    userId: user.id,
+    name: user.name,
+    role: user.role,
+    tokenVersion: user.tokenVersion,
+  });
   return { user, token, authHeader: `Bearer ${token}` };
 }
 

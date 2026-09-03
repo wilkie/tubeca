@@ -2,8 +2,15 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { prisma } from '../config/database';
 import { authenticate, requireRole } from '../middleware/auth';
+import { AuthService, bumpTokenVersion, forgetTokenVersion } from '../services/authService';
 
 const router = Router();
+const authService = new AuthService();
+
+/** How many Admins the instance has; used to refuse removing the last one. */
+function countAdmins(): Promise<number> {
+  return prisma.user.count({ where: { role: 'Admin' } });
+}
 const SALT_ROUNDS = 10;
 
 // All user routes require authentication
@@ -54,6 +61,70 @@ router.get('/me', async (req, res) => {
     res.json({ user });
   } catch {
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/users/me:
+ *   patch:
+ *     tags:
+ *       - Users
+ *     summary: Change your own password
+ *     description: Any signed-in user may change their own password by supplying the current one. All other sessions are signed out.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password changed; a replacement token is returned
+ *       400:
+ *         description: Missing or too-short password
+ *       401:
+ *         description: Current password is wrong
+ */
+router.patch('/me', async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body ?? {};
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+      return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+    if (!user || !(await authService.verifyPassword(currentPassword, user.passwordHash))) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Ends every other session, including any leaked media URLs.
+    await bumpTokenVersion(user.id);
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await authService.hashPassword(newPassword) },
+      select: { id: true, name: true, role: true, tokenVersion: true, createdAt: true },
+    });
+
+    // Re-issue a token so the caller stays signed in on this device.
+    const token = authService.generateToken({
+      userId: updated.id,
+      name: updated.name,
+      role: updated.role,
+      tokenVersion: updated.tokenVersion,
+    });
+    res.json({ user: { id: updated.id, name: updated.name, role: updated.role, createdAt: updated.createdAt }, token });
+  } catch {
+    res.status(500).json({ error: 'Failed to change password' });
   }
 });
 
@@ -239,7 +310,13 @@ router.delete('/:id', requireRole('Admin'), async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // An instance with no Admin cannot be administered again.
+    if (user.role === 'Admin' && (await countAdmins()) <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last remaining Admin' });
+    }
+
     await prisma.user.delete({ where: { id } });
+    forgetTokenVersion(id);
     res.status(204).send();
   } catch {
     res.status(500).json({ error: 'Failed to delete user' });
@@ -323,6 +400,11 @@ router.patch('/:id', requireRole('Admin'), async (req, res) => {
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    // Changing a password should end sessions opened with the old one.
+    if (updateData.passwordHash) {
+      await bumpTokenVersion(id);
     }
 
     const user = await prisma.user.update({
@@ -484,6 +566,17 @@ router.patch('/:id/role', requireRole('Admin'), async (req, res) => {
     if (!['Admin', 'Editor', 'Viewer'].includes(role)) {
       return res.status(400).json({ error: 'Invalid role' });
     }
+
+    const existing = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+    if (!existing) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (existing.role === 'Admin' && role !== 'Admin' && (await countAdmins()) <= 1) {
+      return res.status(400).json({ error: 'Cannot demote the last remaining Admin' });
+    }
+
+    // The role travels in the token, so existing sessions must be re-issued.
+    await bumpTokenVersion(id);
 
     const user = await prisma.user.update({
       where: { id },

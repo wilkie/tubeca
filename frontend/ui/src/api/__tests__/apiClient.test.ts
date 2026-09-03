@@ -25,7 +25,7 @@ const mockLocalStorage = (() => {
 Object.defineProperty(window, 'localStorage', { value: mockLocalStorage });
 
 // Import after mocks are set up
-import { apiClient } from '../client';
+import { apiClient, UNAUTHORIZED_EVENT } from '../client';
 
 describe('ApiClient', () => {
   beforeEach(() => {
@@ -744,5 +744,45 @@ describe('ApiClient', () => {
       });
       expect(result.data).toBeDefined();
     });
+  });
+});
+
+describe('rejected sessions', () => {
+  const unauthorized = () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'Session is no longer valid; sign in again' }),
+    });
+  };
+
+  beforeEach(() => {
+    mockLocalStorage.removeItem.mockClear();
+  });
+
+  it('clears the token and announces the sign-out once', async () => {
+    const onUnauthorized = jest.fn();
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+
+    unauthorized();
+    const result = await apiClient.getLibraries();
+
+    expect(result.error).toMatch(/sign in again/i);
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('token');
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  });
+
+  it('leaves a failed login alone: bad credentials are not a dead session', async () => {
+    const onUnauthorized = jest.fn();
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+
+    unauthorized();
+    const result = await apiClient.login('someone', 'wrong');
+
+    expect(result.error).toBeTruthy();
+    expect(mockLocalStorage.removeItem).not.toHaveBeenCalled();
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   });
 });

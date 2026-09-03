@@ -34,6 +34,46 @@ export interface TokenPayload {
   userId: string
   name: string
   role: Role
+  /**
+   * The user's `tokenVersion` when this token was issued. Absent on tokens
+   * issued before versioning existed; those count as version 0.
+   */
+  tokenVersion?: number
+}
+
+/**
+ * `tokenVersion` per user, so `authenticate` does not read the database on
+ * every request (HLS pulls a segment every few seconds). Entries are dropped
+ * when a version is bumped, so a password or role change takes effect at once;
+ * the TTL only bounds staleness from writes made by another process.
+ */
+const TOKEN_VERSION_TTL_MS = 15000;
+const tokenVersionCache = new Map<string, { version: number; expires: number }>();
+
+/** Current token version for a user, or null when the user no longer exists. */
+export async function getTokenVersion(userId: string): Promise<number | null> {
+  const cached = tokenVersionCache.get(userId);
+  if (cached && cached.expires > Date.now()) return cached.version;
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { tokenVersion: true } });
+  if (!user) {
+    tokenVersionCache.delete(userId);
+    return null;
+  }
+  tokenVersionCache.set(userId, { version: user.tokenVersion, expires: Date.now() + TOKEN_VERSION_TTL_MS });
+  return user.tokenVersion;
+}
+
+/** Invalidate every token already issued to this user. */
+export async function bumpTokenVersion(userId: string): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+  tokenVersionCache.delete(userId);
+}
+
+/** Forget a cached version (user deleted, or tests starting from a clean database). */
+export function forgetTokenVersion(userId?: string): void {
+  if (userId) tokenVersionCache.delete(userId);
+  else tokenVersionCache.clear();
 }
 
 export class AuthService {
@@ -75,6 +115,7 @@ export class AuthService {
         id: true,
         name: true,
         role: true,
+        tokenVersion: true,
         createdAt: true,
       },
     });
@@ -83,6 +124,7 @@ export class AuthService {
       userId: user.id,
       name: user.name,
       role: user.role,
+      tokenVersion: user.tokenVersion,
     });
 
     return { user, token };
@@ -103,6 +145,7 @@ export class AuthService {
       userId: user.id,
       name: user.name,
       role: user.role,
+      tokenVersion: user.tokenVersion,
     });
 
     return {

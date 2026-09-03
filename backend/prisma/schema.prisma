@@ -14,6 +14,11 @@ model User {
   name            String           @unique
   passwordHash    String
   role            Role             @default(Viewer)
+
+  // Bumped whenever a change should invalidate existing sessions (password or
+  // role change). Tokens carry the version they were issued with.
+  tokenVersion    Int              @default(0)
+
   groups          Group[]
   userCollections UserCollection[]
   watchProgress   WatchProgress[]

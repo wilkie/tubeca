@@ -6,6 +6,11 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Password changes, role changes and deletions end existing sessions immediately.
+- Any signed-in user can change their own password.
+- Login and setup are rate limited; the last Admin cannot be deleted or demoted.
+- The app signs out centrally when the server rejects a session, instead of erroring on
+  every request until reload.
 - Keyboard shortcuts in the player: space/k play-pause, arrows and j/l seek, arrows for
   volume, m mute, f fullscreen; OS media controls via the Media Session API.
 

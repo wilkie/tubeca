@@ -318,6 +318,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - `27c0663` 2026-09-02 `parseTitle` util + test (working tree).
 - 2026-09-03 `HomePage` added at `/` (library cards, empty state, tests); replaces the empty `<Box />`.
 - 2026-09-03 Suite repaired (860 cases green): `ScrollRestorationProvider` added to `test-utils.tsx`, stale expectations for full-scan options, settings tabs and season-card fallbacks updated; `pnpm test` added to the pre-commit hook.
+- 2026-09-03 `ApiClient` signs the app out centrally on a 401 (clears the token, fires `tubeca:unauthorized`, which `AuthContext` listens for).
 
 ## Known Limitations
 
@@ -362,7 +363,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   the poster card with its hover overlay is inline JSX today. (M)
 - **Extract `useAddToRecentCollection`** to remove the five copies of the "most recent user
   collection" logic. (S)
-- **Handle 401 centrally** in `request()`: clear the token and dispatch to `/login`. (S)
+
 - **Persist view mode / sort per library** in `localStorage` (the player already persists
   quality and mini-player position). (S)
 - **Split `client.ts` by domain** (`auth`, `libraries`, `collections`, `stream`, `userCollections`)

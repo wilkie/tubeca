@@ -238,6 +238,9 @@ interface ApiResponse<T> {
   error?: string;
 }
 
+/** Fired when the server rejects our session; `AuthContext` signs the user out. */
+export const UNAUTHORIZED_EVENT = 'tubeca:unauthorized';
+
 class ApiClient {
   private getToken(): string | null {
     return localStorage.getItem('token');
@@ -279,6 +282,13 @@ class ApiClient {
       const data = await response.json();
 
       if (!response.ok) {
+        // A rejected session should sign the app out once, centrally, rather
+        // than surfacing as an error on every call until the user reloads.
+        // Login and setup answer 401 for bad credentials, which is not that.
+        if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+          this.clearToken();
+          window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+        }
         return { error: data.error || 'An error occurred' };
       }
 

@@ -65,6 +65,26 @@ expiry, and stores the decoded payload on `req.user`. There is no database looku
 role, name and existence are trusted from the token. Consequently changing a user's role, or
 deleting the user, has no effect on already-issued tokens until they expire (up to 24h).
 
+Beyond the signature, `authenticate` checks that the token is still *current*: every `User`
+carries a `tokenVersion`, tokens embed the version they were issued with, and a token whose
+version is behind the user's (or whose user no longer exists) is refused with "Session is no
+longer valid". `bumpTokenVersion` is called when a password or a role changes, so those take
+effect immediately rather than after the 24-hour expiry; deleting a user has the same effect
+because the row is gone. Tokens minted before versioning existed carry no claim and count as
+version 0, so the change did not sign everyone out. To keep this off the hot path (HLS pulls a
+segment every few seconds) versions are cached per process for 15 seconds and the entry is
+dropped on a bump; the query-token middlewares apply the same check.
+
+`POST /api/auth/login` and `POST /api/auth/setup` are rate limited to 20 failed attempts per IP
+per 15 minutes (`express-rate-limit`, successful requests are not counted).
+
+`PATCH /api/users/me` lets any signed-in user change their own password by supplying the current
+one. It bumps the token version, ending every other session, and returns a replacement token so
+the calling device stays signed in.
+
+An Admin cannot be deleted or demoted when they are the last one, so an instance can always be
+administered.
+
 `requireRole(...allowedRoles)` (`auth.ts:39-56`) maps roles to numbers (Admin 3, Editor 2, Viewer 1)
 and passes if the caller's level is >= the *minimum* of the listed roles. In practice every call
 site passes a single role, so `requireRole('Editor')` means "Editor or Admin".
@@ -193,33 +213,34 @@ API calls return 403.
 - 2026-09-03 Middleware tests (`middleware/__tests__/auth.test.ts`), `libraryService` group-access tests and `/api/libraries` route tests added.
 - 2026-09-03 `requireLibraryAccess` middleware added and applied to collections, media, images and stream routes; search now uses `LibraryService` for its scope.
 - 2026-09-03 Person filmographies and user-collection items scoped to accessible libraries (`resolveAccessibleLibraryIds`, `filterItemsByLibraryAccess`).
+- 2026-09-03 Session invalidation (`User.tokenVersion`, migration `20260903180000_user_token_version`), last-admin guards, self-service `PATCH /api/users/me`, login rate limiting, and central 401 handling in the frontend client.
 
 ## Known Limitations
 
 - Outside production a missing `JWT_SECRET` still falls back to a public constant; a `NODE_ENV` left at `development` on a real deployment would sign forgeable tokens.
 - Tokens are bearer secrets placed in URLs (`?token=`), so they end up in server logs, browser history, referrer headers and any shared link. The same 24h token is used for both API and media URLs; there is no short-lived, scoped media token.
-- No revocation: role changes, password changes and user deletion do not invalidate existing tokens (`authenticate` never hits the DB). No refresh, so users are logged out every 24h regardless of activity.
+
 - Each access check costs one or two extra queries per request; the user's group ids are not cached, and list endpoints resolve the accessible-library list once per request on top of that. `GET /api/user-collections/public` still exposes public collections' item counts (not titles).
-- No rate limiting, lockout, or password requirements on `/api/auth/login` or `/api/auth/setup`; `cors()` is wide open (`index.ts:36`).
+- No account lockout and no password complexity rules beyond an eight-character minimum on self-service changes; `cors()` is wide open (`index.ts:36`). The rate limiter counts per IP in memory, so it resets on restart and is per-process.
 - Setup race: `createInitialAdmin` does count-then-create without a transaction or unique constraint on "first admin".
-- Admin can demote or delete the last Admin (only self-delete is blocked), and can lock themselves out by demoting themselves.
+
 - `UserDialog` edits are three non-atomic requests; a failure midway leaves the user partly updated with no rollback or retry.
 - `requireRole` accepts a list but always resolves to the minimum level, so exact-role restrictions (e.g. "Editor but not Admin") are impossible; the API shape is misleading.
-- No password-change or profile endpoint for non-admins; a Viewer cannot change their own password.
+
 - Frontend admin routes are registered for all roles; unauthorised users see empty pages with 403 errors instead of a redirect.
-- Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` (supertest), `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; there are still none for the query-token middlewares, `users.ts`, `groups.ts`, or the search filter. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
+- Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` and session invalidation (supertest), the last-admin guards, self-service password change, `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; there are still none for the query-token middlewares, `users.ts`, `groups.ts`, or the search filter. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
 
 ## Opportunities
 
 - **Cache group ids per request** (S): `canUserAccessLibrary` re-reads the user's groups on every call; attach them to `req.user` once in `authenticate` or memoise per request.
 - **Short-lived, media-scoped tokens for query-string URLs** (M): sign a separate `{ userId, scope: 'media' }` token with a short TTL from a dedicated endpoint, so leaked URLs cannot drive the admin API; would also let the 24h API token move to an `httpOnly` cookie.
-- **Token freshness / revocation** (M): add `tokenVersion` (or `updatedAt` check) on `User` and verify it in `authenticate`; bumps on password/role change and deletion. Requires one DB read per request, or a small in-memory cache.
-- **Global 401 handling in `ApiClient`** (S): on 401, clear the token and route to `/login` instead of surfacing per-call errors; also refresh media URLs after re-login.
-- **Self-service password change** (S): `PATCH /api/users/me` with current-password verification; the dialog already knows how to send `password`.
-- **Last-admin guard** (S): reject role change/delete that would leave zero Admins.
+
+
+
+
 - **Atomic user update** (S): fold role and groupIds into `PATCH /api/users/:id` so `UserDialog` makes one request; keep the two sub-routes for compatibility.
 - **Route `AuthService` through `users.ts`** (S): drop the duplicated `bcrypt`/`SALT_ROUNDS` and use `authService.hashPassword`.
-- **Login rate limiting** (S): `express-rate-limit` on `/api/auth/*`; a self-hosted box exposed via reverse proxy is the target deployment.
+
 - **Role-aware frontend routing** (S): an `AdminRoute` wrapper (or `requiredRole` prop on `ProtectedRoute`) so Viewers are redirected rather than shown broken admin pages.
 - **Remaining auth tests** (S): `streamAuth`/`imageAuth` query-token middlewares, the users and groups routers, and the search group filter, on the scaffolding in `backend/src/test/`.
 - **Per-library permissions on groups** (L): `Group` currently carries no capabilities; a natural extension is a per-group edit flag so Editors can be restricted to specific libraries, which the current role ladder cannot express.

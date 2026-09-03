@@ -1,7 +1,22 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { AuthService } from '../services/authService';
 
 const router = Router();
+
+/**
+ * A self-hosted instance is often exposed through a reverse proxy, so the login
+ * and setup endpoints are the one place worth rate limiting. Counting only
+ * failures lets a legitimate user sign in repeatedly.
+ */
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many attempts; try again later' },
+});
 const authService = new AuthService();
 
 /**
@@ -47,7 +62,7 @@ const authService = new AuthService();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { name, password } = req.body;
 
@@ -135,7 +150,7 @@ router.get('/setup', async (_req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/setup', async (req, res) => {
+router.post('/setup', authLimiter, async (req, res) => {
   try {
     const { name, password } = req.body;
 

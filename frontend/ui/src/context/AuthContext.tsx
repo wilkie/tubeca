@@ -5,7 +5,7 @@ import {
   useEffect,
   type ReactNode,
 } from 'react';
-import { apiClient, type User } from '../api/client';
+import { apiClient, UNAUTHORIZED_EVENT, type User } from '../api/client';
 
 interface AuthContextType {
   user: User | null;
@@ -88,6 +88,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     return null;
   };
+
+  // The client clears the token when the server rejects it; drop the user so
+  // ProtectedRoute sends the visitor to the login page.
+  useEffect(() => {
+    const onUnauthorized = () => setUser(null);
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
 
   const logout = () => {
     apiClient.clearToken();

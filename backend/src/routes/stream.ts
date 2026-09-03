@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
-import { authenticate } from '../middleware/auth';
+import { authenticate, isTokenCurrent } from '../middleware/auth';
 import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
@@ -17,14 +17,17 @@ const mediaAccess = requireLibraryAccess(mediaParam('id'));
 
 // Custom auth middleware that also accepts token via query parameter
 // This is needed because <video> elements can't set Authorization headers
-function streamAuth(req: Request, res: Response, next: NextFunction) {
+async function streamAuth(req: Request, res: Response, next: NextFunction) {
   // First try query parameter token
   const queryToken = req.query.token as string | undefined;
   if (queryToken) {
     try {
       const payload = authService.verifyToken(queryToken);
-      req.user = payload;
-      return next();
+      // A token from a URL is still subject to session invalidation.
+      if (await isTokenCurrent(payload)) {
+        req.user = payload;
+        return next();
+      }
     } catch {
       // Fall through to try header auth
     }
