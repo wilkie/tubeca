@@ -65,10 +65,10 @@
 1. Parses `q`, `page` (default 1), `limit` (default 50, capped at 100), `keywordIds` and
    `excludedRatings` (both comma-separated). `q` is trimmed and lower-cased
    (`search.ts:79`); an empty `q` is allowed and means "list everything".
-2. Resolves library access: admins see all; other users get the union of `libraryId`s from
-   their groups (`search.ts:98-116`). A non-admin with no groups short-circuits to
-   `{ collections: [], media: [] }` — note this early return omits `totalCollections`,
-   `totalMedia`, `page`, `hasMore`.
+2. Resolves library access through `LibraryService.getAccessibleLibraries` (admins are not
+   filtered; others get public libraries plus those shared with their groups) and applies the
+   ids as `libraryId: { in: [...] }` to both queries. A user with no accessible libraries gets
+   the normal response shape with empty arrays.
 3. Collections query: `parentId: null` (root only — seasons are never returned),
    `name: { contains: q }`, `AND [ keywords.some(id) ... ]` for each keyword (all must
    match), and an `OR` that keeps rows with no `filmDetails`, a null `contentRating`, or a
@@ -183,6 +183,7 @@ external scrapers and belongs to Metadata Scraping.
   `SelectionActionBar`.
 - `758f70f` 2025-12-20 — Scroll/state restoration for Search and Library pages.
 - 2026-09-03 — `/api/persons/search` registered before `/:id`, with a router-order test.
+- 2026-09-03 — Search scope now comes from `LibraryService.getAccessibleLibraries`; public libraries are searchable by everyone and the response shape no longer changes for users without groups. Route tests added.
 
 ## Known Limitations
 
@@ -194,11 +195,8 @@ external scrapers and belongs to Metadata Scraping.
   "Matrix Reloaded" does not match "matrix reloded". Case-insensitivity is ASCII-only.
 - **`/api/persons/search` has no UI.** The endpoint works but `apiClient.searchPersons` is
   dead code and PersonPage/SearchPage have no people search.
-- **Access-control divergence.** `libraryService.getAccessibleLibraries` treats libraries
-  with no groups as public, but `search.ts` only includes group-linked libraries, so a
-  non-admin can browse a public library yet get zero search results from it.
 - **Pagination is two parallel offsets** (up to `2 * limit` per page, `hasMore` true for an
-  empty tail page); the no-access early return omits totals and `hasMore`.
+  empty tail page).
 - **Search page filter options are sampled from page 1.** Keywords/ratings not present in
   the first 50 unfiltered, alphabetically-first collections are never offered, and the
   option list is not rebuilt when `q` changes after the first load of the session cache.
@@ -221,8 +219,6 @@ external scrapers and belongs to Metadata Scraping.
 
 - **Wire `searchPersons` into the Search page** as a third result section now that the
   endpoint is reachable. S.
-- **Reuse `libraryService.getAccessibleLibraries` in `search.ts`** so public (no-group)
-  libraries are searchable and the empty response has the standard shape. S.
 - **Extract a shared `buildCollectionWhere({ nameFilter, keywordIds, excludedRatings,
   libraryIds })`** used by both the search route and `getPaginatedCollections`, plus a
   shared rating-order constant on the frontend. S–M.

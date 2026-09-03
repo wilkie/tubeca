@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { CollectionService } from '../services/collectionService';
 import { authenticate, requireRole } from '../middleware/auth';
+import { requireLibraryAccess, collectionParam, libraryParam, entityInBody } from '../middleware/libraryAccess';
 import { addCollectionScrapeJob, type CollectionScrapeType } from '../queues/collectionScrapeQueue';
 import { scraperManager } from '../plugins/scraperLoader';
 import { prisma } from '../config/database';
 
 const router = Router();
 const collectionService = new CollectionService();
+const collectionAccess = requireLibraryAccess(collectionParam('id'));
+const libraryAccess = requireLibraryAccess(libraryParam('libraryId'));
 
 // All routes require authentication
 router.use(authenticate);
@@ -90,7 +93,7 @@ router.use(authenticate);
  *       500:
  *         description: Server error
  */
-router.get('/library/:libraryId', async (req, res) => {
+router.get('/library/:libraryId', libraryAccess, async (req, res) => {
   try {
     const { libraryId } = req.params;
     const {
@@ -155,7 +158,7 @@ router.get('/library/:libraryId', async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.get('/library/:libraryId/keywords', async (req, res) => {
+router.get('/library/:libraryId/keywords', libraryAccess, async (req, res) => {
   try {
     const keywords = await collectionService.getKeywordsByLibrary(req.params.libraryId);
     res.json({ keywords });
@@ -320,7 +323,7 @@ router.post('/search', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', collectionAccess, async (req, res) => {
   try {
     const collection = await collectionService.getCollectionById(req.params.id);
     if (!collection) {
@@ -377,7 +380,7 @@ router.get('/:id', async (req, res) => {
  *       403:
  *         description: Forbidden - Editor role required
  */
-router.post('/', requireRole('Editor'), async (req, res) => {
+router.post('/', requireRole('Editor'), requireLibraryAccess(entityInBody), async (req, res) => {
   try {
     const { name, libraryId, parentId } = req.body;
 
@@ -443,7 +446,7 @@ router.post('/', requireRole('Editor'), async (req, res) => {
  *       404:
  *         description: Collection not found
  */
-router.patch('/:id', requireRole('Editor'), async (req, res) => {
+router.patch('/:id', requireRole('Editor'), collectionAccess, async (req, res) => {
   try {
     const { name, parentId } = req.body;
     const collection = await collectionService.updateCollection(req.params.id, {
@@ -486,7 +489,7 @@ router.patch('/:id', requireRole('Editor'), async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.delete('/:id', requireRole('Editor'), async (req, res) => {
+router.delete('/:id', requireRole('Editor'), collectionAccess, async (req, res) => {
   try {
     await collectionService.deleteCollection(req.params.id);
     res.status(204).send();
@@ -529,7 +532,7 @@ router.delete('/:id', requireRole('Editor'), async (req, res) => {
  *       404:
  *         description: Collection not found
  */
-router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => {
+router.post('/:id/refresh-metadata', requireRole('Editor'), collectionAccess, async (req, res) => {
   try {
     const collection = await collectionService.getCollectionById(req.params.id);
     if (!collection) {
@@ -620,7 +623,7 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => 
  *       404:
  *         description: Collection not found
  */
-router.post('/:id/refresh-images', requireRole('Editor'), async (req, res) => {
+router.post('/:id/refresh-images', requireRole('Editor'), collectionAccess, async (req, res) => {
   try {
     const collection = await collectionService.getCollectionById(req.params.id);
     if (!collection) {
@@ -727,7 +730,7 @@ router.post('/:id/refresh-images', requireRole('Editor'), async (req, res) => {
  *       404:
  *         description: Collection not found
  */
-router.post('/:id/identify', requireRole('Editor'), async (req, res) => {
+router.post('/:id/identify', requireRole('Editor'), collectionAccess, async (req, res) => {
   try {
     const { externalId, scraperId } = req.body;
 

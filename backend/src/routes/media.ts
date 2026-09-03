@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { authenticate, requireRole } from '../middleware/auth';
+import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { MediaService } from '../services/mediaService';
 import { addMetadataScrapeJob, getMetadataScrapeQueueStatus } from '../queues/metadataScrapeQueue';
 import { scraperManager } from '../plugins/scraperLoader';
 
 const router = Router();
 const mediaService = new MediaService();
+const mediaAccess = requireLibraryAccess(mediaParam('id'));
 
 // All media routes require authentication
 router.use(authenticate);
@@ -42,7 +44,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getMediaById(req.params.id);
     if (!media) {
@@ -77,7 +79,7 @@ router.get('/:id', async (req, res) => {
  *       404:
  *         description: Media not found
  */
-router.delete('/:id', requireRole('Editor'), async (req, res) => {
+router.delete('/:id', requireRole('Editor'), mediaAccess, async (req, res) => {
   try {
     await mediaService.deleteMedia(req.params.id);
     res.status(204).send();
@@ -133,7 +135,7 @@ router.delete('/:id', requireRole('Editor'), async (req, res) => {
  *       404:
  *         description: Media not found
  */
-router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => {
+router.post('/:id/refresh-metadata', requireRole('Editor'), mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getMediaById(req.params.id);
     if (!media) {
@@ -205,7 +207,7 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), async (req, res) => 
  *       404:
  *         description: Media not found
  */
-router.post('/:id/refresh-images', requireRole('Editor'), async (req, res) => {
+router.post('/:id/refresh-images', requireRole('Editor'), mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getMediaById(req.params.id);
     if (!media) {

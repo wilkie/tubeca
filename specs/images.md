@@ -65,7 +65,7 @@
 
 ### Serving
 
-`GET /api/images/:id/file` uses `imageAuth`: a `token` query parameter is verified with `AuthService.verifyToken` first, then it falls back to the normal `Authorization` header (`images.ts:15-30`). The handler looks the row up by id, checks the file exists, sets `Content-Type` from `image.format` (falling back to the extension) and `Cache-Control: public, max-age=86400`, then `res.sendFile(fullPath)`. Express's `send` adds `ETag`, `Last-Modified`, `Accept-Ranges` and 304 handling for free. All other image routes sit behind `router.use(authenticate)`; `download` and `delete` additionally `requireRole('Editor')`. No route checks that the caller's groups grant access to the owning library.
+`GET /api/images/:id/file` uses `imageAuth`: a `token` query parameter is verified with `AuthService.verifyToken` first, then it falls back to the normal `Authorization` header (`images.ts:15-30`). The handler looks the row up by id, checks the file exists, sets `Content-Type` from `image.format` (falling back to the extension) and `Cache-Control: public, max-age=86400`, then `res.sendFile(fullPath)`. Express's `send` adds `ETag`, `Last-Modified`, `Accept-Ranges` and 304 handling for free. All other image routes sit behind `router.use(authenticate)`; `download` and `delete` additionally `requireRole('Editor')`. Every route then runs `requireLibraryAccess` (since 2026-09-03): images owned by a collection or media are checked against that library's groups, person and credit artwork is unscoped, and `POST /download` checks the `collectionId`/`mediaId` in the body.
 
 `apiClient.getImageUrl(id)` returns `${API_BASE}/images/${id}/file?token=${localStorage.token}`; every `<img>` in the app goes through it, so the JWT appears in every image URL.
 
@@ -108,6 +108,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - `63d1d10` 2025-12-16 Hero backdrop fixed while content scrolls.
 - `f679405` 2025-12-19 `res.sendFile` replaces manual stream piping.
 - `056b695` 2025-12-20 SVG detected on download; `Content-Type` taken from the DB `format`.
+- 2026-09-03 — Library access enforced on all image routes via `requireLibraryAccess`.
 
 ## Known Limitations
 
@@ -132,7 +133,6 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
 - **Orphan cleanup** (S): make identify and library deletion go through `ImageService`, and add an admin "prune images" job that diffs disk against `Image.path`.
 - **Short-lived signed image URLs or cookie auth** (M): replace the long-lived JWT query param with a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.
-- **Library access check on serve** (S): join through `collection.libraryId` / `media.collection.libraryId` and reuse the group-access helper from [Auth & Users](auth-and-users.md).
 - **Download hardening** (S): `AbortSignal.timeout`, a max byte size, and rejecting non-image `Content-Type`; validate the URL host against the scraper's known image base.
 - **Static serving** (S/M): expose the image directory via `express.static` behind the same auth, or document a reverse-proxy `X-Accel-Redirect` path for production.
 - **User upload** (M): `POST /api/images/upload` (multipart) reusing `saveImage` with a `manual` scraperId, so curated art survives `refresh-images`.

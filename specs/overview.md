@@ -119,13 +119,13 @@ Favorites and Watch Later lists). See [Content Model](content-model.md).
 These themes recur across several specs. Detailed items live in each spec's Known
 Limitations and Opportunities sections; the pointers here are the entry points.
 
-### Access control stops at navigation
+### Access control now covers content, with two gaps
 
-Group membership is enforced only when listing libraries and (with a different rule) in
-search. Collections, media, images, HLS streams, persons and public user collections are all
-served by id to any authenticated user. The same 24-hour login JWT is embedded in every image
-and stream URL as a query parameter. Seen in [Auth](auth-and-users.md), [Content Model](content-model.md),
-[Images](images.md), [Streaming](streaming-and-transcoding.md), [Search](search.md).
+Since 2026-09-03 one rule in `LibraryService` decides library visibility, and a
+`requireLibraryAccess` middleware applies it to every entity-addressed route on the collections,
+media, images and stream routers, plus search. What remains: persons and user-collection listings
+can still name titles from restricted libraries, and the same 24-hour login JWT is embedded in
+every image and stream URL as a query parameter. See [Auth](auth-and-users.md).
 
 ### Secrets were in history
 
@@ -217,9 +217,9 @@ Ordered by leverage. Each item's details are in the linked spec.
    filter, pagination and sorting, layout rules, middleware and playlist synthesis. Scrape
    matching stays untested until the workers' matching logic is extracted from the BullMQ
    handlers (see [Metadata Scraping](metadata-scraping.md)).
-3. **Enforce library access on content** (M): one middleware that resolves an entity's
-   library and checks the user's groups, applied to collections, media, images and streams;
-   unify the search rule with `LibraryService`. ([Auth](auth-and-users.md))
+3. ~~**Enforce library access on content**~~ Done 2026-09-03: `requireLibraryAccess`
+   middleware on collections, media, images and streams; search unified with `LibraryService`.
+   Persons and user-collection listings are the remaining gap ([Auth](auth-and-users.md)).
 4. **Watch state** (M): a progress table, a progress endpoint, resume on play, and a Continue
    Watching row. This is the most visible missing feature for a media server. ([Playback](playback.md))
 5. **Import integrity** (M): shared import service used by scanner and watcher, unique index

@@ -79,9 +79,10 @@
 through `AuthService.verifyToken`; on failure or absence it falls back to the normal `authenticate`
 middleware. The frontend sends the JWT both ways: as `?token=` in `<video src>`, `<track src>` and
 sprite URLs, and as an `Authorization` header via hls.js `xhrSetup`
-(`frontend/ui/src/context/PlayerContext.tsx:243`). There is no per-library access check on any
-stream route; possession of any valid user token grants playback of any media id. Tokens embedded in
-URLs are also logged by proxies and cached by browsers.
+(`frontend/ui/src/context/PlayerContext.tsx:243`). After `streamAuth`, every route runs
+`requireLibraryAccess(mediaParam('id'))`, so a token only plays media in libraries its user can
+see; inaccessible or orphaned media answer 404. Tokens embedded in URLs are still logged by proxies
+and cached by browsers.
 
 ### Endpoint summary
 
@@ -318,6 +319,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   `fs` calls in the stream routes contribute to.
 - 2026-09-03 `POST /api/jobs/*` endpoints removed with the other legacy handlers in `index.ts`; the video worker no longer has a producer.
 - 2026-09-03 `hlsService.test.ts` added (playlist synthesis, with `hwaccel` and `appConfig` mocked so no ffmpeg runs).
+- 2026-09-03 Every `/api/stream/*` route now runs `requireLibraryAccess(mediaParam('id'))` after `streamAuth`; covered by `routes/__tests__/stream.test.ts`.
 
 ## Known Limitations
 
@@ -383,9 +385,8 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   remove `preferredEncoder`.
 - **Complete VAAPI support** (S): add `-vaapi_device /dev/dri/renderD128`, `-hwaccel vaapi`,
   `format=nv12,hwupload` to the filter chain.
-- **Per-library authorization on stream routes** (M): check the user's group access to the media's
-  library in `streamAuth`, and consider short-lived signed stream URLs instead of the login JWT in
-  query strings.
+- **Short-lived signed stream URLs** (M) instead of the login JWT in query strings; library
+  authorization itself is now enforced per route.
 - **Watch-progress persistence** (M): a `PlaybackProgress` model and a `POST
   /api/media/:id/progress` route; the player already tracks `currentTime`, and Up Next/continuation
   features in playback.md would benefit.

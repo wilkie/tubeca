@@ -2,6 +2,13 @@ import { Router, Request, Response, NextFunction } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { authenticate, requireRole } from '../middleware/auth';
+import {
+  requireLibraryAccess,
+  imageParam,
+  mediaParam,
+  collectionParam,
+  entityInBody,
+} from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
 import { ImageService } from '../services/imageService';
 import type { ImageType } from '@prisma/client';
@@ -9,6 +16,7 @@ import type { ImageType } from '@prisma/client';
 const router = Router();
 const imageService = new ImageService();
 const authService = new AuthService();
+const imageAccess = requireLibraryAccess(imageParam('id'));
 
 // Custom auth middleware that also accepts token via query parameter
 // This is needed because <img> elements can't set Authorization headers
@@ -68,7 +76,7 @@ function imageAuth(req: Request, res: Response, next: NextFunction) {
  *       404:
  *         description: Image not found
  */
-router.get('/:id/file', imageAuth, async (req, res) => {
+router.get('/:id/file', imageAuth, imageAccess, async (req, res) => {
   try {
     const image = await imageService.getImageById(req.params.id);
     if (!image) {
@@ -139,7 +147,7 @@ router.use(authenticate);
  *                   items:
  *                     $ref: '#/components/schemas/Image'
  */
-router.get('/media/:mediaId', async (req, res) => {
+router.get('/media/:mediaId', requireLibraryAccess(mediaParam('mediaId')), async (req, res) => {
   try {
     const { mediaId } = req.params;
     const { type } = req.query;
@@ -188,7 +196,7 @@ router.get('/media/:mediaId', async (req, res) => {
  *                   items:
  *                     $ref: '#/components/schemas/Image'
  */
-router.get('/collection/:collectionId', async (req, res) => {
+router.get('/collection/:collectionId', requireLibraryAccess(collectionParam('collectionId')), async (req, res) => {
   try {
     const { collectionId } = req.params;
     const { type } = req.query;
@@ -231,7 +239,7 @@ router.get('/collection/:collectionId', async (req, res) => {
  *       404:
  *         description: Image not found
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', imageAccess, async (req, res) => {
   try {
     const image = await imageService.getImageById(req.params.id);
     if (!image) {
@@ -304,7 +312,7 @@ router.get('/:id', async (req, res) => {
  *       403:
  *         description: Forbidden - Editor role required
  */
-router.post('/download', requireRole('Editor'), async (req, res) => {
+router.post('/download', requireRole('Editor'), requireLibraryAccess(entityInBody), async (req, res) => {
   try {
     const { url, imageType, mediaId, collectionId, showCreditId, creditId, isPrimary, scraperId } = req.body;
 
@@ -368,7 +376,7 @@ router.post('/download', requireRole('Editor'), async (req, res) => {
  *       404:
  *         description: Image not found
  */
-router.delete('/:id', requireRole('Editor'), async (req, res) => {
+router.delete('/:id', requireRole('Editor'), imageAccess, async (req, res) => {
   try {
     await imageService.deleteImage(req.params.id);
     res.status(204).send();

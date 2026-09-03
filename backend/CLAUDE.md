@@ -73,6 +73,23 @@ router.get('/protected', authenticate, handler);
 router.post('/admin-only', authenticate, requireRole('Admin'), handler);
 ```
 
+### Library access
+
+Content is scoped to libraries, and libraries to groups. Any route that addresses a collection,
+media item or image must also run `requireLibraryAccess` with a resolver for where the id lives;
+denials are 404s and admins skip the check:
+
+```typescript
+import { requireLibraryAccess, collectionParam, mediaParam, imageParam, libraryParam, entityInBody } from '../middleware/libraryAccess';
+
+router.get('/:id', requireLibraryAccess(collectionParam('id')), handler);          // id in the path
+router.get('/library/:libraryId', requireLibraryAccess(libraryParam()), handler);  // libraryId in the path
+router.post('/', requireRole('Editor'), requireLibraryAccess(entityInBody), handler); // collectionId/mediaId/libraryId in the body
+```
+
+List endpoints that embed other entities (search, user collections) filter by
+`libraryService.getAccessibleLibraries(...)` ids in their `where` clause instead.
+
 ### Response Pattern
 
 ```typescript

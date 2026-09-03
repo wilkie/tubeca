@@ -1,8 +1,10 @@
 import { Router, type Request } from 'express';
 import { prisma } from '../config/database';
 import { authenticate } from '../middleware/auth';
+import { LibraryService } from '../services/libraryService';
 
 const router = Router();
+const libraryService = new LibraryService();
 
 // All routes require authentication
 router.use(authenticate);
@@ -89,28 +91,13 @@ router.get('/', async (req: Request, res) => {
       ? excludedRatings.split(',').map(r => r.trim()).filter(Boolean)
       : [];
 
-    // Get user's accessible library IDs
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.userId },
-      include: {
-        groups: {
-          include: {
-            libraries: { select: { id: true } },
-          },
-        },
-      },
-    });
-
-    // Admin users can access all libraries
-    let accessibleLibraryIds: string[] | undefined;
-    if (req.user!.role !== 'Admin') {
-      accessibleLibraryIds = user?.groups.flatMap((g) => g.libraries.map((l) => l.id)) ?? [];
-
-      // If user has no group memberships, they can't access any libraries
-      if (accessibleLibraryIds.length === 0) {
-        return res.json({ collections: [], media: [] });
-      }
-    }
+    // Scope results to the libraries this user may see. The rule (admins see
+    // everything; a library with no groups is public; otherwise the user must
+    // share a group with it) lives in LibraryService so it matches /api/libraries.
+    const isAdmin = req.user!.role === 'Admin';
+    const accessibleLibraryIds = isAdmin
+      ? undefined
+      : (await libraryService.getAccessibleLibraries(req.user!.userId, false)).map((l) => l.id);
 
     // Build the where clause for library access
     const libraryFilter = accessibleLibraryIds

@@ -238,8 +238,9 @@ with `DateTime` -> `string`. Differences worth knowing:
 - **Used by:** [Libraries & Scanning](libraries-and-scanning.md) (creates the rows this part
   reads); [Metadata Scraping](metadata-scraping.md) (writes every details/credit/keyword table and
   calls `PersonService.findOrCreatePerson`); [Search](search.md) (re-implements the same keyword
-  and rating filters directly on `prisma.collection`/`prisma.media`, with library-access
-  filtering this part lacks); [Streaming & Transcoding](streaming-and-transcoding.md) and
+  and rating filters directly on `prisma.collection`/`prisma.media`);
+  [Auth & Users](auth-and-users.md) (`requireLibraryAccess` guards every entity route here);
+  [Streaming & Transcoding](streaming-and-transcoding.md) and
   [Playback](playback.md) (`MediaService.getVideoById`, `MediaStream` rows for track selection,
   `Media.thumbnails` for trickplay); [User Collections](user-collections.md) (FK targets
   `Collection`/`Media`); [Frontend App](frontend-app.md) (LibraryPage, CollectionPage, MediaPage,
@@ -292,13 +293,13 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   `add_max_concurrent_transcodes`); last schema change to date.
 - 2026-09-03 `/api/persons/search` moved above `/:id` in `routes/persons.ts`.
 - 2026-09-03 `collectionService.test.ts` added on the new SQLite test scaffolding; cross-page relation sort bug pinned with `it.failing`.
+- 2026-09-03 Collections and media routes guarded by `requireLibraryAccess`; route tests added under `routes/__tests__/`.
 
 ## Known Limitations
 
-- **No library access enforcement on content routes.** `collections.ts`, `media.ts` and
-  `persons.ts` only require authentication; any Viewer can fetch any collection or media by id
-  regardless of group membership. Only `routes/search.ts:104-118` and the libraries list apply the
-  group filter.
+- **Persons are not library-scoped.** `persons.ts` only requires authentication, so a person's
+  filmography can list titles from libraries the viewer cannot open. Collections and media routes
+  are guarded by `requireLibraryAccess` since 2026-09-03.
 - **Sort by releaseDate/rating/runtime is per-page only.** SQL orders by `createdAt`, then the
   50-item page is sorted in memory (`collectionService.ts:242-277`), so infinite scroll shows
   each page internally sorted but globally unordered.
@@ -340,9 +341,8 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 
 ## Opportunities
 
-- **Enforce library access in `collections.ts`/`media.ts`** by reusing
-  `libraryService.getAccessibleLibraries` (or a middleware that resolves the row's `libraryId`);
-  the search route already has the pattern. (M)
+- **Filter person filmographies by accessible library** (S): apply the same `where` the search
+  route uses when loading credits for `GET /persons/:id`.
 - **Push relation sorts into SQL**: either denormalise `releaseDate`/`rating`/`runtime` onto
   `Collection` (updated by the scrape workers) or use `orderBy: { filmDetails: { releaseDate } }`
   with nulls-last, so pagination is globally ordered. (M)

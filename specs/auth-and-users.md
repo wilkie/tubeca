@@ -135,21 +135,26 @@ separate component. Library-to-group assignment is done from the library dialog,
 
 ### Library visibility by group
 
-Two different rules exist:
+One rule, in `LibraryService.getAccessibleLibraries` / `canUserAccessLibrary`
+(`libraryService.ts`): Admin sees all; otherwise a library is visible if it has **no groups**
+(public) or shares at least one group with the user. It is applied in three places:
 
-- `LibraryService.getAccessibleLibraries` / `canUserAccessLibrary` (`libraryService.ts:45-137`):
-  Admin sees all; otherwise a library is visible if it has **no groups** (public) or shares at least
-  one group with the user. Used by `GET /api/libraries` and `GET /api/libraries/:id` (which returns
-  404 rather than 403 to avoid leaking existence).
-- `GET /api/search` (`search.ts:93-118`) recomputes access inline: non-admins get only libraries
-  reachable through their groups and, if they belong to no group, an empty result. Public
-  (group-less) libraries are therefore searchable by group members but invisible in search to users
-  with no groups, contradicting the service rule.
+- `GET /api/libraries` and `GET /api/libraries/:id` (404 rather than 403 to avoid leaking
+  existence).
+- `GET /api/search`, which scopes both collection and media queries to
+  `getAccessibleLibraries(...)` ids for non-admins (since 2026-09-03; before that it had its own
+  inline rule that treated group-less libraries as invisible to users with no groups).
+- `requireLibraryAccess(resolver)` in `backend/src/middleware/libraryAccess.ts`, applied to every
+  entity-addressed route on the collections, media, images and stream routers (since
+  2026-09-03). The resolver maps the request to a `LibraryResolution`: `library` (check groups),
+  `unscoped` (person/credit artwork; allowed), `orphan` (media with no collection; hidden from
+  non-admins) or `missing` (fall through so the handler returns its own 404). Resolvers exist for
+  a collection, media or image id in the path, a `libraryId` in the path, and a
+  `collectionId`/`mediaId`/`libraryId` in a JSON body (used by `POST /collections` and
+  `POST /images/download`). Denials are 404s. Admins skip the lookup entirely.
 
-Nothing else consults either rule. `GET /api/collections/library/:libraryId`,
-`GET /api/collections/:id`, `GET /api/media/:id`, every `/api/stream/*` route, every
-`/api/images/*` route, `/api/persons/*` and the user-collections endpoints all serve content from
-any library to any authenticated user. Group access therefore controls navigation, not data.
+Still outside the rule: `/api/persons/*` (people are not library-scoped) and the user-collections
+endpoints, which can surface items from libraries the viewer cannot otherwise open.
 
 ### Frontend role gating
 
@@ -181,13 +186,14 @@ API calls return 403.
 - No auth-specific commits since 2025-12-10.
 - 2026-09-03 Stop-the-bleeding batch: `resolveJwtSecret()` refuses placeholder/missing secrets in production (with tests); legacy unauthenticated handlers removed from `index.ts`; `PATCH /api/settings` added to the router behind `requireRole('Admin')`.
 - 2026-09-03 Middleware tests (`middleware/__tests__/auth.test.ts`), `libraryService` group-access tests and `/api/libraries` route tests added.
+- 2026-09-03 `requireLibraryAccess` middleware added and applied to collections, media, images and stream routes; search now uses `LibraryService` for its scope.
 
 ## Known Limitations
 
 - Outside production a missing `JWT_SECRET` still falls back to a public constant; a `NODE_ENV` left at `development` on a real deployment would sign forgeable tokens.
 - Tokens are bearer secrets placed in URLs (`?token=`), so they end up in server logs, browser history, referrer headers and any shared link. The same 24h token is used for both API and media URLs; there is no short-lived, scoped media token.
 - No revocation: role changes, password changes and user deletion do not invalidate existing tokens (`authenticate` never hits the DB). No refresh, so users are logged out every 24h regardless of activity.
-- Group access is only enforced on `/api/libraries` and `/api/search`; collections, media, images, streams and persons are reachable by ID regardless of library membership. Search additionally disagrees with `LibraryService` about whether group-less libraries are public.
+- Group access is not applied to `/api/persons/*` or to user-collection items, so a public user collection or a person's filmography can still name titles from a restricted library. Each access check costs one or two extra queries per request; the user's group ids are not cached.
 - No rate limiting, lockout, or password requirements on `/api/auth/login` or `/api/auth/setup`; `cors()` is wide open (`index.ts:36`).
 - Setup race: `createInitialAdmin` does count-then-create without a transaction or unique constraint on "first admin".
 - Admin can demote or delete the last Admin (only self-delete is blocked), and can lock themselves out by demoting themselves.
@@ -199,8 +205,8 @@ API calls return 403.
 
 ## Opportunities
 
-- **Move the search access rule onto `LibraryService`** (S): call `getAccessibleLibraries` from `search.ts` so "public library" means the same thing everywhere.
-- **Enforce library access on collection/media/image/stream reads** (M): resolve `libraryId` for the requested entity (collections carry it directly; media via collection) and call `canUserAccessLibrary`; cache the user's group IDs per request to avoid the extra queries.
+- **Filter user-collection items and person filmographies by library access** (M): the middleware only guards entity-addressed routes; list endpoints that embed other entities need the same rule applied as a `where` clause.
+- **Cache group ids per request** (S): `canUserAccessLibrary` re-reads the user's groups on every call; attach them to `req.user` once in `authenticate` or memoise per request.
 - **Short-lived, media-scoped tokens for query-string URLs** (M): sign a separate `{ userId, scope: 'media' }` token with a short TTL from a dedicated endpoint, so leaked URLs cannot drive the admin API; would also let the 24h API token move to an `httpOnly` cookie.
 - **Token freshness / revocation** (M): add `tokenVersion` (or `updatedAt` check) on `User` and verify it in `authenticate`; bumps on password/role change and deletion. Requires one DB read per request, or a small in-memory cache.
 - **Global 401 handling in `ApiClient`** (S): on 401, clear the token and route to `/login` instead of surfacing per-call errors; also refresh media URLs after re-login.

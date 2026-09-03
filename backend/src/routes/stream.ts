@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
 import { authenticate } from '../middleware/auth';
+import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
 import { HlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
@@ -12,6 +13,7 @@ const router = Router();
 const mediaService = new MediaService();
 const authService = new AuthService();
 const hlsService = new HlsService();
+const mediaAccess = requireLibraryAccess(mediaParam('id'));
 
 // Custom auth middleware that also accepts token via query parameter
 // This is needed because <video> elements can't set Authorization headers
@@ -82,7 +84,7 @@ router.use(streamAuth);
  *       404:
  *         description: Video not found
  */
-router.get('/video/:id', async (req, res) => {
+router.get('/video/:id', mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getVideoById(req.params.id);
     if (!media) {
@@ -267,7 +269,7 @@ router.get('/video/:id', async (req, res) => {
  *       404:
  *         description: Video not found
  */
-router.get('/subtitles/:id', async (req, res) => {
+router.get('/subtitles/:id', mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getVideoById(req.params.id);
     if (!media) {
@@ -377,7 +379,7 @@ router.get('/subtitles/:id', async (req, res) => {
  *       404:
  *         description: Audio not found
  */
-router.get('/audio/:id', async (req, res) => {
+router.get('/audio/:id', mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getAudioById(req.params.id);
     if (!media) {
@@ -463,7 +465,7 @@ router.get('/audio/:id', async (req, res) => {
  *       404:
  *         description: Media not found or no trickplay available
  */
-router.get('/trickplay/:id', async (req, res) => {
+router.get('/trickplay/:id', mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getVideoById(req.params.id);
     if (!media) {
@@ -600,7 +602,7 @@ router.get('/trickplay/:id', async (req, res) => {
  *       404:
  *         description: Sprite not found
  */
-router.get('/trickplay/:id/:width/:index', async (req, res) => {
+router.get('/trickplay/:id/:width/:index', mediaAccess, async (req, res) => {
   try {
     const media = await mediaService.getVideoById(req.params.id);
     if (!media) {
@@ -691,7 +693,7 @@ router.get('/trickplay/:id/:width/:index', async (req, res) => {
  *       404:
  *         description: Media not found
  */
-router.get('/hls/:id/master.m3u8', async (req, res) => {
+router.get('/hls/:id/master.m3u8', mediaAccess, async (req, res) => {
   try {
     const audioTrack = req.query.audioTrack !== undefined
       ? parseInt(req.query.audioTrack as string, 10)
@@ -752,7 +754,7 @@ router.get('/hls/:id/master.m3u8', async (req, res) => {
  *       404:
  *         description: Media not found
  */
-router.get('/hls/:id/:quality.m3u8', async (req, res) => {
+router.get('/hls/:id/:quality.m3u8', mediaAccess, async (req, res) => {
   try {
     const { id, quality } = req.params;
     const audioTrack = (req.query.audioTrack as string) || 'default';
@@ -824,7 +826,7 @@ router.get('/hls/:id/:quality.m3u8', async (req, res) => {
  *       404:
  *         description: Segment not found
  */
-router.get('/hls/:id/:quality/:segment.ts', async (req, res) => {
+router.get('/hls/:id/:quality/:segment.ts', mediaAccess, async (req, res) => {
   try {
     const { id, quality, segment } = req.params;
     const audioTrack = (req.query.audioTrack as string) || 'default';
@@ -901,7 +903,7 @@ router.get('/hls/:id/:quality/:segment.ts', async (req, res) => {
  *                       bitrate:
  *                         type: integer
  */
-router.get('/hls/:id/qualities', async (req, res) => {
+router.get('/hls/:id/qualities', mediaAccess, async (req, res) => {
   try {
     const availableQualities = await hlsService.getAvailableQualities(req.params.id);
 
