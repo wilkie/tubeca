@@ -1,4 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import swaggerJSDoc from 'swagger-jsdoc';
+import { getBackendRoot } from './appConfig';
 
 const options: swaggerJSDoc.Options = {
   definition: {
@@ -232,4 +235,17 @@ const options: swaggerJSDoc.Options = {
   apis: ['./src/routes/*.ts', './src/index.ts'],
 };
 
-export const swaggerSpec = swaggerJSDoc(options);
+/**
+ * In development the spec is assembled live from the `@openapi` JSDoc in the
+ * route files. Production installs do not ship `src/`, so `pnpm build` writes
+ * `openapi.json` (`tsx src/swagger.ts`) and that file is served instead.
+ */
+function loadSwaggerSpec(): object {
+  const prebuilt = path.join(getBackendRoot(), 'openapi.json');
+  if (process.env.NODE_ENV === 'production' && fs.existsSync(prebuilt)) {
+    return JSON.parse(fs.readFileSync(prebuilt, 'utf8'));
+  }
+  return swaggerJSDoc(options);
+}
+
+export const swaggerSpec = loadSwaggerSpec();

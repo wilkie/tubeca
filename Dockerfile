@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# ---- build: compile the SPA, the backend bundle and the Prisma client ----
+# ---- build: compile the SPA, the backend bundle, the OpenAPI document and the Prisma client ----
 FROM node:22-bookworm-slim AS build
 RUN corepack enable
 WORKDIR /app
@@ -10,14 +10,19 @@ RUN echo 'DATABASE_URL="file:./prisma/build.db"' > backend/.env \
  && pnpm install --frozen-lockfile \
  && pnpm build \
  && rm backend/.env
+# Production-only copy of the backend: dist, prisma, openapi.json and prod node_modules
+# (workspace scrapers included). Dev tooling and sources stay behind.
+RUN pnpm --filter @tubeca/backend deploy --prod /deploy \
+ && cd /deploy && DATABASE_URL="file:./prisma/build.db" npx prisma generate
 
-# ---- runtime: node + ffmpeg, everything under /app, state under /data ----
+# ---- runtime: node + ffmpeg, backend under /app/backend, SPA under /app/frontend/ui/dist ----
 FROM node:22-bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=build /app /app
+COPY --from=build /deploy /app/backend
+COPY --from=build /app/frontend/ui/dist /app/frontend/ui/dist
 
 ENV NODE_ENV=production \
     TUBECA_ROLE=all \

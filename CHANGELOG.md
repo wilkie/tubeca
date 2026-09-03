@@ -5,6 +5,13 @@ All notable changes to Tubeca are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The Docker image and the Arch package ship only the backend's production dependencies,
+  bundle, Prisma files and a prebuilt `openapi.json`; sources and dev tooling no longer ship.
+- Person filmographies and user-collection items are scoped to the viewer's libraries.
+- Renamed or moved files keep their metadata and watch progress.
+- Watched state is shown on library, season and episode cards with a mark-watched control.
+
 ## [1.0.0] - 2026-09-03
 
 First tagged release. Covers the initial build-out (November and December 2025) and the

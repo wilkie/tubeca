@@ -1,6 +1,9 @@
 {
   "name": "@tubeca/shared-types",
   "version": "1.0.0",
+  "files": [
+    "dist"
+  ],
   "description": "Shared TypeScript types for Tubeca API",
   "type": "module",
   "main": "dist/index.js",

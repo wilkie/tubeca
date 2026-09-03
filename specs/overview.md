@@ -252,8 +252,8 @@ Drawn from the Opportunities sections after the first nine items landed.
    GHCR publish job ([Deployment](deployment.md)).
 4. ~~**Remaining access gaps**~~ Done 2026-09-03: filmographies and user-collection items
    scoped to accessible libraries ([Auth](auth-and-users.md)).
-5. **Slim the package and image** (M): production-only `node_modules`, OpenAPI generated at
-   build time. ([Deployment](deployment.md))
+5. ~~**Slim the package and image**~~ Done 2026-09-03: `pnpm deploy --prod` trees, OpenAPI
+   generated at build time ([Deployment](deployment.md)).
 
 ## Conventions for Maintaining These Specs
 

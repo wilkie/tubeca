@@ -59,6 +59,12 @@ ENVEOF
 
     # Build all packages
     pnpm build
+
+    # Production-only backend tree (dist, prisma, openapi.json, prod node_modules
+    # including the workspace scrapers); dev tooling and sources are left behind.
+    rm -rf "${srcdir}/deploy"
+    pnpm --filter @tubeca/backend deploy --prod "${srcdir}/deploy"
+    (cd "${srcdir}/deploy" && DATABASE_URL="file:./prisma/build.db" npx prisma generate)
 }
 
 package() {
@@ -70,28 +76,12 @@ package() {
     install -dm755 "${pkgdir}/etc/tubeca"
     install -dm755 "${pkgdir}/usr/lib/systemd/system"
 
-    # Copy application files
-    cp -r backend "${pkgdir}/opt/tubeca/"
-    cp -r frontend "${pkgdir}/opt/tubeca/"
-    cp -r packages "${pkgdir}/opt/tubeca/"
-    cp -r node_modules "${pkgdir}/opt/tubeca/"
+    # Backend: the production-only deploy tree built in build()
+    cp -r "${srcdir}/deploy" "${pkgdir}/opt/tubeca/backend"
 
-    # Copy scrapers if present
-    if [ -d "scrapers" ]; then
-        cp -r scrapers "${pkgdir}/opt/tubeca/"
-    fi
-
-    # Copy package files
-    install -Dm644 package.json "${pkgdir}/opt/tubeca/package.json"
-    install -Dm644 pnpm-workspace.yaml "${pkgdir}/opt/tubeca/pnpm-workspace.yaml"
-
-    if [ -f "pnpm-lock.yaml" ]; then
-        install -Dm644 pnpm-lock.yaml "${pkgdir}/opt/tubeca/pnpm-lock.yaml"
-    fi
-
-    if [ -f "turbo.json" ]; then
-        install -Dm644 turbo.json "${pkgdir}/opt/tubeca/turbo.json"
-    fi
+    # Frontend: only the built SPA, served by the backend (FRONTEND_DIST)
+    install -dm755 "${pkgdir}/opt/tubeca/frontend/ui"
+    cp -r frontend/ui/dist "${pkgdir}/opt/tubeca/frontend/ui/dist"
 
     # Install configuration files (644 so tubeca user can read)
     install -Dm644 backend/.env.example "${pkgdir}/etc/tubeca/tubeca.env"

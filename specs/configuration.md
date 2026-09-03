@@ -163,8 +163,10 @@ which is hard-coded per worker (video 2, all others 1).
 2. Middleware: `cors()` with defaults (any origin, no credentials), `express.json()` with the 100 kb
    default limit. No request logging, no helmet, no rate limiting, no error-handling middleware and
    no 404 handler; unhandled errors fall to Express's default HTML responder.
-3. `/api-docs` mounts Swagger UI from `swaggerSpec` (built at import time from JSDoc in
-   `src/routes/*.ts`, `src/index.ts`). The spec's `servers` entry is hard-coded to
+3. `/api-docs` mounts Swagger UI from `swaggerSpec`: in development it is built at import time
+   from the JSDoc in `src/routes/*.ts` and `src/index.ts`; with `NODE_ENV=production` the
+   `openapi.json` written by `pnpm build` (`tsx src/swagger.ts`) is loaded from the backend root
+   instead, so installs need not ship `src/`. The spec's `servers` entry is hard-coded to
    `http://localhost:3000`.
 4. Routers are mounted for twelve `/api/*` prefixes. The only handler registered directly on
    `app` is `/api/health`. `routes/settings.ts` serves both `PUT` and `PATCH /api/settings` from
@@ -218,7 +220,8 @@ requirement (54e40a2; `.nvmrc` and `engines.node >=22` followed in c95eedf). Bec
 `config/swagger.ts` declares the OpenAPI 3.0 skeleton (tags, `bearerAuth`, component schemas for
 `Error`, `User`, `Settings`, `Library`, `Collection`, `Media`, ...). `docs:generate` runs
 `tsx src/swagger.ts` to write `openapi.json`, then `redocly build-docs` to `docs/api.html`; both
-outputs are git-ignored.
+outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is listed in the backend's
+`files` and therefore ships with deploys.
 
 ## Interactions
 
