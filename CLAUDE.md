@@ -35,6 +35,13 @@ pnpm --filter @tubeca/backend <command>
 pnpm --filter @tubeca/ui <command>
 ```
 
+## System Specs
+
+`specs/` holds one spec per part of the system (what it does, goals, components, how it
+works, interactions, history, limitations, opportunities). Start at `specs/overview.md`,
+which indexes them and rolls up cross-cutting themes and a suggested direction. When a
+change alters behaviour a spec describes, update the spec in the same commit.
+
 ## Package-Specific Documentation
 
 Each package has its own CLAUDE.md with detailed patterns and conventions:
