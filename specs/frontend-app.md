@@ -82,7 +82,12 @@
 | `frontend/ui/src/components/SortControls.tsx`, `FilterChips.tsx`, `KeywordFilter.tsx`, `QuickSearchOverlay.tsx` | Sort/filter UI (detail in [Search](search.md)) |
 | `frontend/ui/src/components/SelectionActionBar.tsx` | Bottom bar for multi-select batch actions |
 | `frontend/ui/src/hooks/useQuickSearch.ts`, `useDebouncedValue.ts` | Global keydown capture for type-to-filter; 300ms debounce |
-| `frontend/ui/src/pages/LibraryPage.tsx` | Library grid/list with pagination, filters, selection, restoration (1004 lines) |
+| `frontend/ui/src/pages/LibraryPage.tsx` | Library page: filter, selection and dialog state, composing the toolbar, the cards and `useLibraryCollections` (362 lines) |
+| `frontend/ui/src/hooks/useLibraryCollections.ts` | The library, a page at a time of its collections, favourites/watch-later ids, content ratings and keywords, plus `loadMore` and the restore snapshot |
+| `frontend/ui/src/components/LibraryToolbar.tsx`, `components/CollectionCard.tsx` | The library heading and controls; the poster tile and list row |
+| `frontend/ui/src/hooks/useApiQuery.ts` | `useApiQuery` adapter over TanStack Query plus the `queryKeys` table |
+| `frontend/ui/src/api/queryClient.ts` | The shared query cache and its defaults |
+| `frontend/ui/src/hooks/useLibraries.ts`, `hooks/useAddToRecentCollection.ts`, `hooks/useLibraryViewPreferences.ts` | Shared data and preference hooks |
 | `frontend/ui/src/pages/CollectionPage.tsx` | Loads a collection, builds breadcrumbs, dispatches to a view, owns the dialogs (489 lines) |
 | `frontend/ui/src/pages/MediaPage.tsx` | Single media detail: still image, stream info, credits, actions (797 lines) |
 | `frontend/ui/src/pages/PersonPage.tsx` | Person bio and filmography grouped by credit type (635 lines) |
@@ -103,9 +108,10 @@ top-level `Routes` with `/login`, `/setup`, and a catch-all `/*` that is wrapped
 `getCurrentUser`, then redirects to `/setup` or `/login` as needed.
 
 `App.tsx` adds `ActiveLibraryProvider`, the header/sidebar chrome, and a nested `Routes` with 18
-routes. All page components are statically imported; there is no `React.lazy` or `Suspense`
-anywhere in `src/`, so the production bundle is a single 1.49MB `index-*.js` (plus 547 bytes of
-CSS) in `frontend/ui/dist/assets/`. The `/` route renders `HomePage`, a card grid of the
+routes. Every page except `HomePage` is a `React.lazy` import behind one `Suspense` whose
+fallback is a centred spinner, so a page's code arrives when it is first visited and the build
+emits a chunk per page rather than one file. `HomePage` stays eager because it is where a
+signed-in user lands. The `/` route renders `HomePage`, a card grid of the
 libraries the user can see (icon by type, click sets the active library and opens
 `/library/:id`, empty state with an admin shortcut to `/admin/libraries`); `LoginPage`,
 `SetupPage`, `CollectionPage` (after delete) and `MediaPage` (after delete) all `navigate('/')`
@@ -159,34 +165,56 @@ document click listener that snapshots state whenever the user clicks an `<a>`, 
 
 ### Layout chrome
 
-`Header` fetches `getLibraries()` on mount and renders one tab button per library; the active
-one gets a white underline. Favourites, watch-later and queue icons are hidden below the `md`
-breakpoint; the library tabs are not, so on narrow screens they overflow. `Sidebar` re-fetches
-libraries every time it opens and shows the admin section only for `role === 'Admin'`. Both are
+`Header` renders one tab button per library from `useLibraries()`; the active one gets a white
+underline. Favourites, watch-later and queue icons are hidden below the `md` breakpoint; the
+library tabs are not, so on narrow screens they overflow. `Sidebar` reads the same hook, so
+opening the drawer no longer re-fetches what the header already has, and shows the admin section
+only for `role === 'Admin'`. Both are
 the only responsive touches besides `Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }}` on every grid;
 there are zero `useMediaQuery` or `breakpoints.down` calls in `src/`.
 
+### Data fetching
+
+Reads go through TanStack Query. `useApiQuery(key, call)` wraps a client method: the client
+reports failures as `{ error }` rather than by throwing, so the adapter throws an `ApiError`
+instead and lets the cache hold both the loading and the error state. A page then reads
+`data`, `isPending` and `errorMessage` rather than keeping three `useState`s and a `cancelled`
+flag. Keys live in one `queryKeys` table so a mutation can invalidate or overwrite what it
+changed, which is how Identify and the person refresh push a fresh record into the cache.
+
+Defaults are in `api/queryClient.ts`: 30 s `staleTime`, 5 minute `gcTime`, no refetch on window
+focus, one retry. Tests get their own client per render (`test-utils.tsx`) with retries off.
+
+The cache is also the deduplicator. The header, the sidebar and the home page share one
+`getLibraries` request; `ActiveLibraryContext` reads the same collection or media record the
+page it is on has already fetched, where before it issued a second identical request purely to
+learn the library id.
+
 ### Library browsing (`LibraryPage`)
 
-The page holds 25 `useState` hooks. The flow:
+The page owns what the viewer is doing; `useLibraryCollections` owns the data and
+`LibraryToolbar`, `CollectionPosterCard` and `CollectionListCard` own the markup. The flow:
 
 1. `useCachedState('library-<id>')` seeds state on back navigation; a `restoredFromCacheRef`
    blocks the initial fetch and pauses the `IntersectionObserver` for 500ms so restoring the
    scroll position does not trigger page 2.
-2. Otherwise the `libraryId` effect synchronously clears all state (with an explicit
+2. Otherwise the hook's `libraryId` effect synchronously clears all state (with an explicit
    `eslint-disable react-hooks/set-state-in-effect`), fetches `getLibrary`, then
-   `fetchCollections(1)`.
-3. `fetchCollections` calls `getCollectionsByLibrary` with `page`, `limit: 50`, `sortField`,
+   `fetchPage(1)`.
+3. `fetchPage` calls `getCollectionsByLibrary` with `page`, `limit: 50`, `sortField`,
    `sortDirection`, `excludedRatings`, `keywordIds` and the debounced quick-search `nameFilter`.
    After each page it fires `checkFavorites` and `checkWatchLater` for the new ids and merges
    them into two `Set`s, and accumulates distinct `filmDetails.contentRating` values into the
    filter chip list ordered G, PG, PG-13, R, NC-17, NR, Unrated.
 4. A second effect refetches page 1 when any sort/filter/search dependency changes; the old grid
    stays visible under a translucent `CircularProgress` overlay.
-5. Infinite scroll: an `IntersectionObserver` on a sentinel `div` below the grid calls
-   `fetchCollections(page + 1, true)` when 10% visible and `hasMore`.
-6. Keywords are lazy-loaded on first open of the filter panel (`handleToggleFilters`).
-7. `viewMode` ('poster' | 'list', 33b11fc) is plain component state and resets on every visit.
+5. Infinite scroll: an `IntersectionObserver` on a sentinel `div` below the grid calls the
+   hook's `loadMore()` when 10% visible and `hasMore`.
+6. Keywords are lazy-loaded on first open of the filter panel (`loadKeywords`).
+7. `viewMode` ('poster' | 'list', 33b11fc) and the sort come from
+   `useLibraryViewPreferences`, which keeps them per library id in `localStorage`; a value that
+   is not one we wrote is ignored, and storage being unavailable only costs the memory of the
+   choice.
    Poster cards show a hover-only overlay with content rating and `★ 7.5` (f2f8070) via a CSS
    `&:hover .rating-overlay` rule. List mode uses `MediaListItem` with an inline
    `CardQuickActions`.
@@ -215,12 +243,15 @@ the viewport, and the content scrolls over it; a 32px gradient at the bottom fad
 `mt: -38px`) to escape the container padding and swaps from transparent/light text to
 `background.paper` once `window.scrollY > 80`.
 
-`MediaPage`, `PersonPage`, `SettingsPage`, `LibrariesPage` all follow the CLAUDE.md pattern:
-`useEffect` with a `cancelled` flag, `isLoading` → `CircularProgress`, `error` → `Alert`,
-`null` → "not found" `Alert`. `LibrariesPage` additionally polls `getLibraryScanStatus` while a
-scan runs. The "add to most recent user collection" behaviour (fetch `getUserCollections`, take
-`[0]`, `addUserCollectionItem`) is copy-pasted into `CardQuickActions`, `FilmHeroView`,
-`ShowHeroView`, `StandardCollectionView` and `MediaPage`.
+`CollectionPage`, `MediaPage`, `PersonPage`, `HomePage`, `QueuePage`, `FavoritesPage` and
+`WatchLaterPage` read through `useApiQuery`; the shape a page renders is unchanged
+(`isPending` → `CircularProgress`, an error message → `Alert`, `null` → "not found" `Alert`),
+but the fetching, the cancellation and the error state are the cache's. `SettingsPage`,
+`LibrariesPage`, `UsersPage`, `UserCollectionsPage`, `UserCollectionPage` and `SearchPage` still
+carry their own effects. The "add to most recent user collection" behaviour is now
+`useAddToRecentCollection` plus `RecentCollectionMenuItem`, used by `CardQuickActions`,
+`FilmHeroView`, `ShowHeroView`, `StandardCollectionView` and `MediaPage`; the list is fetched
+only while an add menu is open.
 
 ### i18n
 
@@ -297,6 +328,10 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - `0229cc8` 2025-12-01 Library tabs in the header (`ActiveLibraryContext`).
 - `24d1114` 2025-12-01 `CLAUDE.md`, Users admin page, route restructure.
 - `d7d4c32` 2025-12-01 Lint forces semicolons; `c3a9f25` 2025-12-02 husky pre-commit lint+typecheck.
+- 2026-09-03 TanStack Query adopted: `useApiQuery` adapter and a `queryKeys` table, shared
+  library/collection/media reads, `LibraryPage` split into `useLibraryCollections`,
+  `LibraryToolbar` and the collection cards, routes lazy-loaded, view mode and sort persisted
+  per library, and the five copies of "add to most recent collection" replaced by one hook.
 - `68cf1ce`…`30f5a7a` 2025-12-01 Page-by-page test push (LibraryPage, MediaPage, PersonPage, UsersPage, Header, Sidebar, ImagesDialog, contexts).
 - `384bcd7` 2025-12-02 `CollectionPage` split into `FilmHeroView`/`ShowHeroView`/`StandardCollectionView`/`ChildCollectionGrid`/`MediaGrid`/`CollectionBreadcrumbs`/`CollectionOptionsMenu` with tests.
 - `f7f96fd` 2025-12-02 Library sorting.
@@ -322,17 +357,24 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Known Limitations
 
-- **No code splitting.** One 1.49MB JS bundle; `PlayPage`, hls.js, dnd-kit and the admin pages
-  are downloaded before the login form renders.
+- **hls.js is still in the initial bundle.** Routes are split, but `PlayerContext` is mounted
+  app-wide for the mini-player and imports hls.js at the top, so the largest single dependency
+  is loaded before the login form renders. A dynamic import inside the context is the remaining
+  win.
 - **Expired tokens are not handled.** `request()` returns the backend error text on 401; nothing
   clears the token or redirects, so every page shows "Invalid token"-style alerts until logout.
 - **Single locale in practice.** i18next is configured with a language detector but only `en`
   exists; many call sites rely on inline English defaults, and the two client error strings are
   untranslated.
-- **View mode, filters and sort are not persisted**; only the scroll-restoration cache (10 min,
-  back-button only) remembers them. Navigating forward to the same library resets to poster/name.
-- **Duplicate fetches.** `ActiveLibraryContext` re-fetches the collection or media that the page
-  is already loading; `Header` and `Sidebar` each fetch `getLibraries()` (`Sidebar` on every open).
+- **Filters are not persisted.** View mode and sort are remembered per library, but excluded
+  ratings and selected keywords are not, so returning to a library clears them.
+- **Half the pages are converted.** `SettingsPage`, `LibrariesPage`, `UsersPage`,
+  `UserCollectionsPage`, `UserCollectionPage` and `SearchPage` still keep their own
+  `cancelled`-flag effects, so `LibrariesPage`'s scan polling and `SearchPage`'s pagination do
+  not benefit from the cache yet.
+- **The scroll-restoration cache still stores data.** With a query cache in place, a library
+  page revisited within the cache window could render from it and restore only the scroll
+  offset, but `LibraryPage` and `SearchPage` still snapshot their rows.
 - **Scroll restoration heuristics.** State is saved on *any* button click (including favourite
   toggles and menu openers), restoration polls up to 50 frames, and a global `setInterval` runs
   for the app's lifetime. Only two pages participate; `CollectionPage` and `PersonPage` lose
@@ -352,20 +394,16 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Opportunities
 
-- **Lazy-load routes** with `React.lazy` + `Suspense` per page, at minimum `PlayPage`
-  (hls.js), `QueuePage`/`UserCollectionPage` (dnd-kit) and the admin pages. (S)
-- **Adopt a query library** (TanStack Query or SWR): would replace the copy-pasted
-  fetch/cancel/loading/error effects in ~14 pages, dedupe the `getLibraries` and
-  `ActiveLibraryContext` fetches, give `LibraryPage` `useInfiniteQuery` for free, and provide a
-  cache that makes `ScrollRestorationContext`'s data snapshot unnecessary. (L)
-- **Split `LibraryPage`** (1004 lines, 25 state hooks) into a `useLibraryCollections` hook
-  (pagination/filter/favourites), a `LibraryToolbar`, and `PosterGrid`/`ListView` components;
-  the poster card with its hover overlay is inline JSX today. (M)
-- **Extract `useAddToRecentCollection`** to remove the five copies of the "most recent user
-  collection" logic. (S)
+- **Finish the query migration** (M): `SettingsPage`, `LibrariesPage`, `UsersPage`,
+  `UserCollectionsPage`, `UserCollectionPage` and `SearchPage` still hand-roll their effects;
+  `LibrariesPage`'s scan poll wants `refetchInterval` and `SearchPage`/`LibraryPage` want
+  `useInfiniteQuery`, which would in turn let `ScrollRestorationContext` drop its data snapshot
+  and restore only the scroll offset.
+- **Load hls.js on demand** (S): a dynamic `import('hls.js')` inside `PlayerContext` would take
+  the largest dependency out of the initial download now that routes are split.
+- **Persist filters per library** (S): excluded ratings and selected keywords alongside the view
+  mode and sort that are already stored.
 
-- **Persist view mode / sort per library** in `localStorage` (the player already persists
-  quality and mini-player position). (S)
 - **Split `client.ts` by domain** (`auth`, `libraries`, `collections`, `stream`, `userCollections`)
   behind the same `request()` helper, or generate it from the backend's OpenAPI spec, which
   already exists at `/api-docs`. (M)

@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useCallback, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 
 interface ActiveLibraryContextValue {
   activeLibraryId: string | null;
@@ -11,7 +12,10 @@ const ActiveLibraryContext = createContext<ActiveLibraryContextValue | null>(nul
 
 export function ActiveLibraryProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const [fetchedLibraryInfo, setFetchedLibraryInfo] = useState<{ libraryId: string } | null>(null);
+  // The library a collection or media route belongs to, applied once per
+  // route, plus a manual choice that wins until the next route resolves.
+  const [resolved, setResolved] = useState<{ routeId: string; libraryId: string } | null>(null);
+  const [manualLibraryId, setManualLibraryId] = useState<string | null>(null);
 
   // Parse route info from pathname
   const routeInfo = useMemo(() => {
@@ -35,31 +39,32 @@ export function ActiveLibraryProvider({ children }: { children: ReactNode }) {
     return null;
   }, [location.pathname]);
 
-  // Fetch library ID for collection/media pages (async only)
-  useEffect(() => {
-    if (!routeInfo || routeInfo.type === 'library') {
-      // Skip for library routes - handled synchronously in activeLibraryId
-      return;
-    }
+  // Which library a collection or media route belongs to is only known from
+  // the record itself. These are the same queries CollectionPage and MediaPage
+  // run, so the cache answers them without a second request.
+  const collectionQuery = useApiQuery(
+    queryKeys.collection(routeInfo?.type === 'collection' ? routeInfo.id : ''),
+    () => apiClient.getCollection(routeInfo!.id),
+    { enabled: routeInfo?.type === 'collection' }
+  );
+  const mediaQuery = useApiQuery(
+    queryKeys.media(routeInfo?.type === 'media' ? routeInfo.id : ''),
+    () => apiClient.getMedia(routeInfo!.id),
+    { enabled: routeInfo?.type === 'media' }
+  );
 
-    if (routeInfo.type === 'collection') {
-      apiClient.getCollection(routeInfo.id).then((result) => {
-        if (result.data?.collection?.library?.id) {
-          setFetchedLibraryInfo({ libraryId: result.data.collection.library.id });
-        }
-      });
-      return;
-    }
+  const routeLibraryId =
+    collectionQuery.data?.collection?.library?.id ??
+    (mediaQuery.data?.media as { collection?: { library?: { id: string } } } | undefined)?.collection?.library
+      ?.id ??
+    null;
 
-    if (routeInfo.type === 'media') {
-      apiClient.getMedia(routeInfo.id).then((result) => {
-        const media = result.data?.media as { collection?: { library?: { id: string } } };
-        if (media?.collection?.library?.id) {
-          setFetchedLibraryInfo({ libraryId: media.collection.library.id });
-        }
-      });
-    }
-  }, [routeInfo]);
+  // Adjusted during render rather than in an effect, so the previous library
+  // stays highlighted while the next route's record is still loading.
+  if (routeLibraryId && routeInfo && resolved?.routeId !== routeInfo.id) {
+    setResolved({ routeId: routeInfo.id, libraryId: routeLibraryId });
+    setManualLibraryId(null);
+  }
 
   // Active library ID:
   // - For library routes: use directly from URL
@@ -72,13 +77,13 @@ export function ActiveLibraryProvider({ children }: { children: ReactNode }) {
     if (routeInfo.type === 'library') {
       return routeInfo.id;
     }
-    // For collection/media, use the last fetched library ID
-    return fetchedLibraryInfo?.libraryId ?? null;
-  }, [routeInfo, fetchedLibraryInfo]);
+    // For collection/media, the manual choice or the resolved library.
+    return manualLibraryId ?? resolved?.libraryId ?? null;
+  }, [routeInfo, manualLibraryId, resolved]);
 
   // Allow components to set the active library (e.g., when clicking a library tab)
   const setActiveLibrary = useCallback((libraryId: string) => {
-    setFetchedLibraryInfo({ libraryId });
+    setManualLibraryId(libraryId);
   }, []);
 
   const value = useMemo(() => ({

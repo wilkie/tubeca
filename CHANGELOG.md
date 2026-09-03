@@ -19,6 +19,7 @@ All notable changes to Tubeca are recorded here. The format follows
   and artwork no longer have to be English and US.
 - An admin can pin a specific video encoder in Settings; a choice this machine cannot run is
   ignored in favour of the detected one.
+- A library remembers whether you browse it as posters or as a list, and how you sort it.
 
 ### Fixed
 - Seeking no longer waits behind segments being encoded for the position you left: the player's
@@ -39,6 +40,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- Pages share one data cache, so the library list is fetched once for the header, the sidebar
+  and the home page rather than three times, and returning to a page you just left is instant.
+- Each page's code is downloaded when you first open it instead of all of it up front.
 - Video encoder detection runs just after the server starts answering requests rather than
   during startup, so a machine with several unusable encoders boots without the wait.
 - A re-scrape keeps artwork that has not changed at the provider, so a full scan of a large

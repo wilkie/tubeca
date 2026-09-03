@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -14,6 +13,8 @@ import {
 import { Movie, MusicNote, Tv } from '@mui/icons-material';
 import { apiClient } from '../api/client';
 import type { ContinueWatchingEntry, Library, LibraryType } from '../api/client';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
+import { useLibraries } from '../hooks/useLibraries';
 import { ContinueWatchingRow } from '../components/ContinueWatchingRow';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
 import { useAuth } from '../context/AuthContext';
@@ -33,36 +34,16 @@ export function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { setActiveLibrary } = useActiveLibrary();
-  const [libraries, setLibraries] = useState<Library[]>([]);
-  const [continueWatching, setContinueWatching] = useState<ContinueWatchingEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const librariesQuery = useLibraries();
+  const continueWatchingQuery = useApiQuery(queryKeys.continueWatching, () =>
+    apiClient.getContinueWatching()
+  );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      const [result, progressResult] = await Promise.all([
-        apiClient.getLibraries(),
-        apiClient.getContinueWatching(),
-      ]);
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        setLibraries(result.data.libraries);
-      }
-      // Continue Watching is decorative; a failure there should not blank the page.
-      setContinueWatching(progressResult?.data?.items ?? []);
-      setLoading(false);
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const libraries = librariesQuery.libraries;
+  // Continue Watching is decorative; a failure there should not blank the page.
+  const continueWatching: ContinueWatchingEntry[] = continueWatchingQuery.data?.items ?? [];
+  const loading = librariesQuery.isPending || continueWatchingQuery.isPending;
+  const error = librariesQuery.errorMessage;
 
   const openLibrary = (library: Library) => {
     setActiveLibrary(library.id);

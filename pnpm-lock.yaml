@@ -162,6 +162,9 @@ importers:
       '@mui/material':
         specifier: ^7.3.5
         version: 7.3.5(@emotion/react@11.14.0)(@emotion/styled@11.14.1)(@types/react@19.2.7)(react-dom@19.2.0)(react@19.2.0)
+      '@tanstack/react-query':
+        specifier: ^5.102.8
+        version: 5.102.8(react@19.2.0)
       '@tubeca/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -3523,6 +3526,19 @@ packages:
 
   /@standard-schema/spec@1.0.0:
     resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
+    dev: false
+
+  /@tanstack/query-core@5.102.8:
+    resolution: {integrity: sha512-ZNjkJ33CqvPNec/6lZBnHqLc3EVGPZ9ySLhYahU9TcuRFdmwXewuj0c4hwSWcGHqEUwcSrKeZ+oGcvPBqXcQcg==}
+    dev: false
+
+  /@tanstack/react-query@5.102.8(react@19.2.0):
+    resolution: {integrity: sha512-TYBea4OuXWD7MhaSHq069TWbFe7rcwWN6kzT7JF0OKi1K6c1gTv2IzD6A6ExJsCMozdkqBWeuIUZmu4KQg0O5A==}
+    peerDependencies:
+      react: ^18 || ^19
+    dependencies:
+      '@tanstack/query-core': 5.102.8
+      react: 19.2.0
     dev: false
 
   /@testing-library/dom@10.4.1:
@@ -8350,6 +8366,7 @@ packages:
   /picomatch@4.0.7:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
+    requiresBuild: true
     dev: true
 
   /pirates@4.0.7:

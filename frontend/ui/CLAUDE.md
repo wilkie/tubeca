@@ -38,34 +38,23 @@ pnpm test:coverage    # Tests with coverage report
 
 ### Page Component
 
+Reads go through `useApiQuery`, which wraps TanStack Query around the client's
+`{ data, error }` result. Do not hand-roll a `useState` + `useEffect` + `cancelled`
+fetch in a new page; several older pages still have one, and they are being converted.
+
 ```typescript
 export function ExamplePage() {
   const { t } = useTranslation();
-  const [data, setData] = useState<DataType | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { id } = useParams<{ id: string }>();
 
-  useEffect(() => {
-    let cancelled = false;
+  const { data, isPending, errorMessage } = useApiQuery(
+    queryKeys.thing(id ?? ''),
+    () => apiClient.getThing(id!),
+    { enabled: Boolean(id) }
+  );
 
-    async function loadData() {
-      const result = await apiClient.getData();
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        setData(result.data);
-      }
-      setLoading(false);
-    }
-
-    loadData();
-    return () => { cancelled = true; };
-  }, []);
-
-  if (loading) return <CircularProgress />;
-  if (error) return <Alert severity="error">{error}</Alert>;
+  if (isPending) return <CircularProgress />;
+  if (errorMessage) return <Alert severity="error">{errorMessage}</Alert>;
 
   return (
     <Box>
@@ -75,6 +64,14 @@ export function ExamplePage() {
   );
 }
 ```
+
+Add the key to the `queryKeys` table in `hooks/useApiQuery.ts` rather than writing a key
+inline, so a mutation elsewhere can invalidate or overwrite the same entry. After a mutation
+that returns the updated record, write it in with `queryClient.setQueryData(key, payload)`;
+use `refetch()` when the server does the work asynchronously, as Identify does.
+
+Routes are lazy-loaded in `App.tsx`. A new page is a `lazy(() => import(...))` entry there,
+not a static import.
 
 ### Form with Edit Tracking
 
@@ -264,6 +261,9 @@ The project has strict React hooks linting. Common issues:
 
 ### useEffect Dependencies
 
+Prefer `useApiQuery` over an effect for fetching. When an effect is genuinely the right tool
+(subscriptions, observers), it still needs cancellation:
+
 ```typescript
 // BAD - calling function directly
 useEffect(() => {
@@ -281,6 +281,10 @@ useEffect(() => {
   return () => { cancelled = true; };
 }, [dependency]);
 ```
+
+Setting state inside an effect is linted against (`react-hooks/set-state-in-effect`). To adjust
+state when an input changes, do it during render, guarded by a comparison, as
+`ActiveLibraryContext` does.
 
 ### Form State Reset
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,6 +18,8 @@ import {
 } from '@mui/material';
 import { WatchLater, Movie, Tv, Album, Folder, VideoFile, AudioFile } from '@mui/icons-material';
 import { apiClient, type UserCollection, type UserCollectionItem } from '../api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
 import { FilterChips } from '../components/FilterChips';
 
@@ -53,9 +55,21 @@ function getSortableValue(item: UserCollectionItem, field: SortField): string | 
 export function WatchLaterPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [watchLater, setWatchLater] = useState<UserCollection | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const {
+    data: watchLaterData,
+    isPending: isLoading,
+    errorMessage: error,
+  } = useApiQuery(queryKeys.watchLater, () => apiClient.getWatchLater());
+  const watchLater: UserCollection | null = watchLaterData?.userCollection ?? null;
+
+  /** Update the cached list in place, e.g. after removing an item. */
+  const setWatchLater = (update: (prev: UserCollection | null) => UserCollection | null) => {
+    queryClient.setQueryData<{ userCollection: UserCollection }>(queryKeys.watchLater, (prev) => {
+      const next = update(prev?.userCollection ?? null);
+      return next ? { userCollection: next } : prev;
+    });
+  };
   const [sortField, setSortField] = useState<SortField>('dateAdded');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [excludedTypes, setExcludedTypes] = useState<Set<string>>(new Set());
@@ -132,31 +146,6 @@ export function WatchLaterPage() {
       return next;
     });
   };
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchWatchLater() {
-      setIsLoading(true);
-      setError(null);
-
-      const result = await apiClient.getWatchLater();
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        setWatchLater(result.data.userCollection);
-      }
-      setIsLoading(false);
-    }
-
-    fetchWatchLater();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleItemClick = (item: UserCollectionItem) => {
     if (item.collection) {

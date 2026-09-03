@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Box, Container, CircularProgress, Alert } from '@mui/material';
 import { apiClient, type Collection, type CollectionType, type Image, type Credit } from '../api/client';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { useAuth } from '../context/AuthContext';
 import { usePlayer } from '../context/PlayerContext';
 import { ImagesDialog } from '../components/ImagesDialog';
@@ -66,10 +67,30 @@ export function CollectionPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { playMedia } = usePlayer();
-  const [collection, setCollection] = useState<Collection | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+  const {
+    data: collectionData,
+    isPending: isLoading,
+    errorMessage: loadError,
+    refetch: refetchCollection,
+  } = useApiQuery(queryKeys.collection(collectionId ?? ''), () => apiClient.getCollection(collectionId!), {
+    enabled: Boolean(collectionId),
+  });
+  const collection: Collection | null = collectionData?.collection ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = loadError ?? actionError;
+
+  // The library and the parent come back on the collection itself, so the
+  // trail is derived rather than stored.
+  const breadcrumbs = useMemo<BreadcrumbItem[]>(() => {
+    const crumbs: BreadcrumbItem[] = [];
+    if (collection?.library) {
+      crumbs.push({ id: collection.library.id, name: collection.library.name, type: 'library' });
+    }
+    if (collection?.parent) {
+      crumbs.push({ id: collection.parent.id, name: collection.parent.name, type: 'collection' });
+    }
+    return crumbs;
+  }, [collection]);
 
   // Menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
@@ -97,59 +118,6 @@ export function CollectionPage() {
   const { query: quickSearchQuery, isActive: isQuickSearchActive } = useQuickSearch();
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
-
-  useEffect(() => {
-    if (!collectionId) return;
-
-    let cancelled = false;
-
-    async function fetchData() {
-      setIsLoading(true);
-      setError(null);
-
-      const result = await apiClient.getCollection(collectionId!);
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-        setIsLoading(false);
-        return;
-      }
-
-      if (result.data) {
-        setCollection(result.data.collection);
-
-        // Build breadcrumbs
-        const crumbs: BreadcrumbItem[] = [];
-
-        if (result.data.collection.library) {
-          crumbs.push({
-            id: result.data.collection.library.id,
-            name: result.data.collection.library.name,
-            type: 'library',
-          });
-        }
-
-        if (result.data.collection.parent) {
-          crumbs.push({
-            id: result.data.collection.parent.id,
-            name: result.data.collection.parent.name,
-            type: 'collection',
-          });
-        }
-
-        setBreadcrumbs(crumbs);
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [collectionId]);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setMenuAnchorEl(event.currentTarget);
@@ -201,12 +169,9 @@ export function CollectionPage() {
   };
 
   const handleIdentified = async () => {
-    // Refresh collection data after identification
-    if (!collectionId) return;
-    const result = await apiClient.getCollection(collectionId);
-    if (result.data) {
-      setCollection(result.data.collection);
-    }
+    // The scrape is queued, not finished, but the details row already carries
+    // the new identity.
+    await refetchCollection();
   };
 
   const handleDeleteConfirm = async () => {
@@ -216,7 +181,7 @@ export function CollectionPage() {
     const result = await apiClient.deleteCollection(collection.id);
 
     if (result.error) {
-      setError(result.error);
+      setActionError(result.error);
       setIsDeleting(false);
       setDeleteDialogOpen(false);
       return;

@@ -1,450 +1,195 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Alert, Box, CircularProgress, Collapse, Container, Grid, Stack, Typography } from '@mui/material';
+import { apiClient, type Collection, type Keyword } from '../api/client';
 import { useCachedState, useScrollRestoration } from '../context/ScrollRestorationContext';
-import {
-  Box,
-  Container,
-  Typography,
-  CircularProgress,
-  Alert,
-  Grid,
-  Card,
-  CardContent,
-  CardActionArea,
-  CardMedia,
-  Stack,
-  IconButton,
-  Collapse,
-  Tooltip,
-  Badge,
-} from '@mui/material';
-import { Folder, Movie, Tv, Album, FilterList, Clear, PlayArrow, CheckBox, CheckBoxOutlineBlank } from '@mui/icons-material';
-import { apiClient, type Library, type Collection, type Keyword } from '../api/client';
-import { CardQuickActions } from '../components/CardQuickActions';
-import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
+import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
+import { CollectionListCard, CollectionPosterCard } from '../components/CollectionCard';
 import { FilterChips } from '../components/FilterChips';
 import { KeywordFilter } from '../components/KeywordFilter';
-import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
-import { ViewModeMenu, type ViewMode } from '../components/ViewModeMenu';
+import { LibraryToolbar } from '../components/LibraryToolbar';
 import { QuickSearchOverlay } from '../components/QuickSearchOverlay';
 import { SelectionActionBar } from '../components/SelectionActionBar';
-import { useQuickSearch } from '../hooks/useQuickSearch';
+import type { SortOption } from '../components/SortControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import {
+  useLibraryCollections,
+  type LibraryCollectionsSnapshot,
+} from '../hooks/useLibraryCollections';
+import { useLibraryViewPreferences, type SortField } from '../hooks/useLibraryViewPreferences';
+import { useQuickSearch } from '../hooks/useQuickSearch';
 import { useWatchState } from '../hooks/useWatchState';
-import { WatchBadge } from '../components/WatchBadge';
 
-type SortField = 'name' | 'dateAdded' | 'releaseDate' | 'rating' | 'runtime';
-
-const PAGE_SIZE = 50;
-
-// State that gets cached for scroll restoration
-interface CachedLibraryState {
-  library: Library;
-  collections: Collection[];
-  page: number;
-  hasMore: boolean;
-  total: number;
-  favoritedIds: string[];
-  watchLaterIds: string[];
-  sortField: SortField;
-  sortDirection: SortDirection;
-  availableContentRatings: string[];
-}
-
-// Standard content ratings in order
-const CONTENT_RATING_ORDER = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
-
+/**
+ * Browse one library: a paged, filterable grid or list of its collections.
+ *
+ * The page owns what the viewer is doing (filters, selection, which dialog is
+ * open); the data lives in `useLibraryCollections` and the markup in
+ * `LibraryToolbar` and the collection cards.
+ */
 export function LibraryPage() {
   const { t } = useTranslation();
   const { libraryId } = useParams<{ libraryId: string }>();
   const navigate = useNavigate();
 
-  // Check for cached state to restore on back navigation
+  // Restored when the viewer comes back to this library with the back button.
   const cacheKey = `library-${libraryId}`;
-  const { cachedState } = useCachedState<CachedLibraryState>(cacheKey);
+  const { cachedState } = useCachedState<LibraryCollectionsSnapshot>(cacheKey);
 
-  // Core state - initialize from cache if available
-  const [library, setLibrary] = useState<Library | null>(cachedState?.library ?? null);
-  const [collections, setCollections] = useState<Collection[]>(cachedState?.collections ?? []);
-  const [isLoading, setIsLoading] = useState(!cachedState);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { viewMode, sortField, sortDirection, setViewMode, setSortField, setSortDirection } =
+    useLibraryViewPreferences(libraryId);
 
-  // Pagination state
-  const [page, setPage] = useState(cachedState?.page ?? 1);
-  const [hasMore, setHasMore] = useState(cachedState?.hasMore ?? false);
-  const [total, setTotal] = useState(cachedState?.total ?? 0);
-
-  // Sort/filter state
-  const [sortField, setSortField] = useState<SortField>(cachedState?.sortField ?? 'name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>(cachedState?.sortDirection ?? 'asc');
   const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
-  const [availableKeywords, setAvailableKeywords] = useState<Keyword[]>([]);
   const [selectedKeywords, setSelectedKeywords] = useState<Keyword[]>([]);
-  const [availableContentRatings, setAvailableContentRatings] = useState<string[]>(cachedState?.availableContentRatings ?? []);
+  const [showFilters, setShowFilters] = useState(false);
 
-  // UI state
-  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set(cachedState?.favoritedIds ?? []));
-  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set(cachedState?.watchLaterIds ?? []));
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
   const [selectedCollectionForAdd, setSelectedCollectionForAdd] = useState<Collection | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [badgeHovered, setBadgeHovered] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('poster');
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Quick search for filtering items (server-side)
+  // Server-side filtering by name, debounced so typing does not spam the API.
   const { query: quickSearchQuery, isActive: isQuickSearchActive } = useQuickSearch();
-  // Debounce the search query for API calls to avoid excessive requests
   const debouncedSearchQuery = useDebouncedValue(quickSearchQuery, 300);
+
+  const {
+    library,
+    collections,
+    isLoading,
+    isLoadingMore,
+    error,
+    total,
+    hasMore,
+    favoritedIds,
+    watchLaterIds,
+    availableContentRatings,
+    availableKeywords,
+    keywordsLoading,
+    loadKeywords,
+    loadMore,
+    snapshot,
+  } = useLibraryCollections(
+    libraryId,
+    { sortField, sortDirection, excludedRatings, selectedKeywords, nameFilter: debouncedSearchQuery },
+    cachedState
+  );
+
+  useScrollRestoration(cacheKey, snapshot);
+
   const collectionIds = useMemo(() => collections.map((c) => c.id), [collections]);
   const { summaries: watchSummaries } = useWatchState({ collectionIds });
 
-  // Ref for infinite scroll sentinel
+  // Infinite scroll sentinel at the foot of the grid.
   const loadMoreRef = useRef<HTMLDivElement>(null);
-
-  // Track if we restored from cache - used to skip initial fetch and block infinite scroll
-  // Check both cachedState AND collections.length because in StrictMode, cachedState might be
-  // null on the second mount (if isBackNavigation changed), but collections state persists
-  const restoredFromCacheRef = useRef(cachedState !== null || collections.length > 0);
-
-  // Build current state for caching (only when library is loaded)
-  const getCurrentState = useCallback((): CachedLibraryState | null => {
-    if (!library) return null;
-    return {
-      library,
-      collections,
-      page,
-      hasMore,
-      total,
-      favoritedIds: Array.from(favoritedIds),
-      watchLaterIds: Array.from(watchLaterIds),
-      sortField,
-      sortDirection,
-      availableContentRatings,
-    };
-  }, [library, collections, page, hasMore, total, favoritedIds, watchLaterIds, sortField, sortDirection, availableContentRatings]);
-
-  // Scroll restoration - handles saving state and restoring scroll position
-  useScrollRestoration(cacheKey, getCurrentState);
-
-  // Unblock infinite scroll after restoration is complete
-  useEffect(() => {
-    if (restoredFromCacheRef.current) {
-      const timeout = setTimeout(() => {
-        restoredFromCacheRef.current = false;
-      }, 500);
-      return () => clearTimeout(timeout);
-    }
-  }, []);
-
-  // Track if keywords have been loaded (lazy load on filter panel open)
-  const keywordsLoadedRef = useRef(false);
-  const [keywordsLoading, setKeywordsLoading] = useState(false);
-
-  // Fetch collections with current filters/sort
-  const fetchCollections = useCallback(async (
-    pageNum: number,
-    append: boolean = false
-  ) => {
-    if (!libraryId) return;
-
-    if (pageNum === 1) {
-      setIsLoading(true);
-    } else {
-      setIsLoadingMore(true);
-    }
-
-    const result = await apiClient.getCollectionsByLibrary(libraryId, {
-      page: pageNum,
-      limit: PAGE_SIZE,
-      sortField,
-      sortDirection,
-      excludedRatings: excludedRatings.size > 0 ? Array.from(excludedRatings) : undefined,
-      keywordIds: selectedKeywords.length > 0 ? selectedKeywords.map(k => k.id) : undefined,
-      nameFilter: debouncedSearchQuery || undefined,
-    });
-
-    if (result.error) {
-      setError(result.error);
-    } else if (result.data) {
-      if (append) {
-        setCollections(prev => [...prev, ...result.data!.collections]);
-      } else {
-        setCollections(result.data.collections);
-      }
-      setTotal(result.data.total);
-      setHasMore(result.data.hasMore);
-      setPage(result.data.page);
-
-      // Fetch favorites/watch later for new collections
-      const newIds = result.data.collections.map(c => c.id);
-      if (newIds.length > 0) {
-        const [favResult, watchLaterResult] = await Promise.all([
-          apiClient.checkFavorites(newIds),
-          apiClient.checkWatchLater(newIds),
-        ]);
-
-        if (favResult.data) {
-          setFavoritedIds(prev => {
-            const next = new Set(prev);
-            favResult.data!.collectionIds.forEach(id => next.add(id));
-            return next;
-          });
-        }
-        if (watchLaterResult.data) {
-          setWatchLaterIds(prev => {
-            const next = new Set(prev);
-            watchLaterResult.data!.collectionIds.forEach(id => next.add(id));
-            return next;
-          });
-        }
-      }
-
-      // Extract content ratings from loaded collections (for Film libraries)
-      if (!append) {
-        const ratings = new Set<string>();
-        result.data.collections.forEach(c => {
-          if (c.filmDetails?.contentRating) {
-            ratings.add(c.filmDetails.contentRating);
-          }
-        });
-        // We'll accumulate ratings as we load more
-        setAvailableContentRatings(prev => {
-          const combined = new Set([...prev, ...ratings]);
-          return Array.from(combined).sort((a, b) => {
-            const aIndex = CONTENT_RATING_ORDER.indexOf(a);
-            const bIndex = CONTENT_RATING_ORDER.indexOf(b);
-            if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-            if (aIndex !== -1) return -1;
-            if (bIndex !== -1) return 1;
-            return a.localeCompare(b);
-          });
-        });
-      }
-    }
-
-    setIsLoading(false);
-    setIsLoadingMore(false);
-  }, [libraryId, sortField, sortDirection, excludedRatings, selectedKeywords, debouncedSearchQuery]);
-
-  // Initial load - fetch library details
-  useEffect(() => {
-    if (!libraryId) return;
-
-    // Skip initial load if we restored from cache (library is already restored)
-    if (restoredFromCacheRef.current) {
-      return;
-    }
-
-    let cancelled = false;
-
-    // Clear all previous library data immediately to prevent stale content flash
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync clear on libraryId change
-    setLibrary(null);
-    setCollections([]);
-    setAvailableKeywords([]);
-    setSelectedKeywords([]);
-    setAvailableContentRatings([]);
-    setExcludedRatings(new Set());
-    setFavoritedIds(new Set());
-    setWatchLaterIds(new Set());
-    setPage(1);
-    setTotal(0);
-    setHasMore(false);
-    keywordsLoadedRef.current = false;
-
-    async function fetchInitialData() {
-      setIsLoading(true);
-      setError(null);
-
-      // Fetch library details
-      const libraryResult = await apiClient.getLibrary(libraryId!);
-      if (cancelled) return;
-
-      if (libraryResult.error) {
-        setError(libraryResult.error);
-        setIsLoading(false);
-        return;
-      }
-
-      if (libraryResult.data) {
-        setLibrary(libraryResult.data.library);
-      }
-
-      // Fetch first page of collections (keywords are lazy-loaded when filter panel opens)
-      await fetchCollections(1);
-    }
-
-    fetchInitialData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [libraryId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Refetch when sort/filter changes
-  useEffect(() => {
-    if (!library) return; // Don't refetch until initial load is done
-
-    // Skip on first render if we restored from cache
-    if (restoredFromCacheRef.current) {
-      return;
-    }
-
-    // Reset favorites/watchLater but keep collections visible until new data arrives
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync clear on filter change
-    setFavoritedIds(new Set());
-    setWatchLaterIds(new Set());
-    fetchCollections(1);
-  }, [sortField, sortDirection, excludedRatings, selectedKeywords, debouncedSearchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Infinite scroll with IntersectionObserver
   useEffect(() => {
     if (!hasMore || isLoadingMore) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        // Skip if we're still in the restoration period (prevents accidental pagination)
-        if (restoredFromCacheRef.current) return;
-
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
-          fetchCollections(page + 1, true);
-        }
+        if (entries[0].isIntersecting) loadMore();
       },
       { threshold: 0.1 }
     );
 
     const sentinel = loadMoreRef.current;
-    if (sentinel) {
-      observer.observe(sentinel);
-    }
-
+    if (sentinel) observer.observe(sentinel);
     return () => {
-      if (sentinel) {
-        observer.unobserve(sentinel);
-      }
+      if (sentinel) observer.unobserve(sentinel);
     };
-  }, [hasMore, isLoadingMore, page, fetchCollections]);
+  }, [hasMore, isLoadingMore, loadMore]);
 
-  // Sort options for the dropdown
-  const sortOptions: SortOption[] = useMemo(() => [
-    { value: 'name', label: t('library.sort.name') },
-    { value: 'dateAdded', label: t('library.sort.dateAdded') },
-    { value: 'releaseDate', label: t('library.sort.releaseDate') },
-    { value: 'rating', label: t('library.sort.rating') },
-    { value: 'runtime', label: t('library.sort.runtime') },
-  ], [t]);
+  const sortOptions: SortOption[] = useMemo(
+    () => [
+      { value: 'name', label: t('library.sort.name') },
+      { value: 'dateAdded', label: t('library.sort.dateAdded') },
+      { value: 'releaseDate', label: t('library.sort.releaseDate') },
+      { value: 'rating', label: t('library.sort.rating') },
+      { value: 'runtime', label: t('library.sort.runtime') },
+    ],
+    [t]
+  );
 
-  const handleCollectionClick = (collectionId: string) => {
-    navigate(`/collection/${collectionId}`);
-  };
-
-  const handleAddToCollection = (collection: Collection) => {
-    setSelectedCollectionForAdd(collection);
-    setAddToCollectionOpen(true);
-  };
-
-  const toggleSelection = (collectionId: string) => {
+  const toggleSelection = useCallback((collectionId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(collectionId)) {
-        next.delete(collectionId);
-      } else {
-        next.add(collectionId);
-      }
+      if (next.has(collectionId)) next.delete(collectionId);
+      else next.add(collectionId);
       return next;
     });
-  };
+  }, []);
 
-  const clearSelection = () => {
+  const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     setIsSelectionMode(false);
-  };
+  }, []);
 
-  const selectAll = () => {
-    setSelectedIds(new Set(collections.map((c) => c.id)));
-  };
+  const handleItemClick = useCallback(
+    (collectionId: string) => {
+      if (isSelectionMode) toggleSelection(collectionId);
+      else navigate(`/collection/${collectionId}`);
+    },
+    [isSelectionMode, navigate, toggleSelection]
+  );
 
-  const handleItemClick = (collectionId: string) => {
-    if (isSelectionMode) {
-      toggleSelection(collectionId);
-    } else {
-      handleCollectionClick(collectionId);
-    }
-  };
+  const handleAddToCollection = useCallback((collection: Collection) => {
+    setSelectedCollectionForAdd(collection);
+    setAddToCollectionOpen(true);
+  }, []);
 
-  const handlePlay = async (collectionId: string) => {
-    // Fetch the collection to get its media
-    const result = await apiClient.getCollection(collectionId);
-    if (!result.data) return;
+  /** Play a collection: the film itself, or the first episode of its first season. */
+  const handlePlay = useCallback(
+    async (collectionId: string) => {
+      const result = await apiClient.getCollection(collectionId);
+      if (!result.data) return;
 
-    const col = result.data.collection;
-    let mediaId: string | null = null;
+      const col = result.data.collection;
+      let mediaId: string | null = null;
 
-    // For films, play the first media item directly
-    if (col.media && col.media.length > 0) {
-      mediaId = col.media[0].id;
-    }
-    // For shows, get the first episode from the first season
-    else if (col.children && col.children.length > 0) {
-      // Sort seasons by name to get first season
-      const sortedSeasons = [...col.children].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-      const firstSeason = sortedSeasons[0];
-
-      // Fetch the season to get its episodes
-      const seasonResult = await apiClient.getCollection(firstSeason.id);
-      if (seasonResult.data?.collection.media && seasonResult.data.collection.media.length > 0) {
-        // Sort episodes by episode number
-        const sortedEpisodes = [...seasonResult.data.collection.media].sort((a, b) => {
-          const aNum = a.videoDetails?.episode ?? 0;
-          const bNum = b.videoDetails?.episode ?? 0;
-          return aNum - bNum;
-        });
-        mediaId = sortedEpisodes[0].id;
+      if (col.media && col.media.length > 0) {
+        mediaId = col.media[0].id;
+      } else if (col.children && col.children.length > 0) {
+        const sortedSeasons = [...col.children].sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { numeric: true })
+        );
+        const seasonResult = await apiClient.getCollection(sortedSeasons[0].id);
+        const episodes = seasonResult.data?.collection.media;
+        if (episodes && episodes.length > 0) {
+          const sortedEpisodes = [...episodes].sort(
+            (a, b) => (a.videoDetails?.episode ?? 0) - (b.videoDetails?.episode ?? 0)
+          );
+          mediaId = sortedEpisodes[0].id;
+        }
       }
-    }
 
-    if (mediaId) {
-      await apiClient.setPlaybackQueue([{ mediaId }]);
-      navigate(`/play/${mediaId}`);
-    }
-  };
+      if (mediaId) {
+        await apiClient.setPlaybackQueue([{ mediaId }]);
+        navigate(`/play/${mediaId}`);
+      }
+    },
+    [navigate]
+  );
 
-  // Lazy load keywords when filter panel is opened for the first time
-  const handleToggleFilters = async () => {
+  const handleToggleFilters = useCallback(() => {
     const willOpen = !showFilters;
     setShowFilters(willOpen);
+    if (willOpen) void loadKeywords();
+  }, [showFilters, loadKeywords]);
 
-    // Fetch keywords on first open
-    if (willOpen && !keywordsLoadedRef.current && libraryId) {
-      keywordsLoadedRef.current = true;
-      setKeywordsLoading(true);
-      const keywordsResult = await apiClient.getKeywordsByLibrary(libraryId);
-      if (keywordsResult.data) {
-        setAvailableKeywords(keywordsResult.data.keywords);
-      }
-      setKeywordsLoading(false);
-    }
-  };
+  const clearFilters = useCallback(() => {
+    setExcludedRatings(new Set());
+    setSelectedKeywords([]);
+  }, []);
 
-  // Only show content rating filter for Film libraries
+  // Content ratings only mean something for films.
   const showContentRatingFilter = library?.libraryType === 'Film' && availableContentRatings.length > 0;
+  const activeFilterCount = excludedRatings.size + selectedKeywords.length;
 
-  // Only show full-page spinner during initial library load (when library is null)
-  // For filter changes, keep the page visible and show inline loading
+  // A full-page spinner only before anything is known; filter changes keep the
+  // page on screen with an overlay instead.
   if (!library && isLoading) {
     return (
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '50vh',
-        }}
-      >
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
         <CircularProgress />
       </Box>
     );
@@ -466,96 +211,28 @@ export function LibraryPage() {
     );
   }
 
-  const activeFilterCount = excludedRatings.size + selectedKeywords.length;
-
   return (
     <Container maxWidth={false} sx={{ py: 4 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 3 }}
-        flexWrap="wrap"
-        gap={2}
-      >
-        <Typography variant="h4" component="h1">
-          {library.name}
-          {total > 0 && (
-            <Typography component="span" variant="body1" color="text.secondary" sx={{ ml: 2 }}>
-              ({total})
-            </Typography>
-          )}
-        </Typography>
+      <LibraryToolbar
+        libraryName={library.name}
+        total={total}
+        showFilterButton={showContentRatingFilter || availableKeywords.length > 0}
+        activeFilterCount={activeFilterCount}
+        filtersOpen={showFilters}
+        onToggleFilters={handleToggleFilters}
+        onClearFilters={clearFilters}
+        isSelectionMode={isSelectionMode}
+        onToggleSelectionMode={() => (isSelectionMode ? clearSelection() : setIsSelectionMode(true))}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        sortOptions={sortOptions}
+        sortField={sortField}
+        sortDirection={sortDirection}
+        onSortFieldChange={(value) => setSortField(value as SortField)}
+        onSortDirectionChange={setSortDirection}
+      />
 
-        <Stack direction="row" spacing={1} alignItems="center">
-          {(showContentRatingFilter || availableKeywords.length > 0) && (() => {
-            const canClear = activeFilterCount > 0;
-            return (
-              <Tooltip title={canClear && badgeHovered ? t('library.filter.clearAll', 'Clear') : t('library.filter.toggle', 'Toggle filters')}>
-                <Badge
-                  badgeContent={canClear && badgeHovered ? <Clear sx={{ fontSize: 12 }} /> : activeFilterCount}
-                  color={canClear && badgeHovered ? 'error' : 'primary'}
-                  max={99}
-                  slotProps={{
-                    badge: {
-                      onMouseEnter: () => canClear && setBadgeHovered(true),
-                      onMouseLeave: () => setBadgeHovered(false),
-                      onClick: (e: React.MouseEvent) => {
-                        if (canClear) {
-                          e.stopPropagation();
-                          setExcludedRatings(new Set());
-                          setSelectedKeywords([]);
-                          setBadgeHovered(false);
-                        }
-                      },
-                      style: {
-                        width: 20,
-                        height: 20,
-                        ...(canClear ? { cursor: 'pointer' } : {}),
-                      },
-                    },
-                  }}
-                >
-                  <IconButton
-                    size="small"
-                    onClick={handleToggleFilters}
-                    color={showFilters ? 'primary' : 'default'}
-                  >
-                    <FilterList />
-                  </IconButton>
-                </Badge>
-              </Tooltip>
-            );
-          })()}
-          <Tooltip title={isSelectionMode ? t('selection.exitMode') : t('selection.enterMode')}>
-            <IconButton
-              size="small"
-              onClick={() => {
-                if (isSelectionMode) {
-                  clearSelection();
-                } else {
-                  setIsSelectionMode(true);
-                }
-              }}
-              color={isSelectionMode ? 'primary' : 'default'}
-            >
-              {isSelectionMode ? <CheckBox /> : <CheckBoxOutlineBlank />}
-            </IconButton>
-          </Tooltip>
-          <ViewModeMenu value={viewMode} onChange={setViewMode} />
-          <SortControls
-            options={sortOptions}
-            value={sortField}
-            direction={sortDirection}
-            onValueChange={(v) => setSortField(v as SortField)}
-            onDirectionChange={setSortDirection}
-          />
-        </Stack>
-      </Stack>
-
-      {/* Filter Section (collapsible) */}
       <Collapse in={showFilters}>
-        {/* Content Rating Filter (Film libraries only) */}
         {showContentRatingFilter && (
           <FilterChips
             label={t('library.filter.rating', 'Rating')}
@@ -564,11 +241,8 @@ export function LibraryPage() {
             onToggle={(rating) => {
               setExcludedRatings((prev) => {
                 const next = new Set(prev);
-                if (next.has(rating)) {
-                  next.delete(rating);
-                } else {
-                  next.add(rating);
-                }
+                if (next.has(rating)) next.delete(rating);
+                else next.add(rating);
                 return next;
               });
             }}
@@ -577,7 +251,6 @@ export function LibraryPage() {
           />
         )}
 
-        {/* Keyword/Tag Filter */}
         {keywordsLoading ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
             <CircularProgress size={16} />
@@ -599,7 +272,7 @@ export function LibraryPage() {
       ) : (
         <>
           <Box sx={{ position: 'relative' }}>
-            {/* Loading overlay for filter/sort changes */}
+            {/* Dim what is on screen while a filter or sort change loads. */}
             {isLoading && collections.length > 0 && (
               <Box
                 sx={{
@@ -620,368 +293,52 @@ export function LibraryPage() {
                 <CircularProgress />
               </Box>
             )}
+
             {viewMode === 'poster' ? (
               <Grid container spacing={2}>
-                {collections.map((collection) => {
-                  const primaryImage = collection.images?.[0];
-                  const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
-
-                  // Get rating info from showDetails or filmDetails
-                  const rating = collection.filmDetails?.rating ?? collection.showDetails?.rating;
-                  const contentRating = collection.filmDetails?.contentRating;
-                  const hasRatingInfo = rating != null || contentRating != null;
-
-                  return (
-                    <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
-                      <Card
-                        sx={{
-                          height: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          position: 'relative',
-                          '&:hover .rating-overlay': {
-                            opacity: 1,
-                          },
-                          ...(isSelectionMode && selectedIds.has(collection.id) && {
-                            outline: '3px solid',
-                            outlineColor: 'primary.main',
-                            outlineOffset: -3,
-                          }),
-                        }}
-                      >
-                        <CardActionArea
-                          onClick={() => handleItemClick(collection.id)}
-                          sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
-                        >
-                          {/* Rating overlay (visible on hover) */}
-                          {hasRatingInfo && (
-                            <Box
-                              className="rating-overlay"
-                              sx={{
-                                position: 'absolute',
-                                top: 8,
-                                left: 8,
-                                zIndex: 2,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 0.5,
-                                opacity: 0,
-                                transition: 'opacity 0.2s ease-in-out',
-                              }}
-                            >
-                              {contentRating && (
-                                <Box
-                                  sx={{
-                                    bgcolor: 'rgba(0, 0, 0, 0.75)',
-                                    color: 'white',
-                                    px: 1,
-                                    py: 0.25,
-                                    borderRadius: 0.5,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                  }}
-                                >
-                                  {contentRating}
-                                </Box>
-                              )}
-                              {rating != null && (
-                                <Box
-                                  sx={{
-                                    bgcolor: 'rgba(0, 0, 0, 0.75)',
-                                    color: 'white',
-                                    px: 1,
-                                    py: 0.25,
-                                    borderRadius: 0.5,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 0.5,
-                                  }}
-                                >
-                                  ★ {rating.toFixed(1)}
-                                </Box>
-                              )}
-                            </Box>
-                          )}
-                          <Box sx={{ position: 'relative' }}>
-                            {hasImage ? (
-                              <CardMedia
-                                component="img"
-                                image={apiClient.getImageUrl(primaryImage.id)}
-                                alt={collection.name}
-                                sx={{
-                                  aspectRatio: '2/3',
-                                  objectFit: 'cover',
-                                }}
-                              />
-                            ) : (
-                              <Box
-                                sx={{
-                                  aspectRatio: '2/3',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  bgcolor: 'action.hover',
-                                }}
-                              >
-                                {library.libraryType === 'Film' ? (
-                                  <Movie sx={{ fontSize: 64, color: 'text.secondary' }} />
-                                ) : library.libraryType === 'Television' ? (
-                                  <Tv sx={{ fontSize: 64, color: 'text.secondary' }} />
-                                ) : library.libraryType === 'Music' ? (
-                                  <Album sx={{ fontSize: 64, color: 'text.secondary' }} />
-                                ) : (
-                                  <Folder sx={{ fontSize: 64, color: 'text.secondary' }} />
-                                )}
-                              </Box>
-                            )}
-                            <WatchBadge kind="collection" summary={watchSummaries[collection.id]} />
-                            {/* Selection checkbox (visible in selection mode) */}
-                            {isSelectionMode && (
-                              <Box
-                                sx={{
-                                  position: 'absolute',
-                                  bottom: 8,
-                                  left: 8,
-                                  bgcolor: 'rgba(0, 0, 0, 0.6)',
-                                  borderRadius: '50%',
-                                  width: 28,
-                                  height: 28,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                }}
-                              >
-                                {selectedIds.has(collection.id) ? (
-                                  <CheckBox sx={{ color: 'primary.main', fontSize: 24 }} />
-                                ) : (
-                                  <CheckBoxOutlineBlank sx={{ color: 'white', fontSize: 24 }} />
-                                )}
-                              </Box>
-                            )}
-                          </Box>
-                          <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                            <Typography variant="body2" noWrap title={collection.name}>
-                              {collection.name}
-                            </Typography>
-                            {library.libraryType !== 'Film' && collection._count && (
-                              <Typography variant="caption" color="text.secondary">
-                                {collection._count.children > 0 &&
-                                  (collection.collectionType === 'Show'
-                                    ? t('library.seasons', { count: collection._count.children })
-                                    : t('library.folders', { count: collection._count.children }))}
-                                {collection._count.children > 0 && collection._count.media > 0 && ' | '}
-                                {collection._count.media > 0 &&
-                                  t('library.items', { count: collection._count.media })}
-                              </Typography>
-                            )}
-                          </CardContent>
-                        </CardActionArea>
-                        <CardQuickActions
-                          collectionId={collection.id}
-                          initialFavorited={favoritedIds.has(collection.id)}
-                          initialInWatchLater={watchLaterIds.has(collection.id)}
-                          onAddToCollection={() => handleAddToCollection(collection)}
-                        />
-                      </Card>
-                    </Grid>
-                  );
-                })}
+                {collections.map((collection) => (
+                  <Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }} key={collection.id}>
+                    <CollectionPosterCard
+                      collection={collection}
+                      libraryType={library.libraryType}
+                      isSelectionMode={isSelectionMode}
+                      isSelected={selectedIds.has(collection.id)}
+                      favorited={favoritedIds.has(collection.id)}
+                      inWatchLater={watchLaterIds.has(collection.id)}
+                      watchSummary={watchSummaries[collection.id]}
+                      onClick={handleItemClick}
+                      onAddToCollection={handleAddToCollection}
+                    />
+                  </Grid>
+                ))}
               </Grid>
             ) : (
-              /* List View */
               <Stack spacing={1}>
-                {collections.map((collection) => {
-                  const primaryImage = collection.images?.[0];
-                  const hasImage = primaryImage && (collection.collectionType === 'Show' || library.libraryType === 'Film');
-
-                  // Get details from showDetails or filmDetails
-                  const rating = collection.filmDetails?.rating ?? collection.showDetails?.rating;
-                  const contentRating = collection.filmDetails?.contentRating;
-                  const releaseYear = collection.filmDetails?.releaseDate?.slice(0, 4) ?? collection.showDetails?.releaseDate?.slice(0, 4);
-                  const runtime = collection.filmDetails?.runtime;
-                  const description = collection.filmDetails?.description ?? collection.showDetails?.description;
-
-                  return (
-                    <Card
-                      key={collection.id}
-                      sx={{
-                        display: 'flex',
-                        ...(isSelectionMode && selectedIds.has(collection.id) && {
-                          outline: '3px solid',
-                          outlineColor: 'primary.main',
-                          outlineOffset: -3,
-                        }),
-                      }}
-                    >
-                      {/* Image and Details - single clickable area */}
-                      <CardActionArea
-                        onClick={() => handleItemClick(collection.id)}
-                        sx={{ flexGrow: 1, display: 'flex', alignItems: 'stretch' }}
-                      >
-                        {/* Image - fixed width based on 2:3 aspect ratio at max height of 188px */}
-                        <Box
-                          sx={{
-                            width: 125,
-                            flexShrink: 0,
-                            flexGrow: 0,
-                            position: 'relative',
-                          }}
-                        >
-                          {hasImage ? (
-                            <CardMedia
-                              component="img"
-                              image={apiClient.getImageUrl(primaryImage.id)}
-                              alt={collection.name}
-                              sx={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                              }}
-                            />
-                          ) : (
-                            <Box
-                              sx={{
-                                width: '100%',
-                                height: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                bgcolor: 'action.hover',
-                              }}
-                            >
-                              {library.libraryType === 'Film' ? (
-                                <Movie sx={{ fontSize: 32, color: 'text.secondary' }} />
-                              ) : library.libraryType === 'Television' ? (
-                                <Tv sx={{ fontSize: 32, color: 'text.secondary' }} />
-                              ) : library.libraryType === 'Music' ? (
-                                <Album sx={{ fontSize: 32, color: 'text.secondary' }} />
-                              ) : (
-                                <Folder sx={{ fontSize: 32, color: 'text.secondary' }} />
-                              )}
-                            </Box>
-                          )}
-                          <WatchBadge kind="collection" summary={watchSummaries[collection.id]} />
-                          {/* Selection checkbox (visible in selection mode) */}
-                          {isSelectionMode && (
-                            <Box
-                              sx={{
-                                position: 'absolute',
-                                bottom: 4,
-                                left: 4,
-                                bgcolor: 'rgba(0, 0, 0, 0.6)',
-                                borderRadius: '50%',
-                                width: 24,
-                                height: 24,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              {selectedIds.has(collection.id) ? (
-                                <CheckBox sx={{ color: 'primary.main', fontSize: 20 }} />
-                              ) : (
-                                <CheckBoxOutlineBlank sx={{ color: 'white', fontSize: 20 }} />
-                              )}
-                            </Box>
-                          )}
-                        </Box>
-
-                        {/* Details */}
-                        <CardContent sx={{ py: 1.5, px: 2, flexGrow: 1 }}>
-                          <Typography variant="subtitle1" fontWeight="medium">
-                            {collection.name}
-                          </Typography>
-                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                            {releaseYear && (
-                              <Typography variant="caption" color="text.secondary">
-                                {releaseYear}
-                              </Typography>
-                            )}
-                            {contentRating && (
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  bgcolor: 'action.selected',
-                                  px: 0.5,
-                                  borderRadius: 0.5,
-                                }}
-                              >
-                                {contentRating}
-                              </Typography>
-                            )}
-                            {runtime && (
-                              <Typography variant="caption" color="text.secondary">
-                                {Math.floor(runtime / 60)}h {runtime % 60}m
-                              </Typography>
-                            )}
-                            {rating != null && (
-                              <Typography variant="caption" color="text.secondary">
-                                ★ {rating.toFixed(1)}
-                              </Typography>
-                            )}
-                            {library.libraryType !== 'Film' && collection._count && (
-                              <Typography variant="caption" color="text.secondary">
-                                {collection._count.children > 0 &&
-                                  (collection.collectionType === 'Show'
-                                    ? t('library.seasons', { count: collection._count.children })
-                                    : t('library.folders', { count: collection._count.children }))}
-                                {collection._count.children > 0 && collection._count.media > 0 && ' • '}
-                                {collection._count.media > 0 &&
-                                  t('library.items', { count: collection._count.media })}
-                              </Typography>
-                            )}
-                          </Stack>
-                          {description && (
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                              }}
-                            >
-                              {description}
-                            </Typography>
-                          )}
-                        </CardContent>
-                      </CardActionArea>
-
-                      {/* Actions */}
-                      <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 0.5 }}>
-                        <IconButton
-                          color="primary"
-                          onClick={() => handlePlay(collection.id)}
-                          sx={{ width: 40, height: 56, borderRadius: 0.5 }}
-                        >
-                          <PlayArrow sx={{ fontSize: 28 }} />
-                        </IconButton>
-                        <CardQuickActions
-                          collectionId={collection.id}
-                          initialFavorited={favoritedIds.has(collection.id)}
-                          initialInWatchLater={watchLaterIds.has(collection.id)}
-                          onAddToCollection={() => handleAddToCollection(collection)}
-                          variant="inline"
-                        />
-                      </Box>
-                    </Card>
-                  );
-                })}
+                {collections.map((collection) => (
+                  <CollectionListCard
+                    key={collection.id}
+                    collection={collection}
+                    libraryType={library.libraryType}
+                    isSelectionMode={isSelectionMode}
+                    isSelected={selectedIds.has(collection.id)}
+                    favorited={favoritedIds.has(collection.id)}
+                    inWatchLater={watchLaterIds.has(collection.id)}
+                    watchSummary={watchSummaries[collection.id]}
+                    onClick={handleItemClick}
+                    onAddToCollection={handleAddToCollection}
+                    onPlay={handlePlay}
+                  />
+                ))}
               </Stack>
             )}
           </Box>
 
-          {/* Infinite scroll sentinel */}
           <Box ref={loadMoreRef} sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
             {isLoadingMore && <CircularProgress size={32} />}
           </Box>
         </>
       )}
 
-      {/* Add to Collection Dialog */}
       <AddToCollectionDialog
         open={addToCollectionOpen}
         onClose={() => {
@@ -992,18 +349,13 @@ export function LibraryPage() {
         itemName={selectedCollectionForAdd?.name || ''}
       />
 
-      {/* Quick Search Overlay */}
-      <QuickSearchOverlay
-        query={quickSearchQuery}
-        matchCount={isQuickSearchActive ? total : undefined}
-      />
+      <QuickSearchOverlay query={quickSearchQuery} matchCount={isQuickSearchActive ? total : undefined} />
 
-      {/* Selection Action Bar */}
       <SelectionActionBar
         selectedCount={selectedIds.size}
         selectedCollectionIds={Array.from(selectedIds)}
         onClear={clearSelection}
-        onSelectAll={selectAll}
+        onSelectAll={() => setSelectedIds(new Set(collections.map((c) => c.id)))}
       />
     </Container>
   );

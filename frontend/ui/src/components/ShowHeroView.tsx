@@ -26,13 +26,14 @@ import {
   Person,
   KeyboardArrowDown,
   Add,
-  FolderSpecial,
   ArrowDropDown,
   QueuePlayNext,
   PictureInPictureAlt,
 } from '@mui/icons-material';
-import { apiClient, type Collection, type ShowCredit, type Image, type UserCollection } from '../api/client';
+import { apiClient, type Collection, type ShowCredit, type Image } from '../api/client';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
+import { RecentCollectionMenuItem } from './RecentCollectionMenuItem';
+import { useAddToRecentCollection } from '../hooks/useAddToRecentCollection';
 import { StickyHeroBreadcrumbs } from './StickyHeroBreadcrumbs';
 import type { BreadcrumbItem } from './CollectionBreadcrumbs';
 import { FavoriteButton } from './FavoriteButton';
@@ -105,23 +106,16 @@ export function ShowHeroView({
   // Add to collection menu state
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
   const addMenuOpen = Boolean(addMenuAnchor);
-  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
-  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
 
   // Play menu state
   const [playMenuAnchor, setPlayMenuAnchor] = useState<null | HTMLElement>(null);
   const playMenuOpen = Boolean(playMenuAnchor);
 
-  // Fetch most recent user collection when add menu opens
-  useEffect(() => {
-    if (addMenuOpen) {
-      apiClient.getUserCollections().then((result) => {
-        if (result.data && result.data.userCollections.length > 0) {
-          setRecentCollection(result.data.userCollections[0]);
-        }
-      });
-    }
-  }, [addMenuOpen]);
+  // The collections list is only pulled while the add menu is open.
+  const { recentCollection, isAdding: isAddingToRecent, addToRecent } = useAddToRecentCollection(
+    { collectionId: collection.id },
+    addMenuOpen
+  );
 
   const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     setAddMenuAnchor(event.currentTarget);
@@ -137,16 +131,8 @@ export function ShowHeroView({
   };
 
   const handleQuickAddToRecent = async () => {
-    if (!recentCollection) return;
-    setIsAddingToRecent(true);
-    try {
-      await apiClient.addUserCollectionItem(recentCollection.id, { collectionId: collection.id });
-    } catch (error) {
-      console.error('Failed to add to collection:', error);
-    } finally {
-      setIsAddingToRecent(false);
-      handleAddMenuClose();
-    }
+    await addToRecent();
+    handleAddMenuClose();
   };
 
   // Fetch favorites and watch later status for all seasons
@@ -463,14 +449,11 @@ export function ShowHeroView({
                 transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
               >
                 <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
-                {recentCollection && (
-                  <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
-                    <ListItemIcon>
-                      <FolderSpecial fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText>{recentCollection.name}</ListItemText>
-                  </MenuItem>
-                )}
+                <RecentCollectionMenuItem
+                  collection={recentCollection}
+                  disabled={isAddingToRecent}
+                  onClick={handleQuickAddToRecent}
+                />
                 <MenuItem onClick={handleAddToCollection}>
                   <ListItemIcon>
                     <Add fontSize="small" />

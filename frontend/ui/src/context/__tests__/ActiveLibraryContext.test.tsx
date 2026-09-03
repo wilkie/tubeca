@@ -1,6 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render as renderWithoutProviders, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ActiveLibraryProvider, useActiveLibrary } from '../ActiveLibraryContext';
 import { apiClient } from '../../api/client';
 
@@ -13,6 +15,14 @@ jest.mock('../../api/client', () => ({
 }));
 
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
+
+// The provider reads collections and media through the shared query cache.
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
+  return renderWithoutProviders(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
 
 // Test component that displays the active library context values
 function TestConsumer() {

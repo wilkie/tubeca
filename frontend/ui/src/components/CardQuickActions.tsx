@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Box,
   IconButton,
@@ -9,9 +9,11 @@ import {
   ListItemText,
   ListSubheader,
 } from '@mui/material';
-import { Favorite, FavoriteBorder, WatchLater, WatchLaterOutlined, Add, FolderSpecial } from '@mui/icons-material';
+import { Favorite, FavoriteBorder, WatchLater, WatchLaterOutlined, Add } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { apiClient, type UserCollection } from '../api/client';
+import { apiClient } from '../api/client';
+import { RecentCollectionMenuItem } from './RecentCollectionMenuItem';
+import { useAddToRecentCollection } from '../hooks/useAddToRecentCollection';
 
 interface CardQuickActionsProps {
   collectionId?: string;
@@ -40,19 +42,13 @@ export function CardQuickActions({
   // Add to collection menu state
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
   const addMenuOpen = Boolean(addMenuAnchor);
-  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
-  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
 
-  // Fetch most recent user collection when add menu opens
-  useEffect(() => {
-    if (addMenuOpen) {
-      apiClient.getUserCollections().then((result) => {
-        if (result.data && result.data.userCollections.length > 0) {
-          setRecentCollection(result.data.userCollections[0]);
-        }
-      });
-    }
-  }, [addMenuOpen]);
+  // The collections list is only pulled while the add menu is open, so a grid
+  // of cards does not fetch it once per card.
+  const { recentCollection, isAdding: isAddingToRecent, addToRecent } = useAddToRecentCollection(
+    { collectionId, mediaId },
+    addMenuOpen
+  );
 
   const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     event.stopPropagation();
@@ -74,16 +70,8 @@ export function CardQuickActions({
   const handleQuickAddToRecent = async (event: React.MouseEvent) => {
     event.stopPropagation();
     event.preventDefault();
-    if (!recentCollection) return;
-    setIsAddingToRecent(true);
-    try {
-      await apiClient.addUserCollectionItem(recentCollection.id, { collectionId, mediaId });
-    } catch (error) {
-      console.error('Failed to add to collection:', error);
-    } finally {
-      setIsAddingToRecent(false);
-      handleAddMenuClose();
-    }
+    await addToRecent();
+    handleAddMenuClose();
   };
 
   const handleToggleFavorite = async (event: React.MouseEvent) => {
@@ -217,14 +205,11 @@ export function CardQuickActions({
         onClick={(e) => e.stopPropagation()}
       >
         <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
-        {recentCollection && (
-          <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
-            <ListItemIcon>
-              <FolderSpecial fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>{recentCollection.name}</ListItemText>
-          </MenuItem>
-        )}
+        <RecentCollectionMenuItem
+          collection={recentCollection}
+          disabled={isAddingToRecent}
+          onClick={handleQuickAddToRecent}
+        />
         {onAddToCollection && (
           <MenuItem onClick={handleAddToCollection}>
             <ListItemIcon>

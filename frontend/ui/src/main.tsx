@@ -6,6 +6,8 @@ import CssBaseline from '@mui/material/CssBaseline';
 import App from './App';
 import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './api/queryClient';
 import { AuthProvider } from './context/AuthContext';
 import { PlayerProvider } from './context/PlayerContext';
 import { ScrollRestorationProvider } from './context/ScrollRestorationContext';
@@ -19,6 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
+        <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
@@ -37,6 +40,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             />
           </Routes>
         </AuthProvider>
+        </QueryClientProvider>
       </BrowserRouter>
     </ThemeProvider>
   </React.StrictMode>,

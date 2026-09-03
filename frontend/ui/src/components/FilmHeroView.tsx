@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Box,
   Typography,
@@ -19,8 +19,8 @@ import {
   ListItemText,
   ListSubheader,
 } from '@mui/material';
-import { Star, PlayArrow, MoreVert, VideoFile, Add, FolderSpecial, ArrowDropDown, QueuePlayNext, PictureInPictureAlt } from '@mui/icons-material';
-import { apiClient, type Collection, type Image, type FilmCredit, type UserCollection } from '../api/client';
+import { Star, PlayArrow, MoreVert, VideoFile, Add, ArrowDropDown, QueuePlayNext, PictureInPictureAlt } from '@mui/icons-material';
+import { apiClient, type Collection, type Image, type FilmCredit } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { HeroSection, HeroPoster, HeroLogo } from './HeroSection';
 import { StickyHeroBreadcrumbs } from './StickyHeroBreadcrumbs';
@@ -29,6 +29,8 @@ import { CastCrewGrid } from './CastCrewGrid';
 import { FavoriteButton } from './FavoriteButton';
 import { WatchLaterButton } from './WatchLaterButton';
 import { WatchedToggleButton } from './WatchedToggleButton';
+import { RecentCollectionMenuItem } from './RecentCollectionMenuItem';
+import { useAddToRecentCollection } from '../hooks/useAddToRecentCollection';
 import type { WatchProgress } from '../api/client';
 
 interface FilmCreditWithPerson extends FilmCredit {
@@ -84,22 +86,15 @@ export function FilmHeroView({
   const { t } = useTranslation();
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
   const addMenuOpen = Boolean(addMenuAnchor);
-  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
-  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
+
   const [playMenuAnchor, setPlayMenuAnchor] = useState<null | HTMLElement>(null);
   const playMenuOpen = Boolean(playMenuAnchor);
 
-  // Fetch most recent user collection when menu opens
-  useEffect(() => {
-    if (addMenuOpen) {
-      apiClient.getUserCollections().then((result) => {
-        if (result.data && result.data.userCollections.length > 0) {
-          // Collections are already sorted by updatedAt desc from the API
-          setRecentCollection(result.data.userCollections[0]);
-        }
-      });
-    }
-  }, [addMenuOpen]);
+  // The collections list is only pulled while the add menu is open.
+  const { recentCollection, isAdding: isAddingToRecent, addToRecent } = useAddToRecentCollection(
+    { collectionId: collection.id },
+    addMenuOpen
+  );
 
   const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     setAddMenuAnchor(event.currentTarget);
@@ -115,16 +110,8 @@ export function FilmHeroView({
   };
 
   const handleQuickAddToRecent = async () => {
-    if (!recentCollection) return;
-    setIsAddingToRecent(true);
-    try {
-      await apiClient.addUserCollectionItem(recentCollection.id, { collectionId: collection.id });
-    } catch (error) {
-      console.error('Failed to add to collection:', error);
-    } finally {
-      setIsAddingToRecent(false);
-      handleAddMenuClose();
-    }
+    await addToRecent();
+    handleAddMenuClose();
   };
 
   const backdropImage = collection.images?.find((img) => img.imageType === 'Backdrop');
@@ -473,14 +460,11 @@ export function FilmHeroView({
                 transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
               >
                 <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
-                {recentCollection && (
-                  <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
-                    <ListItemIcon>
-                      <FolderSpecial fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText>{recentCollection.name}</ListItemText>
-                  </MenuItem>
-                )}
+                <RecentCollectionMenuItem
+                  collection={recentCollection}
+                  disabled={isAddingToRecent}
+                  onClick={handleQuickAddToRecent}
+                />
                 <MenuItem onClick={handleAddToCollection}>
                   <ListItemIcon>
                     <Add fontSize="small" />

@@ -167,9 +167,9 @@ three modules still register competing SIGINT/SIGTERM handlers. See
 
 ### Copy-paste that has already diverged
 
-Favorites and Watch Later pages differ by about 40 of 380 lines, and "add to most recent
-collection" is pasted into five components. Title/year parsing is mirrored in the frontend
-because `shared-types` is types-only. See [Libraries](libraries-and-scanning.md),
+Favorites and Watch Later pages differ by about 40 of 380 lines. Title/year parsing is mirrored
+in the frontend because `shared-types` is types-only. ("Add to most recent collection", pasted
+into five components, became one hook on 2026-09-03.) See [Libraries](libraries-and-scanning.md),
 [Metadata Scraping](metadata-scraping.md), [User Collections](user-collections.md),
 [Frontend App](frontend-app.md).
 
@@ -277,10 +277,11 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
    of prefetches and cancel the ones a seek left behind, encoder detection runs after listen,
    the transcoding settings body is validated, a segment-duration change purges the cache, and
    VAAPI works ([Streaming](streaming-and-transcoding.md)).
-6. **Frontend data layer** (M to L): adopt a query library to replace the copy-pasted
-   fetch/cancel patterns and the five "add to recent collection" copies, split the
-   1000-line `LibraryPage`, lazy-load routes, and persist view mode and sort per library.
-   ([Frontend App](frontend-app.md))
+6. ~~**Frontend data layer**~~ Done 2026-09-03: TanStack Query adopted behind a `useApiQuery`
+   adapter, duplicate library and route lookups shared through the cache, `LibraryPage` split
+   into a hook plus a toolbar and card components, routes lazy-loaded, view mode and sort
+   persisted per library, and one `useAddToRecentCollection` in place of five copies. Six
+   pages still hand-roll their fetches ([Frontend App](frontend-app.md)).
 7. **Import polish** (S batch, plus M for sidecars): async `fs` in the scan, symlink cycle guard
    and depth cap, handle chokidar `change`, re-watch on library path change, per-library scan
    concurrency, dry-run for removals; then subtitle sidecar import and a directory picker.

@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -25,7 +24,8 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
-import { apiClient, type Library, type LibraryType } from '../api/client';
+import { type LibraryType } from '../api/client';
+import { useLibraries } from '../hooks/useLibraries';
 
 interface SidebarProps {
   open: boolean;
@@ -44,17 +44,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const { setActiveLibrary } = useActiveLibrary();
   const navigate = useNavigate();
   const location = useLocation();
-  const [libraries, setLibraries] = useState<Library[]>([]);
-
-  useEffect(() => {
-    if (open && user) {
-      apiClient.getLibraries().then((result) => {
-        if (result.data) {
-          setLibraries(result.data.libraries);
-        }
-      });
-    }
-  }, [open, user]);
+  // Shared with the header through the query cache, so opening the drawer
+  // does not re-fetch what the header already has.
+  const { libraries } = useLibraries(Boolean(open && user));
 
   const handleNavigate = (path: string) => {
     navigate(path);

@@ -4,6 +4,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { MemoryRouter } from 'react-router-dom';
 import { ScrollRestorationProvider } from './context/ScrollRestorationContext';
 import { I18nextProvider } from 'react-i18next';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from './i18n';
 
 // Create a test theme
@@ -55,17 +56,27 @@ export const mockViewerUser = {
   createdAt: '2024-01-01T00:00:00Z',
 };
 
-// Provider wrapper for tests
+// Provider wrapper for tests. Each render gets its own query cache so one
+// test's data never leaks into the next, and failures surface immediately
+// instead of being retried.
 function AllTheProviders({ children }: WrapperProps) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: 0 },
+    },
+  });
+
   return (
     <I18nextProvider i18n={i18n}>
-      <ThemeProvider theme={theme}>
-        <MemoryRouter>
-          <ScrollRestorationProvider>
-            {children}
-          </ScrollRestorationProvider>
-        </MemoryRouter>
-      </ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider theme={theme}>
+          <MemoryRouter>
+            <ScrollRestorationProvider>
+              {children}
+            </ScrollRestorationProvider>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>
     </I18nextProvider>
   );
 }

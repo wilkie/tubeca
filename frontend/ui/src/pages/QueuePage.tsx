@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -27,6 +26,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { apiClient, type UserCollection, type UserCollectionItem } from '../api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { usePlayer } from '../context/PlayerContext';
 import { SortableMediaListItem } from '../components/SortableMediaListItem';
 
@@ -34,9 +35,21 @@ export function QueuePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { playMedia, refreshQueue: refreshPlayerQueue } = usePlayer();
-  const [queue, setQueue] = useState<UserCollection | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const {
+    data: queueData,
+    isPending: isLoading,
+    errorMessage: error,
+  } = useApiQuery(queryKeys.playbackQueue, () => apiClient.getPlaybackQueue());
+  const queue: UserCollection | null = queueData?.userCollection ?? null;
+
+  /** Write a queue the server just returned straight into the cache. */
+  const setQueue = (next: UserCollection | ((prev: UserCollection | null) => UserCollection | null)) => {
+    queryClient.setQueryData<{ userCollection: UserCollection }>(queryKeys.playbackQueue, (prev) => {
+      const resolved = typeof next === 'function' ? next(prev?.userCollection ?? null) : next;
+      return resolved ? { userCollection: resolved } : prev;
+    });
+  };
 
   const items = queue?.items ?? [];
 
@@ -50,31 +63,6 @@ export function QueuePage() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchQueue() {
-      setIsLoading(true);
-      setError(null);
-
-      const result = await apiClient.getPlaybackQueue();
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        setQueue(result.data.userCollection);
-      }
-      setIsLoading(false);
-    }
-
-    fetchQueue();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;

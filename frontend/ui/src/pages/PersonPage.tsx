@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -38,6 +38,8 @@ import {
   type PersonWithFilmography,
 } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 
 function formatDate(dateString: string | null): string | null {
   if (!dateString) return null;
@@ -118,9 +120,17 @@ export function PersonPage() {
   const { personId } = useParams<{ personId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [person, setPerson] = useState<PersonWithFilmography | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const {
+    data: personData,
+    isPending: isLoading,
+    errorMessage: loadError,
+  } = useApiQuery(queryKeys.person(personId ?? ''), () => apiClient.getPerson(personId!), {
+    enabled: Boolean(personId),
+  });
+  const person: PersonWithFilmography | null = personData?.person ?? null;
+  const error = loadError ?? refreshError;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [bioExpanded, setBioExpanded] = useState(false);
   const [bioIsTruncated, setBioIsTruncated] = useState(false);
@@ -134,35 +144,6 @@ export function PersonPage() {
   // Menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const menuOpen = Boolean(menuAnchorEl);
-
-  useEffect(() => {
-    if (!personId) return;
-
-    let cancelled = false;
-    const id = personId; // Capture for use in async function
-
-    async function loadPerson() {
-      setIsLoading(true);
-      setError(null);
-
-      const response = await apiClient.getPerson(id);
-      if (cancelled) return;
-
-      if (response.error) {
-        setError(response.error);
-      } else if (response.data) {
-        setPerson(response.data.person);
-      }
-
-      setIsLoading(false);
-    }
-
-    loadPerson();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [personId]);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setMenuAnchorEl(event.currentTarget);
@@ -179,9 +160,10 @@ export function PersonPage() {
     setIsRefreshing(true);
     const response = await apiClient.refreshPersonMetadata(personId);
     if (response.error) {
-      setError(response.error);
+      setRefreshError(response.error);
     } else if (response.data) {
-      setPerson(response.data.person);
+      // Write the fresh record straight into the cache rather than refetching.
+      queryClient.setQueryData(queryKeys.person(personId), { person: response.data.person });
     }
     setIsRefreshing(false);
   };

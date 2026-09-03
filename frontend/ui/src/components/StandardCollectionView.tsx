@@ -15,8 +15,10 @@ import {
   ListSubheader,
   Button,
 } from '@mui/material';
-import { CalendarMonth, MoreVert, Add, FolderSpecial, Folder, ExpandMore, ExpandLess } from '@mui/icons-material';
-import { apiClient, type Collection, type CollectionType, type Image, type UserCollection, type WatchProgress, type CollectionWatchSummary } from '../api/client';
+import { CalendarMonth, MoreVert, Add, Folder, ExpandMore, ExpandLess } from '@mui/icons-material';
+import { apiClient, type Collection, type CollectionType, type Image, type WatchProgress, type CollectionWatchSummary } from '../api/client';
+import { RecentCollectionMenuItem } from './RecentCollectionMenuItem';
+import { useAddToRecentCollection } from '../hooks/useAddToRecentCollection';
 import { ChildCollectionGrid } from './ChildCollectionGrid';
 import { MediaGrid } from './MediaGrid';
 import { FavoriteButton } from './FavoriteButton';
@@ -90,22 +92,15 @@ export function StandardCollectionView({
   // Add to collection menu state
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
   const addMenuOpen = Boolean(addMenuAnchor);
-  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
-  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [isDescriptionOverflowing, setIsDescriptionOverflowing] = useState(false);
   const descriptionRef = useRef<HTMLDivElement>(null);
 
-  // Fetch most recent user collection when add menu opens
-  useEffect(() => {
-    if (addMenuOpen) {
-      apiClient.getUserCollections().then((result) => {
-        if (result.data && result.data.userCollections.length > 0) {
-          setRecentCollection(result.data.userCollections[0]);
-        }
-      });
-    }
-  }, [addMenuOpen]);
+  // The collections list is only pulled while the add menu is open.
+  const { recentCollection, isAdding: isAddingToRecent, addToRecent } = useAddToRecentCollection(
+    { collectionId: collection.id },
+    addMenuOpen
+  );
 
   // Check if description content overflows its container
   useEffect(() => {
@@ -140,16 +135,8 @@ export function StandardCollectionView({
   };
 
   const handleQuickAddToRecent = async () => {
-    if (!recentCollection) return;
-    setIsAddingToRecent(true);
-    try {
-      await apiClient.addUserCollectionItem(recentCollection.id, { collectionId: collection.id });
-    } catch (error) {
-      console.error('Failed to add to collection:', error);
-    } finally {
-      setIsAddingToRecent(false);
-      handleAddMenuClose();
-    }
+    await addToRecent();
+    handleAddMenuClose();
   };
 
   const label = getCollectionLabel(collection.collectionType);
@@ -213,14 +200,11 @@ export function StandardCollectionView({
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
-        {recentCollection && (
-          <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
-            <ListItemIcon>
-              <FolderSpecial fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>{recentCollection.name}</ListItemText>
-          </MenuItem>
-        )}
+        <RecentCollectionMenuItem
+          collection={recentCollection}
+          disabled={isAddingToRecent}
+          onClick={handleQuickAddToRecent}
+        />
         <MenuItem onClick={handleAddToCollection}>
           <ListItemIcon>
             <Add fontSize="small" />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -15,7 +15,7 @@ import {
 import { Menu as MenuIcon, Search, AccountCircle, Favorite, WatchLater, QueueMusic } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useActiveLibrary } from '../context/ActiveLibraryContext';
-import { apiClient, type Library } from '../api/client';
+import { useLibraries } from '../hooks/useLibraries';
 import styles from './Header.module.scss';
 
 interface HeaderProps {
@@ -25,21 +25,12 @@ interface HeaderProps {
 export function Header({ onMenuClick }: HeaderProps) {
   const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [libraries, setLibraries] = useState<Library[]>([]);
   const { user, logout } = useAuth();
   const { activeLibraryId, setActiveLibrary } = useActiveLibrary();
   const navigate = useNavigate();
 
-  // Fetch libraries when user is logged in
-  useEffect(() => {
-    if (user) {
-      apiClient.getLibraries().then((result) => {
-        if (result.data) {
-          setLibraries(result.data.libraries);
-        }
-      });
-    }
-  }, [user]);
+  // Shared with the sidebar and the home page through the query cache.
+  const { libraries } = useLibraries(Boolean(user));
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);

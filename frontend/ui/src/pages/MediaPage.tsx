@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -28,8 +28,11 @@ import {
   DialogContentText,
   DialogActions,
 } from '@mui/material';
-import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, FolderSpecial, ArrowDropDown, QueuePlayNext } from '@mui/icons-material';
-import { apiClient, type Media, type Image, type CollectionType, type UserCollection } from '../api/client';
+import { PlayArrow, Tv, Movie, MusicNote, Album, Person, MoreVert, Delete, Collections, Refresh, Image as ImageIcon, Add, ArrowDropDown, QueuePlayNext } from '@mui/icons-material';
+import { apiClient, type Media, type Image, type CollectionType } from '../api/client';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
+import { RecentCollectionMenuItem } from '../components/RecentCollectionMenuItem';
+import { useAddToRecentCollection } from '../hooks/useAddToRecentCollection';
 import { ScrapeStatusAlert } from '../components/ScrapeStatusAlert';
 import { WatchedToggleButton } from '../components/WatchedToggleButton';
 import { useWatchState } from '../hooks/useWatchState';
@@ -75,12 +78,35 @@ export function MediaPage() {
   const { mediaId } = useParams<{ mediaId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [media, setMedia] = useState<Media | null>(null);
+  const {
+    data: mediaData,
+    isPending: isLoading,
+    errorMessage: loadError,
+  } = useApiQuery(queryKeys.media(mediaId ?? ''), () => apiClient.getMedia(mediaId!), {
+    enabled: Boolean(mediaId),
+  });
+  const media: Media | null = mediaData?.media ?? null;
   const watchIds = useMemo(() => (mediaId ? [mediaId] : []), [mediaId]);
   const watch = useWatchState({ mediaIds: watchIds });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = loadError ?? actionError;
+
+  // The collection chain comes back on the media itself, so the trail is
+  // derived rather than stored.
+  const breadcrumbs = useMemo<BreadcrumbItem[]>(() => {
+    const crumbs: BreadcrumbItem[] = [];
+    const collection = (media as (Media & { collection?: MediaCollection }) | null)?.collection;
+    if (!collection) return crumbs;
+
+    if (collection.library) {
+      crumbs.push({ id: collection.library.id, name: collection.library.name, type: 'library' });
+    }
+    if (collection.parent) {
+      crumbs.push({ id: collection.parent.id, name: collection.parent.name, type: 'collection' });
+    }
+    crumbs.push({ id: collection.id, name: collection.name, type: 'collection' });
+    return crumbs;
+  }, [media]);
 
   // Menu state
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
@@ -100,8 +126,6 @@ export function MediaPage() {
   // Add to collection state
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
   const addMenuOpen = Boolean(addMenuAnchor);
-  const [recentCollection, setRecentCollection] = useState<UserCollection | null>(null);
-  const [isAddingToRecent, setIsAddingToRecent] = useState(false);
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
 
   // Play menu state
@@ -110,16 +134,11 @@ export function MediaPage() {
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
 
-  // Fetch most recent user collection when add menu opens
-  useEffect(() => {
-    if (addMenuOpen) {
-      apiClient.getUserCollections().then((result) => {
-        if (result.data && result.data.userCollections.length > 0) {
-          setRecentCollection(result.data.userCollections[0]);
-        }
-      });
-    }
-  }, [addMenuOpen]);
+  // The collections list is only pulled while the add menu is open.
+  const { recentCollection, isAdding: isAddingToRecent, addToRecent } = useAddToRecentCollection(
+    { mediaId },
+    addMenuOpen
+  );
 
   const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     setAddMenuAnchor(event.currentTarget);
@@ -135,16 +154,8 @@ export function MediaPage() {
   };
 
   const handleQuickAddToRecent = async () => {
-    if (!recentCollection || !mediaId) return;
-    setIsAddingToRecent(true);
-    try {
-      await apiClient.addUserCollectionItem(recentCollection.id, { mediaId });
-    } catch (error) {
-      console.error('Failed to add to collection:', error);
-    } finally {
-      setIsAddingToRecent(false);
-      handleAddMenuClose();
-    }
+    await addToRecent();
+    handleAddMenuClose();
   };
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -208,7 +219,7 @@ export function MediaPage() {
     const result = await apiClient.deleteMedia(media.id);
 
     if (result.error) {
-      setError(result.error);
+      setActionError(result.error);
       setIsDeleting(false);
       setDeleteDialogOpen(false);
       return;
@@ -229,67 +240,6 @@ export function MediaPage() {
       navigate('/');
     }
   };
-
-  useEffect(() => {
-    if (!mediaId) return;
-
-    let cancelled = false;
-
-    async function fetchData() {
-      setIsLoading(true);
-      setError(null);
-
-      const result = await apiClient.getMedia(mediaId!);
-      if (cancelled) return;
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        setMedia(result.data.media);
-
-        // Build breadcrumbs from collection hierarchy
-        const crumbs: BreadcrumbItem[] = [];
-        const collection = (result.data.media as Media & { collection?: MediaCollection }).collection;
-
-        if (collection) {
-          // Add library
-          if (collection.library) {
-            crumbs.push({
-              id: collection.library.id,
-              name: collection.library.name,
-              type: 'library',
-            });
-          }
-
-          // Add parent collection (e.g., Show)
-          if (collection.parent) {
-            crumbs.push({
-              id: collection.parent.id,
-              name: collection.parent.name,
-              type: 'collection',
-            });
-          }
-
-          // Add immediate collection (e.g., Season)
-          crumbs.push({
-            id: collection.id,
-            name: collection.name,
-            type: 'collection',
-          });
-        }
-
-        setBreadcrumbs(crumbs);
-      }
-
-      setIsLoading(false);
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mediaId]);
 
   const handleBreadcrumbClick = (item: BreadcrumbItem) => {
     if (item.type === 'library') {
@@ -502,14 +452,11 @@ export function MediaPage() {
               transformOrigin={{ vertical: 'top', horizontal: 'right' }}
             >
               <ListSubheader>{t('userCollections.addTo', 'Add to')}</ListSubheader>
-              {recentCollection && (
-                <MenuItem onClick={handleQuickAddToRecent} disabled={isAddingToRecent}>
-                  <ListItemIcon>
-                    <FolderSpecial fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>{recentCollection.name}</ListItemText>
-                </MenuItem>
-              )}
+              <RecentCollectionMenuItem
+                collection={recentCollection}
+                disabled={isAddingToRecent}
+                onClick={handleQuickAddToRecent}
+              />
               <MenuItem onClick={handleAddToCollection}>
                 <ListItemIcon>
                   <Add fontSize="small" />
