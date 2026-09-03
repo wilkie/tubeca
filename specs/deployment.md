@@ -10,8 +10,8 @@
 
 - Define the workspace graph (`pnpm-workspace.yaml`) and the build order (`turbo.json`) so that
   `packages/*` and `scrapers/*` are compiled to `dist/` before `backend` and `frontend/ui`.
-- Gate commits with a husky pre-commit hook that runs `pnpm lint && pnpm typecheck` across the
-  whole monorepo.
+- Gate commits with a husky pre-commit hook that runs `pnpm lint && pnpm typecheck && pnpm test`
+  across the whole monorepo.
 - Build a pacman package from the local git checkout (`build-package.sh` -> `makepkg -sf`) that
   installs the whole workspace, including `node_modules`, under `/opt/tubeca`.
 - Create the `tubeca` system user, `/var/lib/tubeca/{images,hls-cache}`, and `/etc/tubeca/`
@@ -43,7 +43,7 @@
 | `package.json` | Root scripts (`dev/build/lint/typecheck/test/clean` all delegate to `turbo`), `prepare: husky`, `engines.node >= 22`, `packageManager: pnpm@8.15.0`. |
 | `pnpm-workspace.yaml` | Workspace globs: `frontend/*`, `backend`, `packages/*`, `scrapers/*`. |
 | `turbo.json` | Pipeline: `build` depends on `^build` with `dist/**` outputs; `typecheck`/`test` depend on `^build`; `dev` is persistent, uncached and passes `PORT` through. |
-| `.husky/pre-commit` | `pnpm lint && pnpm typecheck` (c3a9f25). |
+| `.husky/pre-commit` | `pnpm lint && pnpm typecheck && pnpm test` (c3a9f25; tests added 2026-09-03). |
 | `.nvmrc` | `22` (added with the Node 22 engine bump in c95eedf). |
 | `packages/shared-types`, `packages/scraper-types` | `tsc` to `dist/`; consumed via `exports` -> `./dist/index.js` + `.d.ts`, so dependents cannot typecheck until they are built. |
 | `scrapers/tmdb`, `scrapers/tvdb` | Same pattern; `backend` depends on them with `workspace:*`. |
@@ -80,8 +80,9 @@
 4. Frontend build is `tsc && vite build` -> `frontend/ui/dist/` (single hashed JS + CSS bundle
    and `index.html`). The API base is hard-coded as the relative path `/api`
    (`frontend/ui/src/api/client.ts:168`); there is no `VITE_*` override.
-5. The pre-commit hook (c3a9f25) runs `pnpm lint && pnpm typecheck` through Turbo, so a commit
-   triggers library builds if `dist/` is stale. There is no CI; the hook is the only gate.
+5. The pre-commit hook runs `pnpm lint && pnpm typecheck && pnpm test` through Turbo, so a
+   commit triggers library builds if `dist/` is stale and takes about a minute for the two test
+   suites. There is no CI; the hook is the only gate.
 6. `dev` passes `PORT` through (`turbo.json`), and Vite's proxy target reads the same `PORT`
    (c95eedf) so `PORT=4000 pnpm dev` moves both the backend listener
    (`backend/src/index.ts:32`) and the frontend proxy together.
@@ -219,6 +220,7 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 - `c95eedf` 2026-07-01 — `PORT` passed through Turbo to the Vite proxy; `engines.node >= 22`; `.nvmrc`.
 - `7052d0c` 2026-07-01 — `UV_THREADPOOL_SIZE=24` added to `dev`/`start` scripts (not to the systemd unit).
 - 2026-09-03 — `tubeca.install` runs migrations after rewriting `DATABASE_URL`; Prisma stderr no longer hidden.
+- 2026-09-03 — `pnpm test` added to the pre-commit hook; backend Jest gets a migrated SQLite template per run.
 
 ## Known Limitations
 

@@ -2,6 +2,9 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
+  // Dialog tests drive MUI with userEvent and run alongside the backend suite under Turbo.
+  testTimeout: 20000,
+  maxWorkers: '50%',
   moduleNameMapper: {
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },

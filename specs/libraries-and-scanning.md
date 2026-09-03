@@ -58,7 +58,7 @@
 
 ### Folder → Collection mapping
 
-`getCollectionType(libraryType, depth)` (`libraryScanWorker.ts:212`, duplicated at `fileWatcherService.ts:638`):
+`getCollectionType(libraryType, depth)` in `backend/src/utils/libraryLayout.ts` (shared by the worker and the watcher since 2026-09-03, along with the extension lists and `isMediaFile`):
 
 | Library | depth 0 | depth 1 | deeper |
 |---------|---------|---------|--------|
@@ -133,6 +133,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - `ffb9d2d` 2025-12-14 — "Full scan" option re-queues existing media/collections; cancel via job data flag; Quick/Full menu in UI.
 - `7052d0c` 2026-07-01 — DNS-threadpool starvation fix: 30 s poll + `binaryInterval`, `UV_THREADPOOL_SIZE=24`, c-ares DNS in TMDB scraper.
 - `27c0663` 2026-09-02 — `parseTitleAndYear` (+ first parser tests) used by scrape workers and IdentifyDialog; frontend mirror in `utils/parseTitle.ts`.
+- 2026-09-03 `getCollectionType` and media extension lists extracted to `utils/libraryLayout.ts` (with tests) and used by both the scan worker and file watcher.
 
 ## Known Limitations
 
@@ -153,7 +154,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 ## Opportunities
 
 - **Orphan reconciliation in the scan** (M): after the walk, `findMany` media/collections for the library not seen during this scan and delete or flag them; would also fix moved files if paired with size+mtime matching. Closes the biggest gap against "idempotent rescan".
-- **Extract a shared `importService`** (M): one module for `getCollectionType`, extension lists, `createMediaFromFile`, `getOrCreateCollectionPath` and hint building, used by both the worker and watcher. Removes the existing divergence (Film media-scrape rule, parsed-title `mediaName`).
+- **Extract a shared `importService`** (M): `getCollectionType` and the extension lists already live in `utils/libraryLayout.ts`; move `createMediaFromFile`, `getOrCreateCollectionPath` and hint building there too so the worker and watcher stop diverging (Film media-scrape rule, parsed-title `mediaName`).
 - **Add `@unique` on `Media.path`** (S) and switch the find-then-create to `upsert`/`create` with P2002 handling; makes worker/watcher races safe.
 - **Use `fs.promises.readdir`/`stat`** in the scan and `libraryService` (S) so the API process stays responsive; consider `Promise.all` with a small concurrency limit for ffprobe (currently strictly serial, one process spawn per file).
 - **Track visited real paths when following symlinks** (S) and add a depth cap to match the watcher.

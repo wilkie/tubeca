@@ -255,8 +255,11 @@ proxies `/api` and `/api/stream/` to `:3000`). See [Deployment](deployment.md).
 `FilterChips`, `HeroSection`, `IdentifyDialog`, `MediaListItem`, `NavigationLoadingOverlay`,
 `QuickSearchOverlay`, `SelectionActionBar`, `SortControls`, `SortableMediaListItem`,
 `StandardCollectionView`, `StickyHeroBreadcrumbs`, `UpNextPopup`, `ViewModeMenu`, `QueuePage`,
-`ScrollRestorationContext`, both hooks. A husky pre-commit hook runs `pnpm lint && pnpm
-typecheck` but not the tests.
+`ScrollRestorationContext`, both hooks. The husky pre-commit hook runs `pnpm lint && pnpm
+typecheck && pnpm test` (tests added 2026-09-03; the frontend suite takes about a minute).
+The shared `test-utils.tsx` wrapper mirrors `main.tsx` providers including
+`ScrollRestorationProvider`; forgetting to add a new provider there is what silently broke 29
+cases between December 2025 and September 2026.
 
 ### ESLint
 
@@ -314,12 +317,10 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - `c95eedf` 2026-07-01 Vite proxy follows `PORT`.
 - `27c0663` 2026-09-02 `parseTitle` util + test (working tree).
 - 2026-09-03 `HomePage` added at `/` (library cards, empty state, tests); replaces the empty `<Box />`.
+- 2026-09-03 Suite repaired (860 cases green): `ScrollRestorationProvider` added to `test-utils.tsx`, stale expectations for full-scan options, settings tabs and season-card fallbacks updated; `pnpm test` added to the pre-commit hook.
 
 ## Known Limitations
 
-- **Test suite is red on `main`.** As of 2026-09-03, 29 cases across `apiClient.test.ts`,
-  `LibraryPage.test.tsx` and `SearchPage.test.tsx` fail on the committed tree (they predate the
-  HomePage change); the pre-commit hook does not run tests, so this went unnoticed.
 - **No code splitting.** One 1.49MB JS bundle; `PlayPage`, hls.js, dnd-kit and the admin pages
   are downloaded before the login form renders.
 - **Expired tokens are not handled.** `request()` returns the backend error text on 401; nothing
@@ -350,8 +351,6 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Opportunities
 
-- **Repair the three failing test files and add `pnpm test` to the pre-commit hook** so the
-  suite stays green. (S)
 - **Lazy-load routes** with `React.lazy` + `Suspense` per page, at minimum `PlayPage`
   (hls.js), `QueuePage`/`UserCollectionPage` (dnd-kit) and the admin pages. (S)
 - **Adopt a query library** (TanStack Query or SWR): would replace the copy-pasted
@@ -377,7 +376,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   `t()` key exists in `en.json`, since inline defaults currently hide missing keys. (S)
 - **Tests for the untested browsing pieces**: `ScrollRestorationContext`, `useQuickSearch`,
   `CardQuickActions`, `SelectionActionBar`, `StandardCollectionView`, `StickyHeroBreadcrumbs`,
-  `NavigationLoadingOverlay`; and add `pnpm test` to the pre-commit hook or CI. (M)
+  `NavigationLoadingOverlay`. (M)
 - **Self-host the "Praise" font** in `public/` to drop the Google Fonts dependency. (S)
 - **Make `serve` mode self-sufficient** by adding `VITE_API_BASE` or an `serve.json` rewrite,
   or drop the frontend service in favour of the backend serving `dist/` (see

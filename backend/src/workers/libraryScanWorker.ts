@@ -14,13 +14,11 @@ import {
   getShowNameFromCollectionPath,
 } from '../utils/mediaParser';
 import { probeMediaFile, type StreamInfo } from '../utils/ffprobe';
+import { VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, getCollectionType } from '../utils/libraryLayout';
 import type { LibraryType, CollectionType, StreamType } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Supported media extensions by type
-const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'];
-const AUDIO_EXTENSIONS = ['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma'];
 
 interface NewMediaInfo {
   id: string
@@ -202,25 +200,6 @@ export const libraryScanWorker = new Worker(
     concurrency: 1, // Only one scan at a time
   }
 );
-
-/**
- * Determine the collection type based on library type and depth
- * - Television: depth 0 = Show, depth 1 = Season
- * - Music: depth 0 = Artist, depth 1 = Album
- * - Film: depth 0 = Film (each folder is a movie)
- */
-function getCollectionType(libraryType: LibraryType, depth: number): CollectionType {
-  if (libraryType === 'Television') {
-    return depth === 0 ? 'Show' : depth === 1 ? 'Season' : 'Generic';
-  }
-  if (libraryType === 'Music') {
-    return depth === 0 ? 'Artist' : depth === 1 ? 'Album' : 'Generic';
-  }
-  if (libraryType === 'Film') {
-    return depth === 0 ? 'Film' : 'Generic';
-  }
-  return 'Generic';
-}
 
 async function scanDirectory(
   job: Job<LibraryScanJobData & { cancelled?: boolean }>,

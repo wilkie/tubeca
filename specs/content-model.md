@@ -291,6 +291,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - `b6003ef`, `0fc5947` 2025-12-16/19 `TranscodingSettings` table (`add_transcoding_settings`,
   `add_max_concurrent_transcodes`); last schema change to date.
 - 2026-09-03 `/api/persons/search` moved above `/:id` in `routes/persons.ts`.
+- 2026-09-03 `collectionService.test.ts` added on the new SQLite test scaffolding; cross-page relation sort bug pinned with `it.failing`.
 
 ## Known Limitations
 
@@ -327,9 +328,11 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   exist in the schema and shared types but no scraper or service populates them.
 - **Media names are the sort key for episodes** (`orderBy: { name }` in the detail query), not
   `videoDetails.season/episode`, so "Episode 10" sorts before "Episode 2" unless zero-padded.
-- **Backend tests: none** for `collectionService`, `mediaService`, `personService` or any of the
-  three routers (`backend/src/services/__tests__` holds only `authService.test.ts`). The
-  frontend has page tests for CollectionPage, MediaPage and PersonPage only.
+- **Backend tests are thin.** `collectionService.test.ts` covers root pagination, name and
+  keyword filtering, rating exclusion and single-page sorting (and documents the cross-page sort
+  bug with `it.failing`); `mediaService`, `personService`, and the collections/media/persons
+  routers have no tests beyond the persons route-order check. The frontend has page tests for
+  CollectionPage, MediaPage and PersonPage only.
 - Shared-type drift: `Image` lacks `filmCreditId`; `Collection.media` under-types what the detail
   endpoint returns; `PersonWithFilmography` and `Create/UpdateCollectionInput` are duplicated.
 - Dead code: `getCollectionsByLibrary`, `searchMedia`, `processMedia`, `updateMedia`,
@@ -363,9 +366,9 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   `PersonWithFilmography`, `CreateCollectionInput`, `UpdateCollectionInput` from
   `@tubeca/shared-types`; add `filmCreditId` to `Image`; widen `Collection.media` to what the
   detail query returns. (S)
-- **Backend route/service tests** with a mocked Prisma client for: pagination `hasMore`, keyword
-  AND semantics, rating exclusion with null details, cycle detection, delete file cleanup,
-  Identify upsert, person id-merge priority. (M)
+- **More route/service tests** on the real-SQLite scaffolding in `backend/src/test/`: cycle
+  detection, delete file cleanup, Identify upsert, person id-merge priority, and supertest
+  coverage of the three routers. (M)
 - **Watch progress table** (`UserMediaProgress { userId, mediaId, positionSeconds, completed }`)
   is the obvious missing user-state model; the `Media`/`User` FKs and cascade conventions already
   exist to hang it on. See [Playback](playback.md). (M)

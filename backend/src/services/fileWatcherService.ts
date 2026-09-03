@@ -1,6 +1,7 @@
 import { watch, type FSWatcher } from 'chokidar';
 import { prisma } from '../config/database';
 import { probeMediaFile, type StreamInfo } from '../utils/ffprobe';
+import { VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, getCollectionType } from '../utils/libraryLayout';
 import {
   parseEpisodeFromFilename,
   parseMovieFromFilename,
@@ -16,8 +17,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 // Supported media extensions by type
-const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'];
-const AUDIO_EXTENSIONS = ['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma'];
 
 interface WatchedLibrary {
   id: string
@@ -508,7 +507,7 @@ export class FileWatcherService {
     const depth = relativePath.split(path.sep).length - 1;
 
     // Determine collection type
-    const collectionType = this.getCollectionType(libraryType, depth);
+    const collectionType = getCollectionType(libraryType, depth);
 
     // Get parent collection ID
     const parentRelativePath = path.dirname(relativePath);
@@ -602,7 +601,7 @@ export class FileWatcherService {
       const part = parts[i];
       if (!part || part === '.') continue;
 
-      const collectionType = this.getCollectionType(libraryType, i);
+      const collectionType = getCollectionType(libraryType, i);
 
       // Try to find existing collection
       let collection: Collection | null = await prisma.collection.findFirst({
@@ -630,22 +629,6 @@ export class FileWatcherService {
     }
 
     return parentId;
-  }
-
-  /**
-   * Determine collection type based on library type and depth
-   */
-  private getCollectionType(libraryType: LibraryType, depth: number): CollectionType {
-    if (libraryType === 'Television') {
-      return depth === 0 ? 'Show' : depth === 1 ? 'Season' : 'Generic';
-    }
-    if (libraryType === 'Music') {
-      return depth === 0 ? 'Artist' : depth === 1 ? 'Album' : 'Generic';
-    }
-    if (libraryType === 'Film') {
-      return depth === 0 ? 'Film' : 'Generic';
-    }
-    return 'Generic';
   }
 }
 

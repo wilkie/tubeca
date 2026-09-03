@@ -216,9 +216,11 @@ describe('CollectionPage', () => {
         expect(screen.getByRole('heading', { name: 'Breaking Bad' })).toBeInTheDocument();
       });
 
-      // Season cards should be visible (multiple buttons with same name is OK)
-      const season1Buttons = screen.getAllByRole('button', { name: 'Season 1' });
-      const season2Buttons = screen.getAllByRole('button', { name: 'Season 2' });
+      // Season cards should be visible. Cards fall back to the show poster, whose alt text
+      // repeats the season name, so the accessible name is "Season N Season N"; the season
+      // selector button also matches "Season 1".
+      const season1Buttons = screen.getAllByRole('button', { name: /Season 1/ });
+      const season2Buttons = screen.getAllByRole('button', { name: /Season 2/ });
       expect(season1Buttons.length).toBeGreaterThanOrEqual(1);
       expect(season2Buttons.length).toBeGreaterThanOrEqual(1);
     });
@@ -235,8 +237,8 @@ describe('CollectionPage', () => {
         expect(screen.getByRole('heading', { name: 'Breaking Bad' })).toBeInTheDocument();
       });
 
-      // Click Season 2 card
-      const season2Cards = screen.getAllByRole('button', { name: 'Season 2' });
+      // Click Season 2 card (accessible name includes the fallback image alt text)
+      const season2Cards = screen.getAllByRole('button', { name: /Season 2/ });
       // Get the card button (not the menu button)
       await user.click(season2Cards[season2Cards.length - 1]);
 

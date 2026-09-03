@@ -136,17 +136,19 @@ keys were rotated. Clones made before that date still carry the old objects. The
 remains git-ignored; see [Metadata Scraping](metadata-scraping.md) and
 [Configuration](configuration.md).
 
-### Backend is untested
+### Backend test coverage is still thin
 
-Two backend test files (auth service, title parser) cover a 14.8k-line backend. The scan
-worker, both scrape workers, HLS service, every service and every route are untested, and the
-pre-commit hook runs lint and typecheck but not tests. Several bugs the specs found are the
-kind a route test catches immediately: `GET /api/persons/search` was unreachable for nine
-months because `/:id` was registered first; sorting by release date, rating or runtime is
-applied per page in memory so infinite scroll is globally unordered; the search endpoint applies
-the same offset to two parallel queries. Frontend coverage is far better (43 files) but thin on
-contexts and hooks, and 29 cases in three files currently fail on `main` because the pre-commit
-hook never runs them.
+As of 2026-09-03 the backend has a real-SQLite test scaffolding (`backend/src/test/`: a migrated
+template database per run, one copy per Jest worker, factories, and supertest for routes) and
+nine test files covering auth, middleware, library access, collection pagination, layout rules,
+parsers and HLS playlist synthesis. The scan and scrape workers, the stream routes, images,
+user collections and search remain untested. Bugs the specs found are the kind a route test
+catches immediately: `GET /api/persons/search` was unreachable for nine months because `/:id`
+was registered first; sorting by release date, rating or runtime is applied per page in memory
+so infinite scroll is globally unordered (pinned with `it.failing`); the search endpoint applies
+the same offset to two parallel queries. The pre-commit hook now runs both suites, so the
+frontend's 860 cases cannot silently rot again the way 29 of them did between December and
+September.
 
 ### One process, blocking work, leaky lifecycles
 
@@ -210,10 +212,11 @@ Ordered by leverage. Each item's details are in the linked spec.
    `JWT_SECRET` enforced in production, legacy inline handlers deleted, Admin-gated
    `PATCH /api/settings`, install-script ordering fixed, `/persons/search` reachable, `/` has a
    landing page.
-2. **Test scaffolding** (M): repair the 29 failing frontend cases and add `pnpm test` to the
-   pre-commit hook; then a Prisma test database helper and supertest for the backend, with
-   tests for the group filter, pagination and sorting, the scan worker's path mapping, scrape
-   matching, and playlist synthesis. Everything below gets safer once this exists.
+2. ~~**Test scaffolding**~~ Done 2026-09-03: frontend suite repaired, `pnpm test` in the
+   pre-commit hook, SQLite-backed backend test helpers with supertest, and tests for the group
+   filter, pagination and sorting, layout rules, middleware and playlist synthesis. Scrape
+   matching stays untested until the workers' matching logic is extracted from the BullMQ
+   handlers (see [Metadata Scraping](metadata-scraping.md)).
 3. **Enforce library access on content** (M): one middleware that resolves an entity's
    library and checks the user's groups, applied to collections, media, images and streams;
    unify the search rule with `LibraryService`. ([Auth](auth-and-users.md))

@@ -530,6 +530,7 @@ describe('ApiClient', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/libraries/lib-1/scan', {
         method: 'POST',
         headers: expect.any(Object),
+        body: JSON.stringify({}),
       });
       expect(result.data).toBeDefined();
     });

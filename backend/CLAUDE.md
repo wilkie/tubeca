@@ -208,7 +208,8 @@ Scraper API keys are in `tubeca.config.json`:
 
 ## Testing
 
-Jest tests are in `src/**/__tests__/`.
+Jest (ESM mode via `--experimental-vm-modules`, so always run through `pnpm test`, not bare
+`npx jest`) with tests in `src/**/__tests__/`.
 
 ```bash
 pnpm test                    # Run all tests
@@ -216,26 +217,42 @@ pnpm test -- --watch         # Watch mode
 pnpm test -- ServiceName     # Run specific tests
 ```
 
-### Test Pattern
+### Database-backed tests
+
+`src/test/globalSetup.ts` migrates a SQLite template once per run and `src/test/setupEnv.ts`
+gives each Jest worker its own copy (`prisma/test-worker-N.db`, git-ignored) and sets
+`DATABASE_URL`, `NODE_ENV=test` and `JWT_SECRET`. Services and routes can therefore be tested
+against a real Prisma client. Use the helpers in `src/test/db.ts`:
 
 ```typescript
-describe('ServiceName', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+import { resetDatabase, createUser, createGroup, createLibrary, createCollection } from '../../test/db';
 
-  it('should do something', async () => {
-    // Arrange
-    const input = { ... };
+beforeEach(resetDatabase);            // empty every table
 
-    // Act
-    const result = await service.method(input);
-
-    // Assert
-    expect(result).toEqual(expected);
-  });
-});
+const { user, authHeader } = await createUser({ role: 'Admin', groupIds: [group.id] });
 ```
+
+### Route tests
+
+Mount the router on a bare Express app and drive it with supertest. Modules with import-time
+side effects (BullMQ queues connect to Redis, `hwaccel` shells out to ffmpeg, the file watcher)
+are replaced with `jest.unstable_mockModule` **before** a dynamic `import()` of the module under
+test:
+
+```typescript
+import { jest } from '@jest/globals';   // ESM mode has no `jest` global
+
+jest.unstable_mockModule('../../queues/libraryScanQueue', () => ({ addLibraryScanJob: jest.fn() }));
+const { default: libraryRoutes } = await import('../libraries');
+
+const app = express();
+app.use(express.json());
+app.use('/api/libraries', libraryRoutes);
+const res = await request(app).get('/api/libraries').set('Authorization', authHeader);
+```
+
+Known bugs that a test documents but the code does not yet fix use `it.failing(...)` so the
+test flips red when the bug is fixed and the marker should be removed.
 
 ## Environment Variables
 

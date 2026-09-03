@@ -180,6 +180,7 @@ API calls return 403.
 - `d71d4e5` 2025-12-05 HLS streaming: `streamAuth` extended to whole stream router; HLS URL helpers with token.
 - No auth-specific commits since 2025-12-10.
 - 2026-09-03 Stop-the-bleeding batch: `resolveJwtSecret()` refuses placeholder/missing secrets in production (with tests); legacy unauthenticated handlers removed from `index.ts`; `PATCH /api/settings` added to the router behind `requireRole('Admin')`.
+- 2026-09-03 Middleware tests (`middleware/__tests__/auth.test.ts`), `libraryService` group-access tests and `/api/libraries` route tests added.
 
 ## Known Limitations
 
@@ -194,7 +195,7 @@ API calls return 403.
 - `requireRole` accepts a list but always resolves to the minimum level, so exact-role restrictions (e.g. "Editor but not Admin") are impossible; the API shape is misleading.
 - No password-change or profile endpoint for non-admins; a Viewer cannot change their own password.
 - Frontend admin routes are registered for all roles; unauthorised users see empty pages with 403 errors instead of a redirect.
-- `authService.test.ts` covers hashing and JWT only; there are no tests for `authenticate`, `requireRole`, the query-token middlewares, `users.ts`, `groups.ts`, `getAccessibleLibraries`, or the search filter. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
+- Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` (supertest), `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; there are still none for the query-token middlewares, `users.ts`, `groups.ts`, or the search filter. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
 
 ## Opportunities
 
@@ -209,5 +210,5 @@ API calls return 403.
 - **Route `AuthService` through `users.ts`** (S): drop the duplicated `bcrypt`/`SALT_ROUNDS` and use `authService.hashPassword`.
 - **Login rate limiting** (S): `express-rate-limit` on `/api/auth/*`; a self-hosted box exposed via reverse proxy is the target deployment.
 - **Role-aware frontend routing** (S): an `AdminRoute` wrapper (or `requiredRole` prop on `ProtectedRoute`) so Viewers are redirected rather than shown broken admin pages.
-- **Middleware and route tests** (M): supertest coverage for `authenticate`, `requireRole`, `streamAuth`/`imageAuth`, and the group filter in both `LibraryService` and search; these are the behaviours most likely to regress silently.
+- **Remaining auth tests** (S): `streamAuth`/`imageAuth` query-token middlewares, the users and groups routers, and the search group filter, on the scaffolding in `backend/src/test/`.
 - **Per-library permissions on groups** (L): `Group` currently carries no capabilities; a natural extension is a per-group edit flag so Editors can be restricted to specific libraries, which the current role ladder cannot express.

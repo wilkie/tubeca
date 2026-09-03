@@ -317,6 +317,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   network mounts; no change to streaming code, but it addresses the threadpool contention that sync
   `fs` calls in the stream routes contribute to.
 - 2026-09-03 `POST /api/jobs/*` endpoints removed with the other legacy handlers in `index.ts`; the video worker no longer has a producer.
+- 2026-09-03 `hlsService.test.ts` added (playlist synthesis, with `hwaccel` and `appConfig` mocked so no ffmpeg runs).
 
 ## Known Limitations
 
@@ -358,8 +359,9 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Blocking boot**: encoder detection uses `execSync` with up to ~55 s of worst-case timeouts.
 - **The `video-processing` worker is dead code** with a harmful `analyze` stub (overwrites
   `Media.duration` with 120); nothing enqueues to it since the job endpoints were removed.
-- **No tests** for any file in this part (the only backend tests are `authService` and
-  `mediaParser`).
+- **Tests cover playlist synthesis only** (`hlsService.test.ts`: Original eligibility, rung
+  order, audioTrack propagation, segment count and final-segment length); segment generation,
+  the semaphore, cache cleanup, probing and the stream routes are untested.
 
 ## Opportunities
 
@@ -398,7 +400,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   Safari playback of more codecs, and removes the MPEG-TS remux overhead.
 - **Async encoder detection** (S): run detection with `execFile` after the server starts listening,
   and cache results across restarts.
-- **Tests** (M): unit tests for playlist synthesis (segment count, last-segment duration, audioTrack
-  propagation), FFmpeg argument construction per encoder/quality, the semaphore, cache-path
+- **Tests** (M): FFmpeg argument construction per encoder/quality, the semaphore, cache-path
   resolution, and `probeMediaFile` parsing against fixture JSON; route tests for `streamAuth` and
-  quality validation.
+  quality validation. Playlist synthesis is covered.

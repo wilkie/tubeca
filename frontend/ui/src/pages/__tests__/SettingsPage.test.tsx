@@ -63,7 +63,8 @@ describe('SettingsPage', () => {
       render(<SettingsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/general/i)).toBeInTheDocument();
+        // 'General' is both a tab label and the section heading since the transcoding tab was added
+        expect(screen.getByRole('heading', { name: /general/i })).toBeInTheDocument();
       });
     });
 
