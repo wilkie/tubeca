@@ -1,12 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Box, CircularProgress, IconButton, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
 import { usePlayer } from '../context/PlayerContext';
 import { VideoControls } from '../components/VideoControls';
 import { UpNextPopup } from '../components/UpNextPopup';
-import { apiClient } from '../api/client';
 
 export function PlayPage() {
   const { t } = useTranslation();
@@ -29,8 +28,10 @@ export function PlayPage() {
     currentSubtitleTrack,
     currentQuality,
     availableQualities,
+    error,
     nextItem,
     playMedia,
+    retryPlayback,
     togglePlay,
     seek,
     seekCommit,
@@ -112,26 +113,6 @@ export function PlayPage() {
     }
   }, []);
 
-  // Handle keyboard events to show controls
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Navigation keys that should show controls
-      const navigationKeys = [
-        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
-        ' ', 'Space', 'Enter', 'Escape',
-        'f', 'F', 'm', 'M', // fullscreen, mute
-      ];
-
-      if (navigationKeys.includes(e.key)) {
-        showControlsWithTimeout();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [showControlsWithTimeout]);
 
   // Register mouse move handler for video element (portaled, so needs separate handler)
   useEffect(() => {
@@ -166,6 +147,85 @@ export function PlayPage() {
       document.exitFullscreen();
     }
   }, []);
+
+  // Keyboard shortcuts. Every handled key also reveals the controls, so the
+  // effect of the keypress is visible.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Never steal keys from a text field or an open dialog's controls
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return;
+      }
+
+      const seekBy = (seconds: number) => {
+        const next = Math.min(Math.max(0, currentTime + seconds), duration || Number.MAX_SAFE_INTEGER);
+        seekCommit(next);
+      };
+      const nudgeVolume = (delta: number) => setVolume(Math.min(1, Math.max(0, volume + delta)));
+      const step = e.shiftKey ? 30 : 10;
+
+      let handled = true;
+      switch (e.key) {
+        case ' ':
+        case 'k':
+        case 'K':
+          togglePlay();
+          break;
+        case 'ArrowLeft':
+        case 'j':
+        case 'J':
+          seekBy(-step);
+          break;
+        case 'ArrowRight':
+        case 'l':
+        case 'L':
+          seekBy(step);
+          break;
+        case 'ArrowUp':
+          nudgeVolume(0.05);
+          break;
+        case 'ArrowDown':
+          nudgeVolume(-0.05);
+          break;
+        case 'm':
+        case 'M':
+          toggleMute();
+          break;
+        case 'f':
+        case 'F':
+          handleFullscreenToggle();
+          break;
+        default:
+          handled = false;
+      }
+
+      if (handled) {
+        // Space and the arrows would otherwise scroll the page
+        e.preventDefault();
+        showControlsWithTimeout();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    showControlsWithTimeout,
+    togglePlay,
+    seekCommit,
+    setVolume,
+    toggleMute,
+    handleFullscreenToggle,
+    currentTime,
+    duration,
+    volume,
+  ]);
 
   const handleVideoClick = useCallback(() => {
     togglePlay();
@@ -220,11 +280,13 @@ export function PlayPage() {
     );
   }
 
-  // Audio media - use native audio player
+  // Audio media. The shared player element is portaled into this container by
+  // PlayerProvider, so the page must not render a second element of its own:
+  // two elements meant two decoders playing the same stream at once.
   if (currentMedia?.type === 'Audio') {
-    const streamUrl = apiClient.getAudioStreamUrl(currentMedia.id);
     return (
       <Box
+        ref={containerRef}
         sx={{
           display: 'flex',
           flexDirection: 'column',
@@ -253,9 +315,26 @@ export function PlayPage() {
         <Typography variant="h5" gutterBottom>
           {currentMedia.name}
         </Typography>
-        <audio controls autoPlay src={streamUrl} style={{ width: '80%', maxWidth: 600 }}>
-          {t('media.audioNotSupported')}
-        </audio>
+        <VideoControls
+          isPlaying={isPlaying}
+          currentTime={currentTime}
+          duration={duration}
+          volume={volume}
+          isMuted={isMuted}
+          isLoading={isLoading}
+          audioTracks={currentMedia.audioTracks}
+          currentAudioTrack={currentAudioTrack}
+          mediaId={currentMedia.id}
+          title={currentMedia.name}
+          showControls
+          showFullscreenButton={false}
+          onPlayPause={togglePlay}
+          onSeek={seek}
+          onSeekCommit={seekCommit}
+          onVolumeChange={setVolume}
+          onMuteToggle={toggleMute}
+          onAudioTrackChange={setAudioTrack}
+        />
       </Box>
     );
   }
@@ -338,6 +417,21 @@ export function PlayPage() {
           onSkipPrevious={playPrevious}
           containerRef={containerRef}
         />
+      )}
+
+      {/* Playback failed and automatic recovery gave up */}
+      {error && (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => void retryPlayback()}>
+              {t('playback.retry')}
+            </Button>
+          }
+          sx={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10001 }}
+        >
+          {t(error)}
+        </Alert>
       )}
 
       {/* Up Next popup */}

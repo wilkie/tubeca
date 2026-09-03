@@ -264,10 +264,9 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 1. ~~**Fix library sorting across pages**~~ Done 2026-09-03: sort keys denormalised onto
    `Collection` and maintained by the scrape workers; all five sorts run in SQL with nulls
    last ([Content Model](content-model.md)).
-2. **Playback quality of life** (S each, one batch): real keyboard shortcuts, bounded error
-   recovery with a visible error state, flush progress on tab close, skip watched episodes in
-   Up Next, quality preference stored by height, the audio double-play fix, and the Media
-   Session API for OS controls. ([Playback](playback.md))
+2. ~~**Playback quality of life**~~ Done 2026-09-03: keyboard shortcuts, bounded error
+   recovery with retry, progress flushed on tab close, Up Next skips watched episodes, quality
+   by height, audio double-play fixed, Media Session ([Playback](playback.md)).
 3. **Token hardening** (M): short-lived media-scoped tokens for image and stream URLs so the
    24-hour login JWT stops travelling in query strings; token versioning so role changes and
    deletions take effect immediately; central 401 handling in the client; login rate limiting;

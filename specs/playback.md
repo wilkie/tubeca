@@ -208,8 +208,10 @@ collection). An effect (`:816-948`) runs whenever `currentMedia` or `queue` chan
 1. `queueIndex` = position of the current media in the queue; `previousItem` = queue[index-1].
 2. `nextItem` = queue[index+1] (`type: 'queue'`) if it exists.
 3. Otherwise, if the media is an episode (`videoDetails.season`/`episode` set and has a
-   `collectionId`), `GET /api/collections/:seasonId`, sort media by episode number, take the next
-   one (`type: 'episode'`).
+   `collectionId`), `GET /api/collections/:seasonId`, sort media by episode number, then ask
+   `GET /api/watch/batch` about the episodes after this one and offer the first that is not
+   completed (`type: 'episode'`). If the rest of the season is already watched it falls back to
+   the immediate next episode, so Up Next always leads somewhere.
 4. If it was the last episode, `GET /api/collections/:showId`, sort child seasons by
    `localeCompare(..., { numeric: true })` on **name**, `GET` the next season and take its first
    episode.
@@ -241,7 +243,9 @@ Positions are persisted server-side in `WatchProgress` (one row per user and med
    `loadedmetadata`.
 2. While playing, the `timeupdate` handler calls `reportProgress`, which is throttled to one
    `PUT /api/watch/:mediaId` every 10 s of wall-clock time. `pause`, `close` and switching to
-   another item report immediately; `ended` calls `POST /api/watch/:mediaId/complete`.
+   another item report immediately; `ended` calls `POST /api/watch/:mediaId/complete`. A
+   `pagehide` or a switch to a hidden tab flushes the last position with `keepalive`, so closing
+   the tab mid-episode does not lose it.
 3. The server derives `completed` from the position: at or past 90% of the duration counts as
    watched, and a later report below that (a rewatch) clears it.
 
@@ -249,6 +253,35 @@ Positions are persisted server-side in `WatchProgress` (one row per user and med
 `GET /api/watch/continue`: in-progress items in accessible libraries, newest first, each with a
 progress bar and time left; clicking navigates to `/play/:id`, where the resume rule above
 applies. Only the quality level index and mini-player corner remain in `localStorage`.
+
+### Controls, errors and the operating system
+
+`PlayPage` handles keys on `document` unless the event came from a text field or a
+contenteditable element: space and `k` toggle playback, the left/right arrows and `j`/`l` seek
+ten seconds (thirty with shift, clamped to the media's length), the up/down arrows move the
+volume by five points, `m` mutes and `f` toggles fullscreen. Every handled key calls
+`preventDefault` (space and the arrows would otherwise scroll) and reveals the controls.
+
+Fatal HLS errors are retried at most `MAX_FATAL_RECOVERIES` (3) times, counted per load and
+reset by `playMedia`. Past that the instance is destroyed and `error` is set to an i18n key,
+which `PlayPage` renders as an alert with a Try again action wired to `retryPlayback()`; the
+spinner is cleared so the player no longer sits loading for ever.
+
+Preferred quality is stored as a **height** (`tubeca_last_quality_height`), not a level index,
+because ladders differ between titles. hls.js is constructed with `autoStartLoad: false`; on
+`MANIFEST_PARSED` the highest rung no taller than the remembered height becomes `startLevel`
+and `startLoad(startPosition)` begins loading. A buffer stall lowers the remembered height to
+the next rung down.
+
+`navigator.mediaSession` carries the title and poster, play/pause/seek handlers, a `nexttrack`
+handler while an Up Next item exists, and a `playbackState` that follows `isPlaying`, so OS
+media keys and lock screens work.
+
+Audio items play through the **same** shared element as video (`getAudioStreamUrl`), and
+`PlayPage`'s audio branch registers its container like the video branch so the element is
+portaled in; it renders `VideoControls` without the fullscreen button. Until 2026-09-03 the page
+also rendered its own `<audio>` element, so audio played twice and a mini player appeared
+alongside.
 
 ### Watched state on cards and lists
 
@@ -303,30 +336,25 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - `0fc5947` 2025-12-19 `maxConcurrentTranscodes` semaphore; prefetch count follows `prefetchSegments` (no forced minimum of 3).
 - 2026-09-03 Resume on play, throttled progress reporting, mark-watched on `ended`, and the Continue Watching strip on `HomePage` (`ContinueWatchingRow`); `PlayerContext` tests cover the resume rule and reporting.
 - 2026-09-03 Watched badges and progress bars on library, season and episode cards; mark watched/unwatched on cards, film hero and media page; batch progress and collection summary endpoints.
+- 2026-09-03 Playback batch: real keyboard shortcuts, bounded fatal-error recovery with a visible retry, progress flushed on tab close, Up Next skips watched episodes, quality remembered by height, audio plays through the shared element, Media Session integration.
 
 ## Known Limitations
 
 - **Watched state is not shown on search results, user collections or the queue.** Those pages
   do not call `useWatchState`; the badge components are ready but unwired there.
 - **Marking a whole season or show watched is one item at a time.** There is no bulk endpoint.
-- **Progress reports are fire-and-forget.** A failed `PUT /api/watch` is not retried, and the
+- **Progress reports are not retried.** A failed `PUT /api/watch` is not retried, and the
   last position can be lost if the tab is closed mid-playback without a pause (no
   `beforeunload`/`visibilitychange` flush, no `sendBeacon`).
-- **No real keyboard shortcuts.** Space/arrows/`f`/`m` only reveal the controls (`PlayPage.tsx:117`).
+
 - **No touch handling.** Drag, hover trickplay, and auto-hide are mouse-event only; `MiniPlayer`
   cannot be moved on touch devices and the preview never appears.
-- **Audio media double-plays** (see "Audio media" above): shared video element and page `<audio>`
-  both start, plus an unexpected mini player.
+
 - **Safari native HLS path is effectively unauthenticated.** The master URL carries `?token=`, but
   variant/segment URIs generated by `hlsService` carry only `audioTrack`, and Safari cannot set
   headers, so variant loads should 401 on non-HLS.js browsers. Untested in the repo.
-- **Error recovery is unbounded and silent.** Fatal `NETWORK_ERROR` -> `hls.startLoad()` and
-  `MEDIA_ERROR` -> `recoverMediaError()` retry forever; other fatal errors destroy the instance
-  with no UI. The spinner (`isLoading`) can stay on indefinitely; `PlayPage` only shows
-  `media.notFound` when the metadata fetch fails. The audio-switch `Hls` instance has no recovery.
-- **Saved quality level is an index, not a name.** Level order/length depends on the media's
-  ladder (`original` + presets), so a level saved from a 1080p source may be out of range or mean
-  a different quality for a 480p source.
+
+
 - **Season ordering by name** in next-season continuation (`:896`) breaks for non-"Season N"
   naming or specials; `seasonDetails` is not available on the child summaries.
 - **Continuation cost:** up to three collection fetches on every media change, even when the
@@ -349,24 +377,17 @@ Collections in libraries the user cannot access are omitted from the summaries e
 
 - **Wire `useWatchState` into search, user collection and queue pages** (S) and add a
   "mark all watched" action on seasons and shows backed by a bulk endpoint (M).
-- **Skip watched episodes in Up Next / auto-play** (S) now that the player can ask.
-- **Flush progress on tab close** (S): `visibilitychange`/`pagehide` handlers using
-  `navigator.sendBeacon` (the endpoint would need to accept a beacon-friendly body).
+
+
 - **Next-episode from Continue Watching** (S): when a completed episode has a successor, show
   the successor in the strip instead of dropping the show.
-- **Real keyboard shortcuts** (S): extend `PlayPage`'s keydown handler to call `togglePlay`,
-  `seekCommit(±10)`, `setVolume`, `toggleMute`, `handleFullscreenToggle`; ignore when focus is in
-  an input.
-- **Fix Audio media playback** (S): either make `playMedia` skip loading the shared element for
-  Audio, or drop `PlayPage`'s `<audio>` and drive the shared element through `VideoControls`
-  (which would also give audio the mini player, queue and Up Next for free).
-- **Surface playback errors** (S/M): bound the fatal-retry loops, set an `error` state in the
-  context, and show a retry/back UI in `PlayPage`/`MiniPlayer`; reset `isLoading` on failure.
+
+
+
 - **Extract `createHls(config, events)`** (S): one config object and one event wiring for
   `initHls` and `setAudioTrack`, so stability tracking and recovery apply to audio switches too.
   Prefer `hls.audioTrack`-style switching later if the backend exposes alternate audio renditions.
-- **Store quality preference by name/height rather than index** (S): save `levels[i].height` and
-  resolve `startLevel` after `MANIFEST_PARSED` (or via `hls.startLevel` once levels are known).
+
 - **Token in master-playlist variant URIs or proper Safari path** (S): have `hlsService` propagate
   `token` into variant/segment URIs when present, or drop the native path and require HLS.js.
 - **Touch support** (M): pointer events for drag and a tap-to-toggle-controls model; show
@@ -381,5 +402,3 @@ Collections in libraries the user cannot access are omitted from the summaries e
   handling incl. quality persistence and stall back-off, `setAudioTrack` recreation, the
   queue/episode/season resolver, and `ended` auto-advance; a `UpNextPopup` test for the 30 s window
   and per-item dismissal.
-- **Media Session API** (S): expose title/poster and play/pause/next to OS media controls, which
-  the mini player model makes cheap.

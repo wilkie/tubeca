@@ -280,5 +280,11 @@
     "remaining": "{{count}} left",
     "remaining_one": "{{count}} left",
     "progress": "{{percent}}% watched"
+  },
+  "playback": {
+    "errorNetwork": "Playback stopped: the connection to the server was lost.",
+    "errorMedia": "Playback stopped: this video could not be decoded.",
+    "errorLoad": "This item could not be loaded.",
+    "retry": "Try again"
   }
 }

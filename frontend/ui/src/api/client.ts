@@ -571,11 +571,14 @@ class ApiClient {
 
   async updateWatchProgress(
     mediaId: string,
-    input: UpdateWatchProgressInput
+    input: UpdateWatchProgressInput,
+    /** `keepalive` lets the request finish after the page is closed or hidden. */
+    options: { keepalive?: boolean } = {}
   ): Promise<ApiResponse<WatchProgressResponse>> {
     return this.request<WatchProgressResponse>(`/watch/${mediaId}`, {
       method: 'PUT',
       body: JSON.stringify(input),
+      keepalive: options.keepalive,
     });
   }
 

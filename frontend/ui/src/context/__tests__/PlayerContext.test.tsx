@@ -32,18 +32,30 @@ beforeAll(() => {
 // Mock HLS.js
 jest.mock('hls.js', () => {
   function MockHls(config?: Record<string, unknown>) {
-    (MockHls as unknown as { lastConfig?: Record<string, unknown> }).lastConfig = config;
-    return {
+    const handlers = new Map<string, (event: string, data: unknown) => void>();
+    const instance = {
       loadSource: jest.fn(),
       attachMedia: jest.fn(),
       destroy: jest.fn(),
-      on: jest.fn(),
+      // Record handlers so tests can drive MANIFEST_PARSED, ERROR and friends.
+      on: jest.fn((event: string, handler: (event: string, data: unknown) => void) => {
+        handlers.set(event, handler);
+      }),
+      emit: (event: string, data: unknown) => handlers.get(event)?.(event, data),
       startLoad: jest.fn(),
       recoverMediaError: jest.fn(),
-      levels: [],
+      levels: [] as Array<{ height?: number; name?: string; bitrate: number }>,
+      startLevel: -1,
       currentLevel: -1,
       bandwidthEstimate: 5000000,
     };
+    const store = MockHls as unknown as {
+      lastConfig?: Record<string, unknown>;
+      lastInstance?: typeof instance;
+    };
+    store.lastConfig = config;
+    store.lastInstance = instance;
+    return instance;
   }
   MockHls.isSupported = () => true;
   MockHls.Events = {
@@ -504,12 +516,137 @@ describe('PlayerContext', () => {
       act(() => {
         video.dispatchEvent(new Event('pause'));
       });
-      expect(mockApi.updateWatchProgress).toHaveBeenCalledWith('m1', { position: 123, duration: 1200 });
+      expect(mockApi.updateWatchProgress).toHaveBeenCalledWith('m1', { position: 123, duration: 1200 }, { keepalive: false });
 
       act(() => {
         video.dispatchEvent(new Event('ended'));
       });
       expect(mockApi.markWatched).toHaveBeenCalledWith('m1');
+    });
+  });
+
+  describe('quality preference and error recovery', () => {
+    const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+    const media = {
+      id: 'm1', name: 'Pilot', path: '/p.mkv', duration: 1200, type: 'Video',
+      thumbnails: null, collectionId: null, videoDetails: null, audioDetails: null,
+      streams: [], images: [], createdAt: '', updatedAt: '',
+    };
+    const hlsModule = () =>
+      (jest.requireMock('hls.js') as {
+        default: {
+          lastConfig?: Record<string, unknown>;
+          lastInstance?: {
+            emit: (event: string, data: unknown) => void;
+            startLoad: jest.Mock;
+            destroy: jest.Mock;
+            recoverMediaError: jest.Mock;
+            startLevel: number;
+            levels: Array<{ height?: number; bitrate: number }>;
+            currentLevel: number;
+          };
+          Events: Record<string, string>;
+          ErrorTypes: Record<string, string>;
+        };
+      }).default;
+
+    const ladder = [
+      { height: 360, bitrate: 1_000_000 },
+      { height: 720, bitrate: 4_000_000 },
+      { height: 1080, bitrate: 8_000_000 },
+    ];
+
+    async function start() {
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+      await act(async () => {
+        await result.current.playMedia('m1');
+      });
+      return result;
+    }
+
+    beforeEach(() => {
+      // jsdom has no media playback; the manifest handler calls play().
+      jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+      mockApi.getMedia.mockResolvedValue({ data: { media } } as never);
+      mockApi.getTrickplayInfo.mockResolvedValue({ data: undefined } as never);
+      mockApi.getWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+      mockApi.getHlsMasterPlaylistUrl.mockReturnValue('/hls/m1/master.m3u8');
+    });
+
+    it('waits for the manifest before loading, then starts at the remembered height', async () => {
+      localStorage.setItem('tubeca_last_quality_height', '720');
+      await start();
+      const hls = hlsModule().lastInstance!;
+
+      expect(hlsModule().lastConfig?.autoStartLoad).toBe(false);
+      expect(hls.startLoad).not.toHaveBeenCalled();
+
+      hls.levels = ladder;
+      act(() => {
+        hls.emit(hlsModule().Events.MANIFEST_PARSED, { levels: ladder });
+      });
+
+      expect(hls.startLevel).toBe(1); // the 720p rung
+      expect(hls.startLoad).toHaveBeenCalled();
+    });
+
+    it('drops to the best rung below the remembered height when it is missing', async () => {
+      localStorage.setItem('tubeca_last_quality_height', '900');
+      await start();
+      const hls = hlsModule().lastInstance!;
+      act(() => {
+        hls.emit(hlsModule().Events.MANIFEST_PARSED, { levels: ladder });
+      });
+      expect(hls.startLevel).toBe(1); // 720p, not 1080p
+    });
+
+    it('recovers a few times, then reports the failure instead of retrying for ever', async () => {
+      // This path logs deliberately; the shared setup turns console.error into a failure.
+      const originalError = console.error;
+      console.error = () => {};
+      try {
+      const result = await start();
+      const hls = hlsModule().lastInstance!;
+      const fatal = { fatal: true, type: hlsModule().ErrorTypes.NETWORK_ERROR, details: 'x' };
+
+      for (let i = 0; i < 3; i++) {
+        act(() => {
+          hls.emit(hlsModule().Events.ERROR, fatal);
+        });
+      }
+      expect(hls.startLoad).toHaveBeenCalledTimes(3);
+      expect(result.current.error).toBeNull();
+
+      act(() => {
+        hls.emit(hlsModule().Events.ERROR, fatal);
+      });
+      expect(hls.startLoad).toHaveBeenCalledTimes(3);
+      expect(hls.destroy).toHaveBeenCalled();
+      expect(result.current.error).toBe('playback.errorNetwork');
+      expect(result.current.isLoading).toBe(false);
+      } finally {
+        console.error = originalError;
+      }
+    });
+
+    it('flushes the position with keepalive when the page is hidden', async () => {
+      await start();
+      const video = document.querySelector('video') as HTMLVideoElement;
+      Object.defineProperty(video, 'currentTime', { value: 42, configurable: true, writable: true });
+      act(() => {
+        video.dispatchEvent(new Event('timeupdate'));
+      });
+      mockApi.updateWatchProgress.mockClear();
+
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+
+      expect(mockApi.updateWatchProgress).toHaveBeenCalledWith(
+        'm1',
+        { position: 42, duration: 1200 },
+        { keepalive: true }
+      );
     });
   });
 });

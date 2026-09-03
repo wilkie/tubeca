@@ -5,6 +5,17 @@ All notable changes to Tubeca are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Keyboard shortcuts in the player: space/k play-pause, arrows and j/l seek, arrows for
+  volume, m mute, f fullscreen; OS media controls via the Media Session API.
+
+### Fixed
+- Audio items no longer play twice: the page rendered its own element alongside the shared one.
+- Playback failures stop after a few recovery attempts and show a retry instead of spinning.
+- The last playback position is saved when a tab is closed or hidden.
+- Up Next offers the first unwatched episode rather than always the next one.
+- Preferred quality is remembered as a height, so it means the same thing on the next title.
+
 ### Changed
 - Library sorting by release date, rating and runtime is applied by the database, so
   paging through a sorted library no longer shows a locally-sorted, globally wrong order.

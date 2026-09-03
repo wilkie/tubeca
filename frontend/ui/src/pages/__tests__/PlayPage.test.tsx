@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '../../test-utils';
+import { render, screen, waitFor, fireEvent } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { PlayPage } from '../PlayPage';
 
@@ -46,6 +46,7 @@ const mockRegisterFullscreenContainer = jest.fn();
 const mockRegisterMouseMoveHandler = jest.fn();
 const mockRegisterMouseDownHandler = jest.fn();
 const mockRegisterClickHandler = jest.fn();
+const mockRetryPlayback = jest.fn();
 
 let mockPlayerState = {
   currentMedia: null as null | {
@@ -72,6 +73,7 @@ let mockPlayerState = {
   queueIndex: -1,
   nextItem: null,
   previousItem: null,
+  error: null as string | null,
 };
 
 // Mock PlayerContext
@@ -79,6 +81,7 @@ jest.mock('../../context/PlayerContext', () => ({
   usePlayer: () => ({
     ...mockPlayerState,
     playMedia: mockPlayMedia,
+    retryPlayback: mockRetryPlayback,
     play: jest.fn(),
     pause: jest.fn(),
     togglePlay: mockTogglePlay,
@@ -151,6 +154,7 @@ describe('PlayPage', () => {
       queueIndex: -1,
       nextItem: null,
       previousItem: null,
+      error: null,
     };
   });
 
@@ -271,12 +275,14 @@ describe('PlayPage', () => {
       mockPlayerState.currentMedia = mockAudioMediaContext;
     });
 
-    it('renders audio element for audio media', async () => {
+    it('does not render its own audio element (the shared player element is used)', async () => {
       render(<PlayPage />);
 
       await waitFor(() => {
-        expect(document.querySelector('audio')).toBeInTheDocument();
+        expect(screen.getByText('Test Song')).toBeInTheDocument();
       });
+      // Two elements playing the same stream would double up the audio.
+      expect(document.querySelector('audio')).not.toBeInTheDocument();
     });
 
     it('shows media name for audio', async () => {
@@ -287,13 +293,18 @@ describe('PlayPage', () => {
       });
     });
 
-    it('sets correct audio source', async () => {
+    it('registers its container so the shared player element is shown here', async () => {
       render(<PlayPage />);
 
       await waitFor(() => {
-        const audio = document.querySelector('audio');
-        expect(audio).toHaveAttribute('src', 'http://localhost/api/audio/audio-123');
+        expect(mockRegisterFullscreenContainer).toHaveBeenCalledWith(expect.any(HTMLElement));
       });
+    });
+
+    it('offers transport controls for audio', async () => {
+      render(<PlayPage />);
+
+      expect(await screen.findByTestId('video-controls')).toBeInTheDocument();
     });
   });
 
@@ -324,6 +335,100 @@ describe('PlayPage', () => {
       render(<PlayPage />);
 
       expect(mockPlayMedia).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('keyboard shortcuts', () => {
+    beforeEach(() => {
+      mockPlayerState.currentMedia = mockVideoMediaContext;
+      mockPlayerState.currentTime = 100;
+      mockPlayerState.duration = 7200;
+      mockPlayerState.volume = 0.5;
+    });
+
+    const press = (key: string, init: KeyboardEventInit = {}) => {
+      fireEvent.keyDown(document, { key, ...init });
+    };
+
+    it('toggles playback with space and k', async () => {
+      render(<PlayPage />);
+      await waitFor(() => expect(screen.getByTestId('video-controls')).toBeInTheDocument());
+
+      press(' ');
+      press('k');
+      expect(mockTogglePlay).toHaveBeenCalledTimes(2);
+    });
+
+    it('seeks with the arrows and j/l, further with shift', async () => {
+      render(<PlayPage />);
+      await waitFor(() => expect(screen.getByTestId('video-controls')).toBeInTheDocument());
+
+      press('ArrowRight');
+      expect(mockSeekCommit).toHaveBeenLastCalledWith(110);
+      press('ArrowLeft');
+      expect(mockSeekCommit).toHaveBeenLastCalledWith(90);
+      press('l', { shiftKey: true });
+      expect(mockSeekCommit).toHaveBeenLastCalledWith(130);
+    });
+
+    it('does not seek past the start or the end', async () => {
+      mockPlayerState.currentTime = 5;
+      mockPlayerState.duration = 20;
+      render(<PlayPage />);
+      await waitFor(() => expect(screen.getByTestId('video-controls')).toBeInTheDocument());
+
+      press('ArrowLeft');
+      expect(mockSeekCommit).toHaveBeenLastCalledWith(0);
+      press('ArrowRight');
+      expect(mockSeekCommit).toHaveBeenLastCalledWith(15);
+    });
+
+    it('changes volume and mutes', async () => {
+      render(<PlayPage />);
+      await waitFor(() => expect(screen.getByTestId('video-controls')).toBeInTheDocument());
+
+      press('ArrowUp');
+      expect(mockSetVolume).toHaveBeenLastCalledWith(0.55);
+      press('ArrowDown');
+      expect(mockSetVolume).toHaveBeenLastCalledWith(0.45);
+      press('m');
+      expect(mockToggleMute).toHaveBeenCalled();
+    });
+
+    it('ignores keys typed into a text field', async () => {
+      render(<PlayPage />);
+      await waitFor(() => expect(screen.getByTestId('video-controls')).toBeInTheDocument());
+
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      fireEvent.keyDown(input, { key: ' ' });
+      expect(mockTogglePlay).not.toHaveBeenCalled();
+      input.remove();
+    });
+  });
+
+  describe('playback errors', () => {
+    beforeEach(() => {
+      mockPlayerState.currentMedia = mockVideoMediaContext;
+    });
+    afterEach(() => {
+      mockPlayerState.error = null;
+    });
+
+    it('shows nothing while playback is healthy', async () => {
+      render(<PlayPage />);
+      await waitFor(() => expect(screen.getByTestId('video-controls')).toBeInTheDocument());
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('surfaces a failure with a retry action', async () => {
+      const user = userEvent.setup();
+      mockPlayerState.error = 'playback.errorNetwork';
+      render(<PlayPage />);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/connection to the server was lost/i);
+      await user.click(screen.getByRole('button', { name: /try again/i }));
+      expect(mockRetryPlayback).toHaveBeenCalled();
     });
   });
 });
