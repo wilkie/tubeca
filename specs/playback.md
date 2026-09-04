@@ -371,10 +371,10 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - `isFullscreen` is never passed from `PlayPage`, so its fullscreen icon never toggles.
 - `VideoPlayer.tsx` is dead code kept alive by its test and the barrel export; the trickplay
   clamping tests exercise it rather than `VideoControls`.
-- Tests: `PlayerContext.test.tsx` mocks `hls.js` and only asserts state setters and localStorage;
-  `playMedia`, `initHls` events, quality persistence, `setAudioTrack`, `seekCommit` on HLS, the
-  next-item/next-season resolver, `ended` auto-advance and the DOM re-parenting are untested.
-  `UpNextPopup` has no test. `VideoControls.test.tsx` covers only the two negative trickplay cases.
+- Tests: `PlayerContext.test.tsx` mocks `hls.js` and now covers the queue, the next-item and
+  next-season resolver and `ended` auto-advance alongside the state setters; `setAudioTrack`
+  recreation, `seekCommit` on HLS and the DOM re-parenting are still untested.
+  `VideoControls.test.tsx` covers only the two negative trickplay cases.
 
 ## Opportunities
 
@@ -401,7 +401,5 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - **i18n and a11y pass on `VideoControls`** (S): use the existing `player.*` keys, add
   `aria-label`s to every icon button, and translate "Off"/"Auto"/language names.
 - **Delete `VideoPlayer.tsx`** (S) and move the clamping tests onto `VideoControls`.
-- **Tests** (M): `PlayerContext` tests for `playMedia` request flow (media + trickplay), HLS event
-  handling incl. quality persistence and stall back-off, `setAudioTrack` recreation, the
-  queue/episode/season resolver, and `ended` auto-advance; a `UpNextPopup` test for the 30 s window
-  and per-item dismissal.
+- **Tests** (S): `PlayerContext` tests for `setAudioTrack` recreation, `seekCommit` on HLS and the
+  DOM re-parenting between the mini and fullscreen containers; the rest of this part is covered.

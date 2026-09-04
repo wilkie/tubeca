@@ -280,16 +280,12 @@ proxies `/api` and `/api/stream/` to `:3000`). See [Deployment](deployment.md).
 `console.error` to throw (3d62f55). `test-utils.tsx` exports a `render` wrapped in
 `I18nextProvider`, a dark `ThemeProvider` and `MemoryRouter`, plus `createMockAuthContext`,
 `mockAdminUser`, `mockViewerUser`. Tests mock `../../api/client` wholesale (29 files) and often
-`react-router-dom` (16 files). There are 42 test files, 15,216 lines, 854 `it()` cases (pages
-357, components 379, context 49, api 47, utils 22). A coverage run from 2025-12-05 reported
-74.2% statements / 63.3% branches overall: pages 81%, components 77%, api 57%, context 48%
-(`PlayerContext` and `ScrollRestorationContext` drag this down), `src/` root 27% (`App.tsx`,
-`main.tsx`, `theme.ts` untested). Files without tests: `CardQuickActions`, `FavoriteButton`,
-`FilterChips`, `HeroSection`, `IdentifyDialog`, `MediaListItem`, `NavigationLoadingOverlay`,
-`QuickSearchOverlay`, `SelectionActionBar`, `SortControls`, `SortableMediaListItem`,
-`StandardCollectionView`, `StickyHeroBreadcrumbs`, `UpNextPopup`, `ViewModeMenu`, `QueuePage`,
-`ScrollRestorationContext`, both hooks. The husky pre-commit hook runs `pnpm lint && pnpm
-typecheck && pnpm test` (tests added 2026-09-03; the frontend suite takes about a minute).
+`react-router-dom` (16 files). As of 2026-09-04 every page, component, context and hook has a
+test file: 1,157 `it()` cases across 76 files. Only `App.tsx`, `main.tsx` and `theme.ts` are
+untested, and a coverage run has not been repeated since 2025-12-05 (74.2% statements / 63.3%
+branches then, when a third of the components had no tests at all). The husky pre-commit hook
+runs `pnpm lint && pnpm typecheck && pnpm test` (tests added 2026-09-03; the frontend suite takes
+about a minute).
 `jest.setup.ts` fails a test on any `console.error` and stands in for the parts of the browser
 jsdom leaves out (`window.scrollTo`, `ResizeObserver`).
 The shared `test-utils.tsx` wrapper mirrors `main.tsx` providers including
@@ -362,6 +358,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-03 Coverage push: `SelectionActionBar`, `IdentifyDialog`, `LibraryToolbar`, `DirectoryPickerDialog`, `useQuickSearch` and `useDebouncedValue` tested; `aria-label`s added to the filter and identify-search buttons; the collection-name field in `SelectionActionBar` now stops its keystrokes reaching MUI's `MenuList` type-ahead, which had been eating them.
 - 2026-09-03 Second coverage push: `CollectionCard`, `MediaListItem`, `ContinueWatchingRow`, `FilterChips`, `SortControls`, `FavoriteButton` and `QuickSearchOverlay` tested; the play button on a list row labelled; the quick-search counter and the play tooltip moved to `t()` (`library.quickSearchMatches`, `common.play`).
 - 2026-09-03 Third coverage push: `ScrollRestorationContext`, `StandardCollectionView`, `StickyHeroBreadcrumbs`, `NavigationLoadingOverlay`, `SortableMediaListItem` and the playlist drag-reorder handler tested; the collection-type chip moved to `t()`; `jest.setup.ts` stubs `ResizeObserver`, which jsdom does not implement.
+- 2026-09-04 `HeroSection`, `UpNextPopup`, `ViewModeMenu` and `RecentCollectionMenuItem` tested, which leaves no untested component, page, context or hook.
 
 ## Known Limitations
 

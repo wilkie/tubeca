@@ -172,6 +172,7 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - 2026-09-03 — `scrapeMatching.ts` (scored candidate selection with a threshold) and `scrapeResolution.ts` (identity-first resolution with no search fallback, outcome recording); `scrapeStatus`/`scrapeMessage`/`scrapedAt` on `Collection` and `Media` (migration `20260903130000_scrape_status`); `ScrapeStatusAlert` in the UI.
 - 2026-09-04 Both scrape workers tested against the processor BullMQ would call; the season path's swallowed provider error recorded as a known limitation rather than changed.
 - 2026-09-04 Jest added to `scrapers/tmdb` and `scrapers/tvdb` (ts-jest ESM, `fetch` stubbed, no fixtures on disk) with 60 cases between them, and the scraper loader covered in the backend.
+- 2026-09-04 `POST /api/collections/search`, `/:id/identify` and the two refresh endpoints tested: what each queues, the identity it writes, and the artwork thrown away when a collection turns out to be something else.
 
 ## Known Limitations
 
@@ -192,7 +193,7 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
   everything `getSeasonMetadata` throws and returns `No season metadata found`, so the season is
   recorded `NoMatch` and never retried, while the same timeout on a show or film job is recorded
   `Failed` and retried by BullMQ. Pinned by a test on 2026-09-04.
-- **Tests**: the plugins and the loader are covered as of 2026-09-04 (a stubbed `fetch`, no fixtures on disk), the workers as of the same day (job-level tests against a captured BullMQ processor, with the scrapers, the apply helpers and the cache mocked), as are the pieces pulled out of them (`scrapeApply`, `scrapeCascade`, `scrapeCache`, `collectionScrapePlan`, `imageService`, `getScraperConfigs`, `scrapeMatching`, `scrapeResolution`, `mediaParser`). The search and identify routes still have none.
+- **Tests**: the plugins and the loader are covered as of 2026-09-04 (a stubbed `fetch`, no fixtures on disk), the workers as of the same day (job-level tests against a captured BullMQ processor, with the scrapers, the apply helpers and the cache mocked), as are the pieces pulled out of them (`scrapeApply`, `scrapeCascade`, `scrapeCache`, `collectionScrapePlan`, `imageService`, `getScraperConfigs`, `scrapeMatching`, `scrapeResolution`, `mediaParser`). The search and identify routes were covered on the same day, which leaves nothing in this area untested.
 
 ## Opportunities
 
@@ -207,6 +208,5 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **Harden TVDB or drop it** (M): add `getSeriesMetadata`/`getSeasonMetadata`, timeouts, retries, and the pooled agent; or remove it from `/collections/search` results for Shows until it can complete the job.
 - **Real plugin discovery** (M): scan `scrapers/*` or a configured directory for packages with `pluginType: "scraper"` instead of hard-coded imports, and expose `scraperManager.list()` in an admin UI.
 - **Music scrapers** (L): implement MusicBrainz (or similar) against the already-defined `AudioMetadata`/`ArtistMetadata`/`AlbumMetadata` shapes and the stubbed worker branches.
-- **Tests** (S): route tests for search and identify, the last untested part of this area.
 - **Move `parseTitleAndYear` to a runtime shared package** (S): the frontend copy exists only because `shared-types` is types-only; a small `@tubeca/shared-utils` would remove the drift risk between the two parsers.
 - **Keep original names and prune stale keywords** (S): store `originalName` on `Media` before overwriting with the episode title, and `set` rather than `connect` keywords so a re-identify does not accumulate the previous title's tags.
