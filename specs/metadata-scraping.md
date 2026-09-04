@@ -28,6 +28,7 @@
 | `packages/scraper-types/src/index.ts` | `ScraperPlugin` interface plus `SearchResult`, `VideoMetadata`, `SeriesMetadata`, `SeasonMetadata`, `CreditInfo`, `PersonMetadata`, and audio/artist/album metadata shapes. All plugin methods are optional. |
 | `backend/src/plugins/scraperLoader.ts` | `ScraperManager` singleton (`register`, `initialize`, `get`, `getByMediaType`, `getConfigured`, `list`) and `loadScrapers()`, which hard-codes dynamic imports of `@tubeca/scraper-tmdb` and `@tubeca/scraper-tvdb`. |
 | `backend/src/config/appConfig.ts` | `getScraperConfigs()` reads `scrapers.<id>` from `tubeca.config.json` and hands the whole block (minus our own `enabled` flag) to the plugin, so `language`, `region`, `imageSize` and `baseUrl` reach `initialize()`. |
+| `backend/src/workers/__tests__/{metadataScrapeWorker,collectionScrapeWorker}.test.ts` | 52 cases driving the processors BullMQ would call: search vs. by-id paths, the episode and season cascades, images-only and skip-images, keywords, credits, and what is retried versus recorded as a miss. |
 | `scrapers/tmdb/src/index.ts` | TMDB plugin: movies, TV series, seasons, episodes, people, keywords, image selection; DNS cache, pooled agent, retry with backoff. |
 | `scrapers/tvdb/src/index.ts` | TVDB v4 plugin: series search, series-as-video metadata, episode metadata, people. No season/series-collection support, no retries. |
 | `backend/src/queues/collectionScrapePlan.ts` | Job shapes (`CollectionScrapeJobData`, `CascadeDepth`) and `planCollectionScrapeJobs()`, the pure rule for what a bulk request queues. Separate from the queue so it can be tested without Redis. |
@@ -167,6 +168,7 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - `27c0663` 2026-09-02 — `parseTitleAndYear` for clean title/year in both workers and the Identify dialog pre-fill, with tests; frontend mirror in `utils/parseTitle.ts`.
 - 2026-09-03 — Scrape follow-through: seasons and episodes queued from the show job's success path instead of a delay (`scrapeCascade.ts`, `collectionScrapePlan.ts`), Identify cascading to both, artwork reuse when the source URL has not moved, a TTL cache over provider calls (`scrapeCache.ts`), scraper config passed through to `initialize()`, and the workers' duplicated artwork/credit code unified in `scrapeApply.ts` with the dead `scraperService.ts` deleted.
 - 2026-09-03 — `scrapeMatching.ts` (scored candidate selection with a threshold) and `scrapeResolution.ts` (identity-first resolution with no search fallback, outcome recording); `scrapeStatus`/`scrapeMessage`/`scrapedAt` on `Collection` and `Media` (migration `20260903130000_scrape_status`); `ScrapeStatusAlert` in the UI.
+- 2026-09-04 Both scrape workers tested against the processor BullMQ would call; the season path's swallowed provider error recorded as a known limitation rather than changed.
 
 ## Known Limitations
 
@@ -183,7 +185,11 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **The response cache is per process and per worker**: nothing is shared with the API process or across a restart, and image downloads are not cached at all, so the plugin's own internal calls (`/images`, and the `/tv/{id}` lookup inside `getEpisodeMetadata`) are only deduplicated when they happen to go through a cached worker call.
 - **Sequential, non-transactional credit rewrite**: `deleteMany` then per-credit `create` (+ person lookup + photo fetch) runs outside a transaction; a crash mid-way leaves a collection with partial credits.
 - **Secrets were in history**: `tubeca.config.json` with live keys was committed early on; it was purged from history and the keys rotated on 2026-09-03, but clones from before that date still carry it.
-- **Tests**: the pieces that were pulled out of the workers are covered (`scrapeApply`, `scrapeCascade`, `scrapeCache`, `collectionScrapePlan`, `imageService`, `getScraperConfigs`, plus the existing `scrapeMatching`/`scrapeResolution`/`mediaParser` suites), but the workers themselves, the two plugins, the loader and the search/identify routes still have none.
+- **A provider error on a season is a miss, not a retry**: `scrapeSeasonMetadata` catches
+  everything `getSeasonMetadata` throws and returns `No season metadata found`, so the season is
+  recorded `NoMatch` and never retried, while the same timeout on a show or film job is recorded
+  `Failed` and retried by BullMQ. Pinned by a test on 2026-09-04.
+- **Tests**: the workers are covered as of 2026-09-04 (job-level tests against a captured BullMQ processor, with the scrapers, the apply helpers and the cache mocked), as are the pieces pulled out of them (`scrapeApply`, `scrapeCascade`, `scrapeCache`, `collectionScrapePlan`, `imageService`, `getScraperConfigs`, `scrapeMatching`, `scrapeResolution`, `mediaParser`). The two plugins, the loader and the search/identify routes still have none.
 
 ## Opportunities
 
@@ -192,6 +198,9 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **Score `originalTitle` too and expose scores in Identify** (S): `pickBestMatch` could take alternative titles, and `/collections/search` could return and sort by the score so the dialog's ordering matches the worker's.
 - **Library-level scrape overview** (M): an "unmatched items" filter or count per library (a `where: { scrapeStatus: 'NoMatch' }` query) and polling of `scrapeStatus` on the page after Refresh/Identify so `Pending` resolves without a reload.
 - **Distinguish "null because error" from "null because missing"** (S): have plugins throw on transport errors and return `null` only on 404, so an identified item whose provider entry vanished becomes `NoMatch` instead of a retried `Failed`.
+- **Make a season's provider error retryable** (S): `scrapeSeasonMetadata` should return a
+  `failed` attempt for a transient error rather than swallowing it into `NoMatch`, the way the
+  show and film paths already do.
 - **Harden TVDB or drop it** (M): add `getSeriesMetadata`/`getSeasonMetadata`, timeouts, retries, and the pooled agent; or remove it from `/collections/search` results for Shows until it can complete the job.
 - **Real plugin discovery** (M): scan `scrapers/*` or a configured directory for packages with `pluginType: "scraper"` instead of hard-coded imports, and expose `scraperManager.list()` in an admin UI.
 - **Music scrapers** (L): implement MusicBrainz (or similar) against the already-defined `AudioMetadata`/`ArtistMetadata`/`AlbumMetadata` shapes and the stubbed worker branches.
