@@ -302,6 +302,22 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 Deferred beyond this round: music support (product decision), multi-arch images, plugin
 discovery, per-library group permissions, fMP4/CMAF segments, and the second locale.
 
+All ten landed on 2026-09-03. What each one left behind is recorded in its own spec's
+Opportunities section; the largest threads still open are:
+
+- **Playback**: hls.js is loaded before the login form because the player context is mounted
+  app-wide; a dynamic import inside it is the last bundle win ([Frontend App](frontend-app.md)).
+- **Streaming**: segments are still encoded whole before a byte is sent, and cancellation is by
+  position rather than by viewer ([Streaming](streaming-and-transcoding.md)).
+- **Search**: `SearchPage` and `LibraryPage` still page by hand; `useInfiniteQuery` would let
+  `ScrollRestorationContext` drop its data snapshot ([Search](search.md), [Frontend
+  App](frontend-app.md)).
+- **Scraping**: TVDB cannot complete a Show or Season job, and there is no gallery of provider
+  artwork to choose from even though the storage now supports one ([Metadata
+  Scraping](metadata-scraping.md), [Images](images.md)).
+- **Operations**: backups happen on upgrade only, and the database still lives under
+  `/opt/tubeca/backend/prisma` rather than `/var/lib/tubeca` ([Deployment](deployment.md)).
+
 ## Conventions for Maintaining These Specs
 
 - When a change alters behaviour described in a spec, update the spec in the same commit.
