@@ -141,27 +141,34 @@ keys were rotated. Clones made before that date still carry the old objects. The
 remains git-ignored; see [Metadata Scraping](metadata-scraping.md) and
 [Configuration](configuration.md).
 
-### Backend test coverage is still thin
+### Test coverage
 
-As of 2026-09-03 the backend has a real-SQLite test scaffolding (`backend/src/test/`: a migrated
-template database per run, one copy per Jest worker, factories, and supertest for routes) and
-nine test files covering auth, middleware, library access, collection pagination, layout rules,
-parsers and HLS playlist synthesis. The scan and scrape workers, the stream routes, images,
-user collections and search remain untested. Bugs the specs found are the kind a route test
-catches immediately: `GET /api/persons/search` was unreachable for nine months because `/:id`
-was registered first; sorting by release date, rating or runtime was applied per page in memory
-so infinite scroll was globally unordered (found by a deliberately failing test, fixed
-2026-09-03); the search endpoint applies
-the same offset to two parallel queries. The pre-commit hook now runs both suites, so the
-frontend's 860 cases cannot silently rot again the way 29 of them did between December and
-September.
+The backend runs on a real-SQLite scaffolding (`backend/src/test/`: a migrated template database
+per run, one copy per Jest worker, factories, and supertest for routes). As of 2026-09-04 the
+workspace has 1,848 cases across four packages — 631 backend in 52 files, 1,157 frontend in 75,
+and 60 across the two scraper plugins, which gained Jest that day. Every backend service, route, middleware, worker and
+plugin has tests, and so does every frontend component, page, context and hook; what is left is
+what needs a real binary or a real Redis to say anything (`ffprobe`, the BullMQ producers) and
+three frontend files that are pure wiring (`App.tsx`, `main.tsx`, `theme.ts`).
+
+Coverage was written to find bugs, and did: `GET /api/persons/search` had been unreachable for
+nine months because `/:id` was registered first; sorting by release date, rating or runtime was
+applied per page in memory, so infinite scroll was globally unordered; four icon buttons had no
+accessible name because a MUI `Tooltip` names the wrapper around a possibly-disabled child;
+typing a collection name into the multi-select bar lost letters to a `MenuList`'s type-ahead.
+Two behaviours were pinned as tests rather than changed, because the right answer is a decision
+rather than a fix: a provider error while fetching a season is recorded as a miss and never
+retried, and TMDB's `getVideoMetadata` throws past the `catch` that was meant to turn an error
+into `null`. The pre-commit hook runs `lint && typecheck && test` across every package, so none
+of this can silently rot the way 29 frontend cases did between December and September.
 
 ### Blocking work and lifecycles
 
-Since 2026-09-03 the API and the workers can run as separate processes and FFmpeg children
-are tracked, timed out and killed on shutdown. What remains: the scan uses synchronous `fs`
-calls, encoder detection runs synchronous test encodes when the HLS service is first used, and
-three modules still register competing SIGINT/SIGTERM handlers. See
+Since 2026-09-03 the API and the workers can run as separate processes, the scan walks the tree
+with async `fs`, encoder detection runs after the server is listening rather than on the first
+stream, and FFmpeg children are tracked, timed out and killed on shutdown. What remains: three
+modules (`index.ts`, `config/redis.ts`, `config/database.ts`) still register competing
+SIGINT/SIGTERM handlers, and ffprobe still runs one process per file, strictly serially. See
 [Configuration](configuration.md), [Libraries](libraries-and-scanning.md),
 [Streaming](streaming-and-transcoding.md).
 
@@ -173,20 +180,22 @@ into five components, became one hook on 2026-09-03.) See [Libraries](libraries-
 [Metadata Scraping](metadata-scraping.md), [User Collections](user-collections.md),
 [Frontend App](frontend-app.md).
 
-### Orphans: mostly closed
+### Orphans: closed
 
 Since 2026-09-03 rescans remove media and collections whose files vanished, `Media.path` is
-unique, and deleting a show, media item or library removes the whole tree with its artwork
-files. What remains: renames lose metadata (no size/mtime matching), Identify still deletes
-`Image` rows without files. See [Libraries](libraries-and-scanning.md),
-[Images](images.md), [Streaming](streaming-and-transcoding.md).
+unique, deleting a show, media item or library removes the whole tree with its artwork files, a
+rename is recognised by size and mtime rather than losing its metadata, and Identify deletes the
+old title's images with their files. What remains is a housekeeping job that diffs the image
+store against the database, for files orphaned before all this. See
+[Libraries](libraries-and-scanning.md), [Images](images.md).
 
 ### Watch state
 
 Since 2026-09-03 playback position and watched state are persisted per user, resume works, the
 home page has a Continue Watching strip, and library, season and episode cards carry watched
-badges, remaining counts and progress bars with a mark-watched control. Search, user
-collections and the queue do not show it yet. See [Playback](playback.md).
+badges, remaining counts and progress bars with a mark-watched control. `useWatchState` reaches
+the library, collection and media pages; search, user collections and the queue still show
+nothing. See [Playback](playback.md).
 
 ### Music is hidden
 
@@ -199,9 +208,11 @@ reading, a music scraper and an audio player; see [Libraries](libraries-and-scan
 ### Deployment is now one port, one binary
 
 Since 2026-09-03 the backend is bundled so plain `node` runs it, the API process serves the
-SPA, systemd runs an api and a worker unit, and a Dockerfile, compose file and CI workflow
-exist. What remains: no release tags, no published image, dev dependencies shipped in the
-package and image, and no backup step before upgrades. See [Deployment](deployment.md).
+SPA, systemd runs an api and a worker unit, a Dockerfile, compose file and CI workflow exist,
+CI publishes an image to GHCR on a tag, and an upgrade copies the database first (keeping the
+last five). What remains: the SQLite file still lives under `/opt/tubeca/backend/prisma` rather
+than `/var/lib/tubeca`, backups happen on upgrade only rather than on a timer, and dev
+dependencies still ship in the package and image. See [Deployment](deployment.md).
 
 ## Suggested Direction
 
@@ -300,23 +311,51 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
     ([Deployment](deployment.md), [Auth](auth-and-users.md)).
 
 Deferred beyond this round: music support (product decision), multi-arch images, plugin
-discovery, per-library group permissions, fMP4/CMAF segments, and the second locale.
+discovery, per-library group permissions, fMP4/CMAF segments, and the second locale. All ten
+landed on 2026-09-03.
 
-All ten landed on 2026-09-03. What each one left behind is recorded in its own spec's
-Opportunities section; the largest threads still open are:
+### Fourth round
 
-- **Playback**: hls.js is loaded before the login form because the player context is mounted
-  app-wide; a dynamic import inside it is the last bundle win ([Frontend App](frontend-app.md)).
-- **Streaming**: segments are still encoded whole before a byte is sent, and cancellation is by
-  position rather than by viewer ([Streaming](streaming-and-transcoding.md)).
-- **Search**: `SearchPage` and `LibraryPage` still page by hand; `useInfiniteQuery` would let
-  `ScrollRestorationContext` drop its data snapshot ([Search](search.md), [Frontend
-  App](frontend-app.md)).
-- **Scraping**: TVDB cannot complete a Show or Season job, and there is no gallery of provider
-  artwork to choose from even though the storage now supports one ([Metadata
-  Scraping](metadata-scraping.md), [Images](images.md)).
-- **Operations**: backups happen on upgrade only, and the database still lives under
-  `/opt/tubeca/backend/prisma` rather than `/var/lib/tubeca` ([Deployment](deployment.md)).
+Ranked 2026-09-03 from what the third round left behind; all four landed on 2026-09-03 and
+2026-09-04.
+
+1. ~~**Correctness sweep**~~ Done 2026-09-03: reorder checks membership and duplicates, the
+   playback queue takes existing media only, system collections are unique per user and type
+   and refuse the generic edit routes, and the service raises typed errors the routes map to
+   statuses ([User Collections](user-collections.md)).
+2. ~~**Frontend bundle and paging**~~ Done 2026-09-03: hls.js loaded on demand (1,177 kB → 657
+   kB, with hls.js in its own chunk), `LibraryPage` and `SearchPage` moved to
+   `useInfiniteQuery`, after which `ScrollRestorationContext` kept only the scroll offset
+   ([Frontend App](frontend-app.md), [Search](search.md)).
+3. ~~**First-byte latency**~~ Done 2026-09-03: a segment streams to the response while FFmpeg
+   is still encoding it, with the cache copy written under a temporary name and renamed only on
+   a clean exit. Measured against the real library: 0.39 s to first byte against 2.49 s to a
+   complete segment in software, 0.95 s against 1.76 s on NVENC
+   ([Streaming](streaming-and-transcoding.md)).
+4. ~~**Test coverage**~~ Done 2026-09-03 to 2026-09-04, in eight batches: see the cross-cutting
+   section above.
+
+### What is open now
+
+In rough order of what it costs a user:
+
+- **Scraping**: TVDB cannot complete a Show or Season job but is still offered in Identify, so
+  picking it produces a job that can only fail. Finish it or drop it from the results
+  ([Metadata Scraping](metadata-scraping.md)).
+- **Operations**: backups happen on upgrade only rather than on a timer, and the database still
+  lives under `/opt/tubeca/backend/prisma` rather than `/var/lib/tubeca` ([Deployment](deployment.md)).
+- **Streaming**: prefetch cancellation is by position rather than by viewer, so two people
+  watching the same file interfere with each other's prefetches
+  ([Streaming](streaming-and-transcoding.md)).
+- **Scraping, again**: there is no gallery of provider artwork to choose from even though the
+  storage and the upload path now support one; it needs `posterUrls[]` on the plugin interface
+  ([Metadata Scraping](metadata-scraping.md), [Images](images.md)).
+- **Browsing**: no header search box, filters are not persisted per library the way view mode
+  and sort now are, and there is no second locale to prove the i18n works
+  ([Search](search.md), [Frontend App](frontend-app.md)).
+- **Music**: hidden since 2026-09-03 rather than removed. Reviving it means tag reading, a
+  music scraper and an audio player; the alternative is pruning the schema
+  ([Libraries](libraries-and-scanning.md)).
 
 ## Conventions for Maintaining These Specs
 

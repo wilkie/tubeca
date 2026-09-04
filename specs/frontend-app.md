@@ -281,7 +281,7 @@ proxies `/api` and `/api/stream/` to `:3000`). See [Deployment](deployment.md).
 `I18nextProvider`, a dark `ThemeProvider` and `MemoryRouter`, plus `createMockAuthContext`,
 `mockAdminUser`, `mockViewerUser`. Tests mock `../../api/client` wholesale (29 files) and often
 `react-router-dom` (16 files). As of 2026-09-04 every page, component, context and hook has a
-test file: 1,157 `it()` cases across 76 files. Only `App.tsx`, `main.tsx` and `theme.ts` are
+test file: 1,157 `it()` cases across 75 files. Only `App.tsx`, `main.tsx` and `theme.ts` are
 untested, and a coverage run has not been repeated since 2025-12-05 (74.2% statements / 63.3%
 branches then, when a third of the components had no tests at all). The husky pre-commit hook
 runs `pnpm lint && pnpm typecheck && pnpm test` (tests added 2026-09-03; the frontend suite takes
