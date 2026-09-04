@@ -36,7 +36,15 @@ post_install() {
     # Run database migrations. This must happen after DATABASE_URL has been
     # rewritten above, otherwise the schema lands in dev.db and the service
     # starts against an empty tubeca.db.
-    sudo -u tubeca npx prisma migrate deploy || sudo -u tubeca npx prisma db push || true
+    #
+    # A failure here leaves a service that cannot start, so say so loudly
+    # rather than finishing the install as though nothing happened.
+    if ! sudo -u tubeca npx prisma migrate deploy; then
+        echo "!! Database migration failed."
+        echo "!! Fix the cause, then run:"
+        echo "!!   cd /opt/tubeca/backend && sudo -u tubeca npx prisma migrate deploy"
+        echo "!! Do not start tubeca-backend until it succeeds."
+    fi
 
     echo ""
     echo "==> Tubeca has been installed!"
@@ -68,10 +76,28 @@ post_upgrade() {
     chown root:tubeca /etc/tubeca/tubeca.env
     chown root:tubeca /etc/tubeca/tubeca.config.json
 
-    echo ":: Running database migrations..."
     cd /opt/tubeca/backend
+
+    # Back up the database before migrating it: SQLite has no undo, and a
+    # failed migration on a library nobody has a copy of is the worst outcome
+    # an upgrade can have.
+    DB_PATH=$(grep -oP 'DATABASE_URL="file:\K[^"]+' /etc/tubeca/tubeca.env 2>/dev/null || echo "./prisma/tubeca.db")
+    echo ":: Backing up the database..."
+    if ! sudo -u tubeca /opt/tubeca/backend/backup-database.sh "$DB_PATH" /var/lib/tubeca/backups; then
+        echo "!! Could not back up the database; skipping migrations."
+        echo "!! Run them by hand once you have a copy:"
+        echo "!!   cd /opt/tubeca/backend && sudo -u tubeca npx prisma migrate deploy"
+        return 0
+    fi
+
+    echo ":: Running database migrations..."
     sudo -u tubeca npx prisma generate 2>/dev/null || true
-    sudo -u tubeca npx prisma migrate deploy 2>/dev/null || true
+    if ! sudo -u tubeca npx prisma migrate deploy; then
+        echo "!! Database migration failed. The previous database was backed up to"
+        echo "!! /var/lib/tubeca/backups; restore it with the services stopped if needed."
+        echo "!! Retry with:"
+        echo "!!   cd /opt/tubeca/backend && sudo -u tubeca npx prisma migrate deploy"
+    fi
 
     echo ":: Restarting services..."
     systemctl daemon-reload
@@ -107,6 +133,7 @@ post_remove() {
     echo "==> The following were preserved:"
     echo "    - Configuration: /etc/tubeca/"
     echo "    - Database: /opt/tubeca/backend/prisma/tubeca.db"
+    echo "    - Database backups: /var/lib/tubeca/backups/"
     echo "    - Data: /var/lib/tubeca/"
     echo "    - User: tubeca"
     echo ""

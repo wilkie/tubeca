@@ -30,14 +30,18 @@ For streaming and image endpoints that use browser elements (`<video>`, `<audio>
 
 ### GET /health
 
-Health check endpoint.
+Whether this process can still do its job. Answers 200 when it can and 503 when it cannot, so it
+can be used as a probe. `redis` is only reported by a process that runs workers: an API-only
+process that cannot reach Redis can still serve and stream.
 
 **Response:**
 ```json
 {
   "status": "ok",
   "message": "Tubeca API is running",
-  "database": "connected"
+  "database": "connected",
+  "redis": "connected",
+  "role": "api"
 }
 ```
 

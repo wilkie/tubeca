@@ -65,7 +65,9 @@
 | `PKGBUILD` | Arch package: `pkgver()`, `build()`, `package()`; embeds the production systemd units, sysusers.d and tmpfiles.d as heredocs. |
 | `tubeca.install` | pacman hooks `post_install`, `post_upgrade`, `pre_remove`, `post_remove`. |
 | `build-package.sh` | Wrapper: checks for `makepkg`/`pnpm`, cleans `src/ pkg/ *.pkg.tar.*`, runs `makepkg -sf`. |
-| `systemd/tubeca-backend.service`, `tubeca-worker.service` | The *non-Arch* units (`/usr/bin/node dist/index.js`, `.env` and data under `/opt/tubeca`); the PKGBUILD embeds the same units with `/etc/tubeca` and `/var/lib/tubeca` paths. |
+| `systemd/tubeca-backend.service`, `tubeca-worker.service` | The units, and the only copy of them: `Type=notify`, `WatchdogSec=30`, `node --enable-source-maps`, `.env` and data under `/opt/tubeca`. `package()` in the PKGBUILD rewrites the two paths for the Arch layout with `sed`. |
+| `systemd/backup-database.sh` | Timestamped SQLite copy (`sqlite3 .backup`, falling back to `cp`) keeping the last five; run before any migration by `tubeca.install`, `systemd/install.sh` and the Docker entrypoint. |
+| `backend/src/runtime/systemd.ts` | `sd_notify` over `NOTIFY_SOCKET` with no dependency: readiness, `STOPPING=1`, and a watchdog ping driven by the same health check `/api/health` uses. |
 | `systemd/install.sh`, `uninstall.sh` | Root-run scripts for other distros: copy tree to `/opt/tubeca`, `pnpm install && pnpm build`, write `.env` with a random JWT secret, `prisma migrate deploy`, install units into `/etc/systemd/system`. |
 | `systemd/nginx.conf.example` | Reverse-proxy example: proxies everything to port 3000 (the backend serves the SPA), disables buffering for `/api/stream/`. |
 | `INSTALL.md`, `systemd/README.md`, `README.md` | Install/upgrade docs (Arch, other distros, nginx) and developer getting-started. |
@@ -190,18 +192,47 @@ come from the environment; the backend refuses to start without it in production
 
 `systemd/install.sh` copies the source tree to `/opt/tubeca`, runs `pnpm install` and `pnpm build`
 as root, writes `backend/.env` (`DATABASE_URL=file:./prisma/prod.db`, random `JWT_SECRET`,
-`DATA_DIR=/opt/tubeca/data`), runs `prisma migrate deploy || prisma db push`, chowns to `tubeca`,
+`DATA_DIR=/opt/tubeca/data`), backs up an existing database, runs `prisma migrate deploy` and
+stops if it fails, chowns to `tubeca`,
 and installs `systemd/tubeca-backend.service` and `tubeca-worker.service`, which use
 `/usr/bin/node dist/index.js` with `.env` and data under `/opt/tubeca`. `DATA_DIR` is not read
 anywhere in `backend/src`. This path has no `TUBECA_CONFIG_PATH`; config is found via
 `getRepoRoot()` (the parent of the backend package), which works from the bundle.
 
+### Health, readiness and the watchdog
+
+Both units are `Type=notify` with `WatchdogSec=30`. `backend/src/runtime/systemd.ts` speaks
+`sd_notify` directly over the `NOTIFY_SOCKET` datagram socket, so there is no dependency: the
+process sends `READY=1` once it is listening, `WATCHDOG=1` every fifteen seconds while healthy,
+and `STOPPING=1` on shutdown. Everything is a no-op when `NOTIFY_SOCKET` is unset, which covers
+development, tests and `docker run`.
+
+"Healthy" is the same check `/api/health` answers with: a `SELECT 1` against SQLite for every
+role, plus a Redis `PING` where the process runs workers. An API-only process that cannot reach
+Redis is still healthy, because it can serve and stream; only scans and scrapes are affected, and
+restarting the site for that would be worse. A failing check simply stops the pings and lets
+systemd apply the unit's restart policy, so a check that recovers within the deadline is never
+noticed.
+
+### Upgrades and the database
+
+Every path that migrates backs the database up first, through `systemd/backup-database.sh`:
+`sqlite3 .backup` when the CLI is present, a plain copy otherwise, timestamped into
+`/var/lib/tubeca/backups` (Arch), `$DATA_DIR/backups` (generic) or `/data/backups` (Docker),
+keeping the last five. SQLite has no undo, and a failed migration on a library nobody has a copy
+of is the worst thing an upgrade can do.
+
+A migration failure is no longer swallowed: `post_install` and `post_upgrade` print what failed
+and what to run, and `systemd/install.sh` exits non-zero. To restore, stop both services and
+copy a file from the backup directory over the database.
+
 ### What is not provided
 
 No packaging for Debian,
 Fedora, Homebrew, etc. beyond the generic shell script; no TLS/reverse-proxy automation beyond
-the nginx example; no backup or restore tooling for `tubeca.db`, `/var/lib/tubeca` or Redis;
-no data migration beyond `prisma migrate deploy`; no health-check endpoint wired into systemd;
+the nginx example; no scheduled backups, and none at all for `/var/lib/tubeca` or Redis, though
+every install path copies the SQLite database before migrating it;
+no data migration beyond `prisma migrate deploy`;
 no `LICENSE` file despite `license=('MIT')` (the PKGBUILD guards the copy with `if [ -f LICENSE ]`).
 
 ### `dist/` directories
@@ -230,6 +261,8 @@ the initial commit) is therefore already ignored and is simply leftover output; 
   this part. See [Overview](overview.md) for the process/port map.
 
 ## History
+
+- 2026-09-03 — `Type=notify` units with `WatchdogSec` fed by the health check, `--enable-source-maps`, `systemd/backup-database.sh` run before every migration, migration failures surfaced instead of ignored, and the PKGBUILD's unit heredocs replaced by a `sed` over `systemd/*.service`.
 
 - `4946f1d` 2025-11-28 — Initial commit: pnpm workspace + Turborepo skeleton, `.gitignore` with `dist/`.
 - `c3a9f25` 2025-12-02 — Husky pre-commit hook (`pnpm lint && pnpm typecheck`), `typecheck` task added to Turbo.
@@ -281,18 +314,10 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 
 ## Opportunities
 
-- **Fail `post_install` on migration errors** (drop the trailing `|| true`, or at least print a
-  loud warning) now that the ordering is fixed. (S)
-- **Single source of truth for units**: `install -Dm644 systemd/...` in `package()` with `sed`
-  for paths so the PKGBUILD heredocs go away. (S)
+- **Move the SQLite file to `/var/lib/tubeca`** (S): it still lives under `/opt/tubeca/backend/prisma`, which is program data rather than state; the backups already go to `/var/lib/tubeca`.
+- **Scheduled backups** (S): a timer unit running `backup-database.sh` would cover the ordinary case, not just upgrades.
 - **Trim further**: `sharp` and `@libsql/client` ship native binaries for the build platform
   only; a multi-arch image (arm64 for small home servers) needs `docker buildx` with
   `--platform`, and the `prisma` CLI could be swapped for a lighter migration runner. (M)
-- **Pass `--enable-source-maps`** in the units and entrypoint so bundle stack traces map to
-  source. (S)
 
-- **Move the SQLite file to `/var/lib/tubeca`** and add a pre-upgrade `sqlite3 .backup` in
-  `post_upgrade`, plus a documented restore procedure. (S)
 
-- **Add a `/health` endpoint** and use it in the unit (`ExecStartPost` or a watchdog) so systemd
-  restarts on Redis/Prisma failure rather than only on process exit. (M)

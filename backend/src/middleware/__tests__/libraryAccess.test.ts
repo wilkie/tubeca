@@ -7,6 +7,7 @@ import {
   mediaParam,
   imageParam,
   entityInBody,
+  accessibleLibraryIdsFor,
 } from '../libraryAccess';
 import {
   prisma,
@@ -119,5 +120,75 @@ describe('requireLibraryAccess', () => {
   it('returns 401 when no user is attached', async () => {
     const res = await request(app).get('/collections/x');
     expect(res.status).toBe(401);
+  });
+});
+
+describe('accessibleLibraryIdsFor', () => {
+  beforeEach(resetDatabase);
+
+  it('resolves the list once per request, however many times it is asked', async () => {
+    const library = await createLibrary({ name: 'Public' });
+    const collection = await createCollection({ libraryId: library.id, name: 'Heat' });
+    const viewer = await createUser();
+
+    // A route that checks access and then filters its own rows: both go
+    // through the cache, so the database sees one resolution.
+    const seen: Array<string[] | undefined> = [];
+    const app = express();
+    app.use(authenticate);
+    app.get(
+      '/collections/:id',
+      requireLibraryAccess(collectionParam('id')),
+      async (req: express.Request, res: express.Response) => {
+        seen.push(await accessibleLibraryIdsFor(req));
+        seen.push(await accessibleLibraryIdsFor(req));
+        res.json({ ok: true });
+      }
+    );
+
+    const res = await request(app).get(`/collections/${collection.id}`).set('Authorization', viewer.authHeader);
+
+    expect(res.status).toBe(200);
+    // The same resolved array object, not two equal ones.
+    expect(seen[0]).toBe(seen[1]);
+    expect(seen[0]).toEqual([library.id]);
+  });
+
+  it('gives an admin no restriction', async () => {
+    await createLibrary({ name: 'Public' });
+    const admin = await createUser({ role: 'Admin' });
+
+    let resolved: string[] | undefined | 'unset' = 'unset';
+    const app = express();
+    app.use(authenticate);
+    app.get('/whoami', async (req: express.Request, res: express.Response) => {
+      resolved = await accessibleLibraryIdsFor(req);
+      res.json({ ok: true });
+    });
+
+    await request(app).get('/whoami').set('Authorization', admin.authHeader);
+
+    expect(resolved).toBeUndefined();
+  });
+
+  it('does not leak one request answer into another', async () => {
+    const group = await createGroup();
+    const restricted = await createLibrary({ name: 'Restricted', groupIds: [group.id] });
+    const member = await createUser({ groupIds: [group.id] });
+    const outsider = await createUser();
+
+    const answers: Record<string, string[] | undefined> = {};
+    const app = express();
+    app.use(authenticate);
+    app.get('/whoami/:label', async (req: express.Request, res: express.Response) => {
+      answers[req.params.label] = await accessibleLibraryIdsFor(req);
+      res.json({ ok: true });
+    });
+
+    await request(app).get('/whoami/member').set('Authorization', member.authHeader);
+    await request(app).get('/whoami/outsider').set('Authorization', outsider.authHeader);
+
+    expect(answers.member).toContain(restricted.id);
+    expect(answers.outsider ?? []).not.toContain(restricted.id);
   });
 });

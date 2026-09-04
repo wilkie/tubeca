@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { authenticate } from '../middleware/auth';
-import { resolveAccessibleLibraryIds } from '../middleware/libraryAccess';
+import { accessibleLibraryIdsFor } from '../middleware/libraryAccess';
 import { UserCollectionService, filterItemsByLibraryAccess } from '../services/userCollectionService';
 
 const router = Router();
@@ -96,7 +96,7 @@ router.get('/favorites', async (req: Request, res) => {
   try {
     const userCollection = filterItemsByLibraryAccess(
       await userCollectionService.getFavoritesCollection(req.user!.userId),
-      await resolveAccessibleLibraryIds(req.user)
+      await accessibleLibraryIdsFor(req)
     );
     res.json({ userCollection });
   } catch {
@@ -254,7 +254,7 @@ router.get('/watch-later', async (req: Request, res) => {
   try {
     const userCollection = filterItemsByLibraryAccess(
       await userCollectionService.getWatchLaterCollection(req.user!.userId),
-      await resolveAccessibleLibraryIds(req.user)
+      await accessibleLibraryIdsFor(req)
     );
     res.json({ userCollection });
   } catch {
@@ -396,7 +396,7 @@ router.get('/queue', async (req: Request, res) => {
   try {
     const userCollection = filterItemsByLibraryAccess(
       await userCollectionService.getPlaybackQueue(req.user!.userId),
-      await resolveAccessibleLibraryIds(req.user)
+      await accessibleLibraryIdsFor(req)
     );
     res.json({ userCollection });
   } catch {
@@ -580,7 +580,7 @@ router.get('/:id', async (req: Request, res) => {
     if (!found) {
       return res.status(404).json({ error: 'Collection not found' });
     }
-    const userCollection = filterItemsByLibraryAccess(found, await resolveAccessibleLibraryIds(req.user));
+    const userCollection = filterItemsByLibraryAccess(found, await accessibleLibraryIdsFor(req));
     res.json({ userCollection });
   } catch {
     res.status(500).json({ error: 'Failed to fetch collection' });

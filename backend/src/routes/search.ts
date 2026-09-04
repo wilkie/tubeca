@@ -1,11 +1,10 @@
 import { Router, type Request } from 'express';
 import { prisma } from '../config/database';
 import { authenticate, requireRole } from '../middleware/auth';
-import { LibraryService } from '../services/libraryService';
+import { accessibleLibraryIdsFor } from '../middleware/libraryAccess';
 import { searchIndexService } from '../services/searchIndexService';
 
 const router = Router();
-const libraryService = new LibraryService();
 
 // All routes require authentication
 router.use(authenticate);
@@ -95,10 +94,7 @@ router.get('/', async (req: Request, res) => {
     // Scope results to the libraries this user may see. The rule (admins see
     // everything; a library with no groups is public; otherwise the user must
     // share a group with it) lives in LibraryService so it matches /api/libraries.
-    const isAdmin = req.user!.role === 'Admin';
-    const accessibleLibraryIds = isAdmin
-      ? undefined
-      : (await libraryService.getAccessibleLibraries(req.user!.userId, false)).map((l) => l.id);
+    const accessibleLibraryIds = await accessibleLibraryIdsFor(req);
 
     // Build the where clause for library access
     const libraryFilter = accessibleLibraryIds
@@ -347,10 +343,7 @@ router.get('/', async (req: Request, res) => {
  */
 router.get('/facets', async (req: Request, res) => {
   try {
-    const isAdmin = req.user!.role === 'Admin';
-    const accessibleLibraryIds = isAdmin
-      ? undefined
-      : (await libraryService.getAccessibleLibraries(req.user!.userId, false)).map((l) => l.id);
+    const accessibleLibraryIds = await accessibleLibraryIdsFor(req);
     const libraryFilter = accessibleLibraryIds ? { libraryId: { in: accessibleLibraryIds } } : {};
 
     const [keywords, ratingRows] = await Promise.all([

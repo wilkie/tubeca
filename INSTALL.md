@@ -94,7 +94,18 @@ git pull
 sudo pacman -U tubeca-*.pkg.tar.zst
 ```
 
-The package automatically runs database migrations on upgrade.
+The package copies the database to `/var/lib/tubeca/backups` before running migrations, keeping
+the last five copies. If a migration fails it says so and tells you what to run; the services are
+restarted either way, so check the logs after an upgrade that reported a problem.
+
+To go back to the copy taken before an upgrade:
+
+```bash
+sudo systemctl stop tubeca-backend tubeca-worker
+ls -1t /var/lib/tubeca/backups/
+sudo -u tubeca cp /var/lib/tubeca/backups/tubeca.db.<timestamp> /opt/tubeca/backend/prisma/tubeca.db
+sudo systemctl start tubeca-backend tubeca-worker
+```
 
 ### Uninstalling
 
@@ -201,7 +212,8 @@ sudo chown -R tubeca:tubeca /opt/tubeca
 
 ### Database Errors
 
-Reset the database (warning: deletes all data):
+Restore the copy taken before the last upgrade (see Updating above), or reset the database
+(warning: deletes all data):
 
 ```bash
 cd /opt/tubeca/backend

@@ -10,6 +10,7 @@ import { swaggerSpec } from './config/swagger.js';
 import { hlsCacheCleanupService } from './services/hlsCacheCleanupService';
 import { detectBestEncoderAsync } from './utils/hwaccel';
 import { searchIndexService } from './services/searchIndexService';
+import { notifyReady, notifyStopping, startWatchdog, type WatchdogHandle } from './runtime/systemd';
 import { shutdownHlsService } from './services/hlsService';
 import { getRole, runsApi, runsWorkers } from './runtime/role';
 import { mountFrontend, resolveFrontendDist } from './runtime/frontend';
@@ -89,22 +90,47 @@ app.use('/api/watch', watchRoutes);
  *               $ref: '#/components/schemas/Error'
  */
 app.get('/api/health', async (_req, res) => {
-  try {
-    // Test database connection
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({
-      status: 'ok',
-      message: 'Tubeca API is running',
-      database: 'connected'
-    });
-  } catch {
-    res.status(503).json({
-      status: 'error',
-      message: 'Database connection failed',
-      database: 'disconnected'
-    });
-  }
+  const health = await checkHealth();
+  res.status(health.status === 'ok' ? 200 : 503).json({
+    ...health,
+    message: health.status === 'ok' ? 'Tubeca API is running' : 'A dependency is unavailable',
+    role,
+  });
 });
+
+/**
+ * Whether this process can still do its job.
+ *
+ * The database is checked for every role. Redis only matters where queues do:
+ * an API-only process that cannot reach Redis can still serve the library and
+ * stream, and reporting it unhealthy would take the whole site down for a
+ * problem that only stops scans.
+ */
+async function checkHealth(): Promise<{ status: 'ok' | 'error'; database: string; redis?: string }> {
+  let database = 'connected';
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    database = 'disconnected';
+  }
+
+  if (!runsWorkers(role)) {
+    return { status: database === 'connected' ? 'ok' : 'error', database };
+  }
+
+  let redis = 'connected';
+  try {
+    await redisConnection.ping();
+  } catch {
+    redis = 'disconnected';
+  }
+
+  return {
+    status: database === 'connected' && redis === 'connected' ? 'ok' : 'error',
+    database,
+    redis,
+  };
+}
 
 interface Closable {
   close(): Promise<unknown> | void
@@ -202,9 +228,20 @@ async function startServer(): Promise<Server | null> {
 
 const serverPromise = startServer();
 
+// Tell systemd we are up, then keep telling it we are healthy. Both are
+// no-ops outside a unit with Type=notify and WatchdogSec.
+let watchdog: WatchdogHandle | null = null;
+void serverPromise.then(() => {
+  notifyReady();
+  watchdog = startWatchdog(async () => (await checkHealth()).status === 'ok');
+  if (watchdog) console.log('🩺 Reporting health to the systemd watchdog');
+});
+
 // Graceful shutdown
 async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
+  notifyStopping();
+  watchdog?.stop();
 
   // Wait for startup to finish, then stop accepting requests
   const server = await serverPromise;

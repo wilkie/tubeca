@@ -39,5 +39,6 @@ VOLUME ["/data"]
 EXPOSE 3000
 
 COPY docker/entrypoint.sh /usr/local/bin/tubeca-entrypoint
-RUN chmod +x /usr/local/bin/tubeca-entrypoint
+COPY systemd/backup-database.sh /app/backend/backup-database.sh
+RUN chmod +x /usr/local/bin/tubeca-entrypoint /app/backend/backup-database.sh
 ENTRYPOINT ["tubeca-entrypoint"]

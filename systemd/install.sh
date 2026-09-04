@@ -121,10 +121,21 @@ EOF
     log_warn "Generated new JWT_SECRET. Edit $INSTALL_DIR/backend/.env to configure."
 fi
 
+# Back up an existing database before touching it. SQLite has no undo, and a
+# reinstall over a working library is exactly when that matters.
+cd "$INSTALL_DIR/backend"
+if [ -f "$INSTALL_DIR/backend/prisma/tubeca.db" ]; then
+    log_info "Backing up the existing database..."
+    "$SCRIPT_DIR/backup-database.sh" "$INSTALL_DIR/backend/prisma/tubeca.db" "$DATA_DIR/backups"
+fi
+
 # Run database migrations
 log_info "Running database migrations..."
-cd "$INSTALL_DIR/backend"
-npx prisma migrate deploy 2>/dev/null || npx prisma db push
+if ! npx prisma migrate deploy; then
+    log_error "Database migration failed; the services will not start until it succeeds."
+    log_error "Retry with: cd $INSTALL_DIR/backend && npx prisma migrate deploy"
+    exit 1
+fi
 
 # Set ownership
 log_info "Setting file permissions..."
@@ -136,6 +147,7 @@ chmod 600 "$INSTALL_DIR/backend/.env"
 log_info "Installing systemd service files..."
 cp "$SCRIPT_DIR/tubeca-backend.service" /etc/systemd/system/
 cp "$SCRIPT_DIR/tubeca-worker.service" /etc/systemd/system/
+install -Dm755 "$SCRIPT_DIR/backup-database.sh" "$INSTALL_DIR/backend/backup-database.sh"
 
 # Reload systemd
 systemctl daemon-reload

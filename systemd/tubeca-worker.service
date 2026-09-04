@@ -5,14 +5,20 @@ After=network.target redis.service
 Wants=redis.service
 
 [Service]
-Type=simple
+# The service tells systemd when it is ready and keeps saying it is healthy;
+# see WatchdogSec below and backend/src/runtime/systemd.ts.
+Type=notify
+NotifyAccess=main
 User=tubeca
 Group=tubeca
 WorkingDirectory=/opt/tubeca/backend
 EnvironmentFile=/opt/tubeca/backend/.env
-ExecStart=/usr/bin/node dist/index.js
+ExecStart=/usr/bin/node --enable-source-maps dist/index.js
 Restart=on-failure
 RestartSec=5
+# Restart when the process stops reporting that it can reach its database
+# (and, for the worker, Redis), not only when it exits.
+WatchdogSec=30
 StandardOutput=journal
 StandardError=journal
 

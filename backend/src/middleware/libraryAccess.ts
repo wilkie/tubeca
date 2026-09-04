@@ -34,6 +34,25 @@ export async function resolveAccessibleLibraryIds(
   return (await libraryService.getAccessibleLibraries(user.userId, false)).map((l) => l.id);
 }
 
+/**
+ * The same list, resolved once per request.
+ *
+ * A single request often needs it more than once: the access middleware
+ * checks the entity, then the handler filters the rows it returns. Each call
+ * was two queries (the user's groups, then the libraries), so the work is
+ * memoised for the lifetime of the request object.
+ */
+const accessCache = new WeakMap<Request, Promise<string[] | undefined>>();
+
+export function accessibleLibraryIdsFor(req: Request): Promise<string[] | undefined> {
+  const cached = accessCache.get(req);
+  if (cached) return cached;
+
+  const pending = resolveAccessibleLibraryIds(req.user);
+  accessCache.set(req, pending);
+  return pending;
+}
+
 const missing: LibraryResolution = { kind: 'missing' };
 const unscoped: LibraryResolution = { kind: 'unscoped' };
 const orphan: LibraryResolution = { kind: 'orphan' };
@@ -136,11 +155,10 @@ export function requireLibraryAccess(resolve: LibraryResolver) {
         case 'orphan':
           return res.status(404).json({ error: 'Not found' });
         case 'library': {
-          const allowed = await libraryService.canUserAccessLibrary(
-            req.user.userId,
-            false,
-            resolution.libraryId
-          );
+          // From the per-request list, so a route that also filters its rows
+          // does not ask the database the same question twice.
+          const accessible = await accessibleLibraryIdsFor(req);
+          const allowed = accessible === undefined || accessible.includes(resolution.libraryId);
           return allowed ? next() : res.status(404).json({ error: 'Not found' });
         }
       }

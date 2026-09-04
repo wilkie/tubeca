@@ -294,10 +294,10 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 9. ~~**Images**~~ Done 2026-09-03: bounded-width serving with variants generated on request,
    download timeouts and size and content-type limits, several candidates per type with a
    set-primary endpoint, and user upload from the images dialog ([Images](images.md)).
-10. **Operations** (S batch): health endpoint wired into the units, SQLite backup before
-    upgrade migrations, `--enable-source-maps`, a single source for the unit files, install
-    failing on migration errors, per-request caching of group ids. ([Deployment](deployment.md),
-    [Configuration](configuration.md), [Auth](auth-and-users.md))
+10. ~~**Operations**~~ Done 2026-09-03: `Type=notify` units with a watchdog fed by the health
+    check, a database backup before every migration, `--enable-source-maps`, the units kept in
+    one place, migration failures surfaced, and accessible-library ids resolved once per request
+    ([Deployment](deployment.md), [Auth](auth-and-users.md)).
 
 Deferred beyond this round: music support (product decision), multi-arch images, plugin
 discovery, per-library group permissions, fMP4/CMAF segments, and the second locale.

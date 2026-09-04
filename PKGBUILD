@@ -106,81 +106,19 @@ CONFIGEOF
     ln -sf /etc/tubeca/tubeca.env "${pkgdir}/opt/tubeca/backend/.env"
     ln -sf /etc/tubeca/tubeca.config.json "${pkgdir}/opt/tubeca/tubeca.config.json"
 
-    # Install systemd service files (Arch layout: /etc/tubeca, /var/lib/tubeca)
-    install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/tubeca-backend.service" << 'EOF'
-[Unit]
-Description=Tubeca API server (serves the web UI and the HTTP API)
-Documentation=https://github.com/wilkie/tubeca
-After=network.target redis.service
-Wants=redis.service
+    # Install the systemd units from systemd/, rewritten for the Arch layout
+    # (/etc/tubeca for config, /var/lib/tubeca for data) so the units in the
+    # repository stay the single source of truth.
+    for unit in tubeca-backend tubeca-worker; do
+        sed -e 's|EnvironmentFile=/opt/tubeca/backend/.env|EnvironmentFile=/etc/tubeca/tubeca.env|' \
+            -e 's|ReadWritePaths=/opt/tubeca/data|ReadWritePaths=/var/lib/tubeca|' \
+            -e '/^Environment=UV_THREADPOOL_SIZE/a Environment=TUBECA_CONFIG_PATH=/etc/tubeca/tubeca.config.json' \
+            "systemd/${unit}.service" > "${srcdir}/${unit}.service"
+        install -Dm644 "${srcdir}/${unit}.service" "${pkgdir}/usr/lib/systemd/system/${unit}.service"
+    done
 
-[Service]
-Type=simple
-User=tubeca
-Group=tubeca
-WorkingDirectory=/opt/tubeca/backend
-EnvironmentFile=/etc/tubeca/tubeca.env
-ExecStart=/usr/bin/node dist/index.js
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/tubeca/backend/prisma
-ReadWritePaths=/var/lib/tubeca
-
-# Environment
-Environment=NODE_ENV=production
-Environment=TUBECA_ROLE=api
-Environment=UV_THREADPOOL_SIZE=24
-Environment=TUBECA_CONFIG_PATH=/etc/tubeca/tubeca.config.json
-Environment=FRONTEND_DIST=/opt/tubeca/frontend/ui/dist
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/tubeca-worker.service" << 'EOF'
-[Unit]
-Description=Tubeca worker (library scans, metadata scraping, file watching)
-Documentation=https://github.com/wilkie/tubeca
-After=network.target redis.service
-Wants=redis.service
-
-[Service]
-Type=simple
-User=tubeca
-Group=tubeca
-WorkingDirectory=/opt/tubeca/backend
-EnvironmentFile=/etc/tubeca/tubeca.env
-ExecStart=/usr/bin/node dist/index.js
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/tubeca/backend/prisma
-ReadWritePaths=/var/lib/tubeca
-
-# Environment
-Environment=NODE_ENV=production
-Environment=TUBECA_ROLE=worker
-Environment=UV_THREADPOOL_SIZE=24
-Environment=TUBECA_CONFIG_PATH=/etc/tubeca/tubeca.config.json
-
-[Install]
-WantedBy=multi-user.target
-EOF
+    # The pre-upgrade database backup, used by tubeca.install
+    install -Dm755 systemd/backup-database.sh "${pkgdir}/opt/tubeca/backend/backup-database.sh"
 
     # Install sysusers.d configuration
     install -Dm644 /dev/stdin "${pkgdir}/usr/lib/sysusers.d/tubeca.conf" << 'EOF'

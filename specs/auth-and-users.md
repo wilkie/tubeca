@@ -166,7 +166,14 @@ separate component. Library-to-group assignment is done from the library dialog,
 
 One rule, in `LibraryService.getAccessibleLibraries` / `canUserAccessLibrary`
 (`libraryService.ts`): Admin sees all; otherwise a library is visible if it has **no groups**
-(public) or shares at least one group with the user. It is applied in three places:
+(public) or shares at least one group with the user.
+
+The answer is resolved once per request. `accessibleLibraryIdsFor(req)` in
+`middleware/libraryAccess.ts` memoises it in a `WeakMap` keyed on the request object, and both
+`requireLibraryAccess` and the routes that filter their own rows read it from there, so a
+request that does both asks the database once rather than four times.
+
+It is applied in three places:
 
 - `GET /api/libraries` and `GET /api/libraries/:id` (404 rather than 403 to avoid leaking
   existence).
@@ -206,6 +213,7 @@ API calls return 403.
 
 ## History
 
+- 2026-09-03 Accessible-library ids resolved once per request (`accessibleLibraryIdsFor`), replacing a per-check `canUserAccessLibrary` query in the middleware.
 - `4946f1d` 2025-11-28 Initial commit: `User` model with email, legacy `app.*` routes in `index.ts` that still exist without auth.
 - `5282cf0` 2025-11-28 Adds libraries, i18n, collections, library scan: introduces `AuthService`, `authenticate`/`requireRole`, `/api/auth` routes, `AuthContext`, `ProtectedRoute`, `LoginPage`, `SetupPage`; migrations `add_user_auth_and_roles`, `add_user_groups`, `remove_user_email` all land the same day.
 - `dd02263` 2025-11-28 Basic media streaming: first `?token=` stream URL helper in the client.
@@ -230,7 +238,7 @@ API calls return 403.
 - Outside production a missing `JWT_SECRET` still falls back to a public constant; a `NODE_ENV` left at `development` on a real deployment would sign forgeable tokens.
 - Tokens still travel in URLs (`?token=`), so they reach server logs, browser history and any shared link; the media-scoped token limits what a leaked one can do and expires in four hours, but a cookie would keep them out of URLs entirely. A media token is not revocable on its own: it dies with its expiry or when the user's token version is bumped.
 
-- Each access check costs one or two extra queries per request; the user's group ids are not cached, and list endpoints resolve the accessible-library list once per request on top of that. `GET /api/user-collections/public` still exposes public collections' item counts (not titles).
+- The accessible-library list is resolved once per request but not cached beyond it, so a client polling an endpoint pays for it on every call; group membership changes therefore take effect on the next request, which is the intended trade. `GET /api/user-collections/public` still exposes public collections' item counts (not titles).
 - No account lockout and no password complexity rules beyond an eight-character minimum on self-service changes; `cors()` is wide open (`index.ts:36`). The rate limiter counts per IP in memory, so it resets on restart and is per-process.
 - Setup race: `createInitialAdmin` does count-then-create without a transaction or unique constraint on "first admin".
 
@@ -242,7 +250,6 @@ API calls return 403.
 
 ## Opportunities
 
-- **Cache group ids per request** (S): `canUserAccessLibrary` re-reads the user's groups on every call; attach them to `req.user` once in `authenticate` or memoise per request.
 
 - **Atomic user update** (S): fold role and groupIds into `PATCH /api/users/:id` so `UserDialog` makes one request; keep the two sub-routes for compatibility.
 - **Route `AuthService` through `users.ts`** (S): drop the duplicated `bcrypt`/`SALT_ROUNDS` and use `authService.hashPassword`.

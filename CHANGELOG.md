@@ -29,6 +29,8 @@ All notable changes to Tubeca are recorded here. The format follows
 - Search results appear as you type, and the search page has a People section.
 - Admins can rebuild the search index from the API when it looks stale.
 - Editors can upload their own artwork and choose which image a title uses.
+- Installing or upgrading copies the database first, keeping the last five copies, and says so
+  when a migration fails instead of finishing quietly.
 - Poster grids and list rows are served images sized for them rather than the provider's
   originals, which for a backdrop can be several megabytes.
 - The library dialog can browse the server's folders instead of asking you to type a path.
@@ -63,6 +65,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- The services now tell systemd when they are ready and keep reporting that they can still
+  reach the database and Redis, so a stuck process is restarted rather than sitting there.
+- Crash logs point at the source rather than the bundle.
 - Scanning reads the filesystem asynchronously, so a large folder on a slow mount no longer
   stalls the rest of the server, and two libraries can be scanned at once.
 - Pages share one data cache, so the library list is fetched once for the header, the sidebar
