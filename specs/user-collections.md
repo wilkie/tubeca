@@ -237,6 +237,7 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 - 2026-09-03 Items outside the viewer's accessible libraries are dropped from collection detail, favorites, watch-later and queue responses.
 - 2026-09-03 `SelectionActionBar` tested; typing a collection name into its menu no longer loses letters to MUI's list type-ahead.
 - 2026-09-03 `SortableMediaListItem` tested, and the playlist reorder handler with it: the real `DndContext` is rendered but its `onDragEnd` is held so a drop can be replayed without a pointer. The optimistic move is not rolled back when the save fails; the test records that.
+- 2026-09-04 `PlayerContext`'s queue tested: where in the queue the player is, the item on either side, auto-advance on `ended`, and the fall-through to the next unwatched episode and then the next season.
 
 ## Known Limitations
 
@@ -267,8 +268,8 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   image/name/subtitle/icon/type helpers are copy-pasted across `UserCollectionPage`,
   `FavoritesPage`, `WatchLaterPage` and `QueuePage`; the sort/filter block is duplicated three times.
 - **Tests**: `userCollectionService`, `QueuePage`, `CardQuickActions`, `SelectionActionBar`,
-  `FavoriteButton`, `SortableMediaListItem` and the drag-reorder handler are covered; the queue
-  logic in `PlayerContext` is not (its test file has no queue cases).
+  `FavoriteButton`, `SortableMediaListItem`, the drag-reorder handler and the queue logic in
+  `PlayerContext` are all covered.
 
 ## Opportunities
 
@@ -288,5 +289,3 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `WatchProgress` rows would reuse the list page pattern. (M)
 - **Nested collections properly**: let `AddToCollectionDialog` add a user collection to a `Set`,
   render `itemUserCollection` in `UserCollectionPage`, and add cycle detection. (M)
-- **Frontend tests** for `PlayerContext` next/previous/auto-advance; the rest of this part is
-  covered. (M)

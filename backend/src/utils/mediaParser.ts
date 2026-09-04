@@ -91,44 +91,6 @@ export function parseEpisodeFromFilename(filename: string): ParsedEpisode | null
 }
 
 /**
- * Parse movie information from a filename
- * Supports patterns like:
- *   - Movie Name (2020)
- *   - Movie.Name.2020.1080p
- *   - Movie Name 2020
- */
-export function parseMovieFromFilename(filename: string): ParsedMovie {
-  // Pattern: year in parentheses or after dots/spaces
-  const yearPattern = /[.\s_(-]*((?:19|20)\d{2})[\s).\]_-]*(?:\d{3,4}p|bluray|web|hdtv|dvd|brrip|x264|h\.?264|aac|$)/i;
-
-  const yearMatch = filename.match(yearPattern);
-  let year: number | undefined;
-  let titleEndIndex = filename.length;
-
-  if (yearMatch) {
-    year = parseInt(yearMatch[1], 10);
-    titleEndIndex = yearMatch.index!;
-  } else {
-    // Try to find where quality indicators start
-    const qualityMatch = filename.match(/[.\s_-](?:\d{3,4}p|bluray|web|hdtv|dvd|brrip|x264|h\.?264)/i);
-    if (qualityMatch) {
-      titleEndIndex = qualityMatch.index!;
-    }
-  }
-
-  const title = filename
-    .substring(0, titleEndIndex)
-    .replace(/[._]/g, ' ')
-    .replace(/\s*\(\s*$/, '') // Remove trailing open paren
-    .trim();
-
-  return {
-    title,
-    year,
-  };
-}
-
-/**
  * Parse a title and optional year from a collection/folder-style name.
  *
  * Unlike parseMovieFromFilename (tuned for release-style file names with quality
@@ -180,12 +142,4 @@ export function getShowNameFromCollectionPath(collectionNames: string[]): string
 
   // Use immediate parent as show name
   return immediateParent;
-}
-
-/**
- * Extract year from a string if present
- */
-export function extractYear(text: string): number | undefined {
-  const match = text.match(/\b((?:19|20)\d{2})\b/);
-  return match ? parseInt(match[1], 10) : undefined;
 }

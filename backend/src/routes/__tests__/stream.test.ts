@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import request from 'supertest';
-import { resetDatabase, createGroup, createLibrary, createCollection, createUser, createVideoMedia } from '../../test/db';
+import { prisma, resetDatabase, createGroup, createLibrary, createCollection, createUser, createVideoMedia } from '../../test/db';
 
 const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-stream-test-'));
 const actualAppConfig = await import('../../config/appConfig');
@@ -82,5 +82,245 @@ describe('stream routes enforce library access', () => {
     // Invalidating the session invalidates media URLs too.
     await bumpTokenVersion(member.user.id);
     expect((await request(app).get(`${url}?token=${mediaToken}`)).status).toBe(401);
+  });
+});
+
+describe('stream route guards', () => {
+  beforeEach(resetDatabase);
+
+  async function fixture(opts: { path?: string; thumbnails?: string | null } = {}) {
+    const library = await createLibrary({ libraryType: 'Television' });
+    const show = await createCollection({ libraryId: library.id, name: 'Show', collectionType: 'Show' });
+    const media = await createVideoMedia({
+      path: opts.path ?? '/nonexistent/episode.mkv',
+      duration: 30,
+      collectionId: show.id,
+    });
+    if (opts.thumbnails !== undefined) {
+      await prisma.media.update({ where: { id: media.id }, data: { thumbnails: opts.thumbnails } });
+    }
+    const { authHeader } = await createUser();
+    return { media, authHeader };
+  }
+
+  describe('GET /video/:id', () => {
+    it('is a 404 for a media that is not there', async () => {
+      const { authHeader } = await fixture();
+
+      const res = await request(app).get('/api/stream/video/missing').set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('is a 404 when the row points at a file that is gone', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/video/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Video file not found');
+    });
+  });
+
+  describe('GET /audio/:id', () => {
+    it('will not serve a video as audio', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/audio/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Audio not found');
+    });
+  });
+
+  describe('GET /subtitles/:id', () => {
+    it('insists on a stream index', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/subtitles/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an index that is not a number', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/subtitles/${media.id}?streamIndex=soon`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('is a 404 for a sidecar track nothing recorded', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/subtitles/${media.id}?streamIndex=-1`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Subtitle track not found');
+    });
+
+    it('is a 404 when the sidecar file has since been moved', async () => {
+      const { media, authHeader } = await fixture();
+      await prisma.mediaStream.create({
+        data: {
+          mediaId: media.id,
+          streamIndex: -1,
+          streamType: 'Subtitle',
+          externalPath: '/nonexistent/episode.en.srt',
+        },
+      });
+
+      const res = await request(app)
+        .get(`/api/stream/subtitles/${media.id}?streamIndex=-1`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Subtitle file not found');
+    });
+
+    it('is a 404 when the video the track lives in is gone', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/subtitles/${media.id}?streamIndex=2`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Video file not found');
+    });
+  });
+
+  describe('GET /trickplay/:id', () => {
+    it('answers politely for a video that has none', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.trickplay).toEqual({ available: false, resolutions: [] });
+    });
+
+    it('says the same when the folder it recorded is gone', async () => {
+      const { media, authHeader } = await fixture({ thumbnails: '/nonexistent/trickplay' });
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.trickplay.available).toBe(false);
+    });
+
+    it('lists the widths it has sprites for', async () => {
+      const trickplay = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-trickplay-'));
+      fs.mkdirSync(path.join(trickplay, '320 - 10x10'));
+      fs.writeFileSync(path.join(trickplay, '320 - 10x10', '0.jpg'), 'sprite');
+      const { media, authHeader } = await fixture({ thumbnails: trickplay });
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.body.trickplay.available).toBe(true);
+      expect(res.body.trickplay.resolutions[0]).toMatchObject({ width: 320, columns: 10, rows: 10 });
+      fs.rmSync(trickplay, { recursive: true, force: true });
+    });
+  });
+
+  describe('GET /trickplay/:id/:width/:index', () => {
+    it('is a 404 for a video with no sprites', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}/320/0`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('No trickplay available');
+    });
+
+    it('is a 404 for a width it does not hold', async () => {
+      const trickplay = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-trickplay-'));
+      fs.mkdirSync(path.join(trickplay, '320 - 10x10'));
+      const { media, authHeader } = await fixture({ thumbnails: trickplay });
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}/640/0`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Resolution not found');
+      fs.rmSync(trickplay, { recursive: true, force: true });
+    });
+
+    it('serves a sprite it does hold', async () => {
+      const trickplay = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-trickplay-'));
+      fs.mkdirSync(path.join(trickplay, '320 - 10x10'));
+      fs.writeFileSync(path.join(trickplay, '320 - 10x10', '0.jpg'), 'sprite');
+      const { media, authHeader } = await fixture({ thumbnails: trickplay });
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}/320/0`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('image/jpeg');
+      fs.rmSync(trickplay, { recursive: true, force: true });
+    });
+  });
+
+  describe('GET /hls/:id/:quality.m3u8', () => {
+    it('rejects a quality that is not on the ladder', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/hls/${media.id}/2160p.m3u8`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Invalid quality level');
+    });
+  });
+
+  describe('GET /hls/:id/qualities', () => {
+    it('offers the whole ladder, with labels and bitrates', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/hls/${media.id}/qualities`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.qualities.map((q: { name: string }) => q.name)).toEqual([
+        '1080p',
+        '720p',
+        '480p',
+        '360p',
+      ]);
+      expect(res.body.qualities[0]).toMatchObject({ label: expect.any(String), height: 1080 });
+    });
+
+    it('has nothing to offer for a media that is not there', async () => {
+      const { authHeader } = await fixture();
+
+      const res = await request(app)
+        .get('/api/stream/hls/missing/qualities')
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.qualities).toEqual([]);
+    });
   });
 });

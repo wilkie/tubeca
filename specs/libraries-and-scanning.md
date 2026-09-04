@@ -36,9 +36,9 @@
 | `backend/src/services/contentDeletionService.ts` | `deleteMedia`, `deleteCollectionTree`, `deleteLibraryContents`: remove rows and every artwork file they own (including credit photos). Used by the collection/media/library services, the watcher and reconciliation. |
 | `backend/src/services/fileWatcherService.ts` | Singleton chokidar wrapper: `start/stop/sync/watchLibrary/unwatchLibrary`, debounced add handlers, unlink handler; delegates all creation to `ImportService`. |
 | `backend/src/services/__tests__/fileWatcherService.test.ts` | 27 cases against a fake chokidar watcher and fake timers: which libraries are watched, `sync` add/remove/rebuild, debounce, extension filtering, the rename grace window, directory rules. |
-| `backend/src/utils/mediaParser.ts` | `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear`, `getShowNameFromCollectionPath`, `extractYear`. |
+| `backend/src/utils/mediaParser.ts` | `parseEpisodeFromFilename`, `parseTitleAndYear`, `getShowNameFromCollectionPath`. |
 | `backend/src/services/__tests__/{importService,libraryScanService,contentDeletionService}.test.ts` | Hint building, collection chains, idempotent import, scrape queueing order, reconciliation, temp-tree scans, tree deletes with file cleanup. |
-| `backend/src/utils/__tests__/mediaParser.test.ts` | 7 Jest cases, all for `parseTitleAndYear` only. |
+| `backend/src/utils/__tests__/mediaParser.test.ts` | 22 Jest cases across all three parsers. |
 | `backend/src/utils/ffprobe.ts` | `probeMediaFile` (duration + normalised `StreamInfo[]`) via `execFile('ffprobe', ...)`; swallows errors and returns `{duration: 0, streams: []}`. |
 | `backend/src/config/appConfig.ts` (`FileWatcherConfig`) | `fileWatcher.enabled / usePolling / pollInterval` from `tubeca.config.json`. |
 | `backend/src/index.ts:650-660, 702` | Starts the watcher at boot (env `FILE_WATCHER_ENABLED` overrides config) and stops it on shutdown; imports all workers so they run in the API process. |
@@ -71,7 +71,7 @@
 | Film | Film | Generic | Generic |
 | Music | Artist | Album | Generic |
 
-Every non-hidden directory that does not end in `.trickplay` becomes a collection, whatever it contains (an `Extras/` or `Subs/` folder in a film becomes a Generic child collection). Collections are looked up by `(libraryId, name, parentId)`; if found and the computed type differs (e.g. the library's type was changed), the type is updated in place. Season number is parsed from the folder name with `/season\s*(\d+)/i`; film year from `parseMovieFromFilename(dir.name)`.
+Every non-hidden directory that does not end in `.trickplay` becomes a collection, whatever it contains (an `Extras/` or `Subs/` folder in a film becomes a Generic child collection). Collections are looked up by `(libraryId, name, parentId)`; if found and the computed type differs (e.g. the library's type was changed), the type is updated in place. Season number is parsed from the folder name with `/season\s*(\d+)/i`; film year from `parseTitleAndYear(dir.name)`.
 
 ### File → Media mapping
 
@@ -88,7 +88,7 @@ Music libraries (the type is hidden since 2026-09-03: `LibraryDialog` does not o
 
 ### Scrape hints and enqueueing
 
-Hints are built by the pure `buildMediaHints` and `buildCollectionHints` in `importService.ts`, so the scanner and watcher produce identical jobs. For Video media, `parseEpisodeFromFilename(fileBaseName)` (`S01E02`, `1x02`, with separators `. _ - space`) wins if it matches; `showName` then comes from the filename prefix or, failing that, from `getShowNameFromCollectionPath` (grandparent if the parent folder looks like "Season N"). Otherwise `parseTitleAndYear` runs on the folder name (or the file name at the library root) and only the `year` is kept; the name sent to the scraper is the folder name for Film libraries and the file base name otherwise, and the scrape workers apply `parseTitleAndYear` to it again (27c0663). Collections get `seasonNumber` from `/season\s*(\d+)/i` and films `year` from `parseTitleAndYear`, which unlike the old `parseMovieFromFilename` does not read "2001 A Space Odyssey" as year 2001.
+Hints are built by the pure `buildMediaHints` and `buildCollectionHints` in `importService.ts`, so the scanner and watcher produce identical jobs. For Video media, `parseEpisodeFromFilename(fileBaseName)` (`S01E02`, `1x02`, with separators `. _ - space`) wins if it matches; `showName` then comes from the filename prefix or, failing that, from `getShowNameFromCollectionPath` (grandparent if the parent folder looks like "Season N"). Otherwise `parseTitleAndYear` runs on the folder name (or the file name at the library root) and only the `year` is kept; the name sent to the scraper is the folder name for Film libraries and the file base name otherwise, and the scrape workers apply `parseTitleAndYear` to it again (27c0663). Collections get `seasonNumber` from `/season\s*(\d+)/i` and films `year` from `parseTitleAndYear`, which unlike the deleted `parseMovieFromFilename` does not read "2001 A Space Odyssey" as year 2001.
 
 Queueing goes through `ImportService.queueMediaScrapes` and `queueCollectionScrapes`:
 
@@ -140,8 +140,13 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 ### Filename parsing details
 
 - `parseEpisodeFromFilename` requires the pattern to be delimited (`(?:^|[.\s_-])`), so "Show S01E02.mkv" and "show.s1e2.720p" match but "ShowS01E02" does not. Season/episode are capped at two digits for `SxxEyy`; `NNxNN` allows 2-3 digit episodes. It also extracts `episodeTitle` after the pattern, but the scan worker never uses it.
-- `parseMovieFromFilename` finds a 19xx/20xx year followed by a quality token or end-of-string; "2001 A Space Odyssey" is mis-parsed (year 2001, empty title), which is why `parseTitleAndYear` was added for folder names and prefers a bracketed year.
-- `parseTitleAndYear` has the only unit tests in this part. `parseEpisodeFromFilename`, `parseMovieFromFilename` and `getShowNameFromCollectionPath` are untested.
+- `parseTitleAndYear` was added for folder names and prefers a bracketed year; it replaced
+  `parseMovieFromFilename`, which mis-parsed "2001 A Space Odyssey" as year 2001 with an empty
+  title and, once nothing called it, was deleted along with `extractYear` (2026-09-04).
+- Both remaining parsers take a base name with the extension already stripped: the year and
+  quality patterns anchor on end-of-string, so a trailing ".mkv" hides the year, and an episode
+  title would otherwise end in "mkv". `importService.buildMediaHints` and
+  `scrapeCascade.queueEpisodeScrapes` both strip it.
 
 ## Interactions
 
@@ -167,6 +172,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - `27c0663` 2026-09-02 — `parseTitleAndYear` (+ first parser tests) used by scrape workers and IdentifyDialog; frontend mirror in `utils/parseTitle.ts`.
 - 2026-09-03 `getCollectionType` and media extension lists extracted to `utils/libraryLayout.ts` (with tests) and used by both the scan worker and file watcher.
 - 2026-09-03 The watcher gained tests: the chokidar module is faked and the debounce and rename-grace timers are driven by hand, so the event handlers are exercised without touching a real filesystem watcher.
+- 2026-09-04 `parseEpisodeFromFilename` and `getShowNameFromCollectionPath` tested; the uncalled `parseMovieFromFilename` and `extractYear` deleted.
 - 2026-09-03 Import integrity: `ImportService`, `LibraryScanService` and `ContentDeletionService` extracted; scanner and watcher share one import path; `Media.path` unique with a dedupe migration; orphan reconciliation after each complete scan; library, collection and media deletes clean artwork files.
 - 2026-09-03 Music hidden: removed from the library picker and the create-route allow-list; scans stop queueing Artist/Album/Audio scrapes. Schema and existing libraries untouched.
 - 2026-09-03 Rename/move detection: `Media.fileSize`/`fileMtimeMs` recorded at import (migration `20260903150000_media_file_identity`), unknown paths matched against vanished rows in the same library, watcher unlink waits 10 s for the matching add; `ScanResult.mediaMoved`.
@@ -193,7 +199,6 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Content hashing for renames** (M): a partial hash (first/last MB) as a second identity key would survive touched mtimes and cross-library moves.
 - **Probe a few files at once** (S): the walk is async now, but ffprobe still runs strictly serially, one process per file; a small concurrency limit would cut import time on a large library.
 - **List what a dry run would remove** (S): the counts are reported, but not the paths, so an admin cannot see which items are missing without querying the database.
-- **Tests for the untested parsers** (S): `parseEpisodeFromFilename` (`1x02`, `s1e2`, prefix show name, quality suffix) and `getShowNameFromCollectionPath` directly; the scan is now covered against a temp tree.
 - **Watch for sidecar subtitles too** (S): the watcher ignores `.srt` events, so a subtitle added after a scan waits for the next one.
 - **Read audio tags with ffprobe `format.tags`** (M): the probe already runs; capturing title/artist/album/track would give the music library real names ahead of any scraper.
 

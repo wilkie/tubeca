@@ -366,6 +366,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-03 Every `/api/stream/*` route now runs `requireLibraryAccess(mediaParam('id'))` after `streamAuth`; covered by `routes/__tests__/stream.test.ts`.
 - 2026-09-03 Streaming robustness: codec-aware `Original` (`isDirectPlayable`), single de-dup key for all segment paths, per-segment FFmpeg timeout with partial-file cleanup, tracked processes killed on shutdown, lazy `HlsService` singleton, `maxSizeGB` enforced LRU-first, cache evicted on media delete, settings cache invalidated by version.
 - 2026-09-03 `hlsCacheCleanupService` tested: the startup delay, the hourly repeat, the refusal to start twice, and that a failed sweep does not stop the next one.
+- 2026-09-04 Stream route guards tested (missing media and files, subtitle stream index and sidecar rows, trickplay resolutions, the quality ladder); the part-file assertion in `hlsService.test.ts` now waits for `createWriteStream` to open rather than assuming one tick, which made the suite flake under load.
 
 ## Known Limitations
 
@@ -409,8 +410,9 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   seconds there. Results are not cached across restarts.
 - **Tests cover playlists, direct-play eligibility, segment de-duplication, timeout and shutdown,
   slot priority and prefetch cancellation (against a fake `child_process`), the cache helpers,
-  encoder argument construction, the settings validation and purge, and the cleanup timer**;
-  probing and most stream routes are still untested.
+  encoder argument construction, the settings validation and purge, the cleanup timer, and the
+  guard clauses of every stream route**; what remains untested is the probing and the FFmpeg
+  pipes themselves, which need a real binary.
 
 ## Opportunities
 

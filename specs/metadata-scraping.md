@@ -38,7 +38,7 @@
 | `backend/src/services/scrapeApply.ts` | The parts every entity type shares: `downloadArtwork` (one loop for poster/backdrop/thumbnail/logo/album art), `shouldDownloadArtwork`, `applyCredits` (person linking, cast photos) and the single `mapCreditType`. |
 | `backend/src/services/scrapeCascade.ts` | `queueSeasonScrapes` and `queueEpisodeScrapes`: carry a show's identity down to its seasons and episodes once it has been matched. |
 | `backend/src/services/scrapeCache.ts` | `cachedCall`/`scrapeCacheKey`: a 10-minute in-process cache over provider calls that also shares in-flight requests. |
-| `backend/src/utils/mediaParser.ts` | Filename heuristics: `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear` (27c0663), `getShowNameFromCollectionPath`. |
+| `backend/src/utils/mediaParser.ts` | Filename heuristics: `parseEpisodeFromFilename`, `parseTitleAndYear` (27c0663), `getShowNameFromCollectionPath`. |
 | `backend/src/routes/collections.ts` | `POST /api/collections/search` (`:223`), `POST /:id/refresh-metadata` (`:532`), `POST /:id/refresh-images` (`:623`), `POST /:id/identify` (`:730`). |
 | `backend/src/routes/media.ts` | `POST /api/media/:id/refresh-metadata` (`:136`), `POST /:id/refresh-images` (`:208`), `GET /scrapers/list` (`:274`), `GET /scrapers/queue-status` (Admin). |
 | `backend/src/workers/libraryScanWorker.ts` | Enqueues scrapes after a scan (`:103-190`); full-scan re-queue of existing items (`:381`, `:489`). |
@@ -124,7 +124,7 @@ Every call a worker makes into a plugin goes through `cachedCall`, keyed by scra
 
 ### What enqueues scrapes
 
-- **Library scan** (`libraryScanWorker.ts:103-190`): after a scan, new media get `metadata-scrape` jobs **unless the library type is Film** (ffb9d2d: the Film collection already carries the metadata). New Show/Season/Film/Artist/Album collections get `collection-scrape` jobs via the bulk helper; Film jobs carry a `year` parsed with `parseMovieFromFilename`. With `fullScan: true` (ffb9d2d), existing media and collections are pushed into the same "new" lists (`:381`, `:489`) and re-scraped. Artwork is re-fetched only where the URL changed, because the apply path asks `ImageService` to reuse a file that is still current.
+- **Library scan** (`libraryScanWorker.ts:103-190`): after a scan, new media get `metadata-scrape` jobs **unless the library type is Film** (ffb9d2d: the Film collection already carries the metadata). New Show/Season/Film/Artist/Album collections get `collection-scrape` jobs via the bulk helper; Film jobs carry a `year` parsed with `parseTitleAndYear`. With `fullScan: true` (ffb9d2d), existing media and collections are pushed into the same "new" lists (`:381`, `:489`) and re-scraped. Artwork is re-fetched only where the URL changed, because the apply path asks `ImageService` to reuse a file that is still current.
 - **File watcher**: new files and directories are enqueued individually through the same `ImportService.queueMediaScrapes`/`queueCollectionScrapes` the scanner uses, so (since 2026-09-03) it also skips media-level scrapes for Film libraries.
 - **Refresh metadata** (`collections.ts:532`, `media.ts:136`): Editor+; re-enqueues with the stored `scraperId`/`externalId` (collections only) and `skipImages: true`. The frontend fires the request and immediately clears its spinner; there is no completion feedback.
 - **Refresh images**: same with `imagesOnly: true`.
@@ -132,7 +132,7 @@ Every call a worker makes into a plugin goes through `cachedCall`, keyed by scra
 
 ### Title parsing (27c0663)
 
-`parseTitleAndYear` prefers a bracketed year (`"Blade Runner 2049 (2017)"` keeps its digits) and falls back to a bare trailing year (`"Dune 2021"`). It is used in both workers and the dialog, replacing the earlier behaviour of sending `"Name (Year)"` verbatim to TMDB. The import path now derives the `year` hint with `parseTitleAndYear` as well, so the scanner, watcher and scrape workers agree; `parseMovieFromFilename` (release-name oriented, strips quality tags) remains only as a utility.
+`parseTitleAndYear` prefers a bracketed year (`"Blade Runner 2049 (2017)"` keeps its digits) and falls back to a bare trailing year (`"Dune 2021"`). It is used in both workers and the dialog, replacing the earlier behaviour of sending `"Name (Year)"` verbatim to TMDB. The import path now derives the `year` hint with `parseTitleAndYear` as well, so the scanner, watcher and scrape workers agree; the release-name oriented `parseMovieFromFilename` was deleted once nothing called it (2026-09-04).
 
 ### Matching (`scrapeMatching.ts`)
 

@@ -284,6 +284,17 @@ describe('HlsService playlist synthesis', () => {
   describe('streaming a segment while it encodes', () => {
     const settle = () => new Promise((r) => setImmediate(r));
 
+    /**
+     * Wait for something the runtime does on its own clock.
+     *
+     * `fs.createWriteStream` opens the file asynchronously, so the part file
+     * can be a tick or two behind the first chunk on a busy machine.
+     */
+    async function eventually(condition: () => boolean) {
+      for (let attempt = 0; attempt < 100 && !condition(); attempt++) await settle();
+      return condition();
+    }
+
     /** Stands in for the HTTP response. */
     function fakeSink() {
       const chunks: Buffer[] = [];
@@ -334,7 +345,9 @@ describe('HlsService playlist synthesis', () => {
 
       // Mid-encode there is a part file, but nothing under the cache name.
       expect(fs.existsSync(segmentPath)).toBe(false);
-      expect(fs.readdirSync(variant).some((f) => f.startsWith('0.ts.part-'))).toBe(true);
+      expect(
+        await eventually(() => fs.readdirSync(variant).some((f) => f.startsWith('0.ts.part-')))
+      ).toBe(true);
 
       spawned[0].emit('close', 0);
       await delivery;

@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { configure } from '@testing-library/react';
 import { PlayerProvider, usePlayer } from '../PlayerContext';
 import type { ReactNode } from 'react';
@@ -88,6 +88,10 @@ jest.mock('../../api/client', () => ({
     getSubtitleUrl: jest.fn(),
     getImageUrl: jest.fn(),
     getWatchProgress: jest.fn(() => Promise.resolve({ data: { progress: null } })),
+    getWatchProgressBatch: jest.fn(() => Promise.resolve({ data: { progress: {} } })),
+    getPlaybackQueue: jest.fn(),
+    getCollection: jest.fn(),
+    getAudioStreamUrl: jest.fn(() => 'http://localhost/audio'),
     updateWatchProgress: jest.fn(() => Promise.resolve({ data: { progress: null } })),
     markWatched: jest.fn(() => Promise.resolve({ data: { progress: null } })),
   },
@@ -647,6 +651,271 @@ describe('PlayerContext', () => {
         { position: 42, duration: 1200 },
         { keepalive: true }
       );
+    });
+  });
+
+  describe('the queue', () => {
+    const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+
+    const episode = (id: string, episodeNumber: number, collectionId = 'season-1') => ({
+      id,
+      name: `Episode ${episodeNumber}`,
+      duration: 1200,
+      type: 'Video' as const,
+      streams: [],
+      collectionId,
+      videoDetails: { season: 1, episode: episodeNumber },
+    });
+
+    const queueItem = (id: string, mediaId: string, episodeNumber: number) => ({
+      id,
+      position: episodeNumber,
+      media: { ...episode(mediaId, episodeNumber) },
+    });
+
+    const library: Record<string, ReturnType<typeof episode>> = {
+      'm1': episode('m1', 1),
+      'm2': episode('m2', 2),
+      'm3': episode('m3', 3),
+    };
+
+    beforeEach(() => {
+      jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+      mockApi.getMedia.mockImplementation(
+        async (id: string) => ({ data: { media: library[id] } }) as never
+      );
+      mockApi.getTrickplayInfo.mockResolvedValue({ data: undefined } as never);
+      mockApi.getWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+      mockApi.getWatchProgressBatch.mockResolvedValue({ data: { progress: {} } } as never);
+      mockApi.getHlsMasterPlaylistUrl.mockReturnValue('/hls/master.m3u8');
+      mockApi.getPlaybackQueue.mockResolvedValue({
+        data: {
+          userCollection: {
+            items: [queueItem('q1', 'm1', 1), queueItem('q2', 'm2', 2), queueItem('q3', 'm3', 3)],
+          },
+        },
+      } as never);
+      mockApi.getCollection.mockResolvedValue({ data: { collection: null } } as never);
+    });
+
+    /** A player with the queue loaded and one of its items playing. */
+    async function playing(mediaId: string) {
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+      await act(async () => {
+        await result.current.refreshQueue();
+      });
+      await act(async () => {
+        await result.current.playMedia(mediaId);
+      });
+      return result;
+    }
+
+    it('loads the queue', async () => {
+      const result = await playing('m2');
+
+      expect(result.current.queue.map((item) => item.id)).toEqual(['q1', 'q2', 'q3']);
+    });
+
+    it('keeps an empty queue when the request fails', async () => {
+      mockApi.getPlaybackQueue.mockResolvedValue({ error: 'Nope' } as never);
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+
+      await act(async () => {
+        await result.current.refreshQueue();
+      });
+
+      expect(result.current.queue).toEqual([]);
+    });
+
+    it('knows where in the queue it is', async () => {
+      const result = await playing('m2');
+
+      await waitFor(() => expect(result.current.queueIndex).toBe(1));
+    });
+
+    it('offers the item on either side', async () => {
+      const result = await playing('m2');
+
+      await waitFor(() => expect(result.current.nextItem).toMatchObject({ id: 'm3', type: 'queue' }));
+      expect(result.current.previousItem).toMatchObject({ id: 'm1', type: 'queue' });
+      expect(result.current.hasNextItem()).toBe(true);
+      expect(result.current.hasPreviousItem()).toBe(true);
+    });
+
+    it('offers nothing before the first item', async () => {
+      const result = await playing('m1');
+
+      await waitFor(() => expect(result.current.nextItem).toMatchObject({ id: 'm2' }));
+      expect(result.current.previousItem).toBeNull();
+      expect(result.current.hasPreviousItem()).toBe(false);
+    });
+
+    it('plays the next item', async () => {
+      const result = await playing('m2');
+      await waitFor(() => expect(result.current.nextItem).not.toBeNull());
+
+      await act(async () => {
+        await result.current.playNext();
+      });
+
+      expect(result.current.currentMedia?.id).toBe('m3');
+    });
+
+    it('plays the previous item', async () => {
+      const result = await playing('m2');
+      await waitFor(() => expect(result.current.previousItem).not.toBeNull());
+
+      await act(async () => {
+        await result.current.playPrevious();
+      });
+
+      expect(result.current.currentMedia?.id).toBe('m1');
+    });
+
+    it('stays where it is when there is nowhere to go', async () => {
+      mockApi.getPlaybackQueue.mockResolvedValue({
+        data: { userCollection: { items: [queueItem('q1', 'm1', 1)] } },
+      } as never);
+      const result = await playing('m1');
+      await waitFor(() => expect(result.current.queueIndex).toBe(0));
+
+      await act(async () => {
+        await result.current.playNext();
+        await result.current.playPrevious();
+      });
+
+      expect(result.current.currentMedia?.id).toBe('m1');
+    });
+
+    it('plays the next item by itself when one ends', async () => {
+      const result = await playing('m2');
+      await waitFor(() => expect(result.current.nextItem).toMatchObject({ id: 'm3' }));
+
+      await act(async () => {
+        document.querySelector('video')!.dispatchEvent(new Event('ended'));
+      });
+
+      await waitFor(() => expect(result.current.currentMedia?.id).toBe('m3'));
+    });
+
+    describe('past the end of the queue', () => {
+      beforeEach(() => {
+        mockApi.getPlaybackQueue.mockResolvedValue({
+          data: { userCollection: { items: [] } },
+        } as never);
+      });
+
+      it('offers the next unwatched episode of the season', async () => {
+        mockApi.getCollection.mockResolvedValue({
+          data: {
+            collection: {
+              id: 'season-1',
+              parentId: 'show-1',
+              media: [episode('m3', 3), episode('m1', 1), episode('m2', 2)],
+            },
+          },
+        } as never);
+        mockApi.getWatchProgressBatch.mockResolvedValue({
+          data: { progress: { m2: { completed: true } } },
+        } as never);
+
+        const result = await playing('m1');
+
+        await waitFor(() =>
+          expect(result.current.nextItem).toMatchObject({ id: 'm3', type: 'episode' })
+        );
+      });
+
+      it('falls back to the very next episode when the rest is watched', async () => {
+        mockApi.getCollection.mockResolvedValue({
+          data: {
+            collection: { id: 'season-1', parentId: 'show-1', media: [episode('m1', 1), episode('m2', 2)] },
+          },
+        } as never);
+        mockApi.getWatchProgressBatch.mockResolvedValue({
+          data: { progress: { m2: { completed: true } } },
+        } as never);
+
+        const result = await playing('m1');
+
+        await waitFor(() => expect(result.current.nextItem).toMatchObject({ id: 'm2' }));
+      });
+
+      it('crosses into the next season after the last episode', async () => {
+        mockApi.getCollection.mockImplementation(async (id: string) => {
+          if (id === 'season-1') {
+            return {
+              data: { collection: { id: 'season-1', parentId: 'show-1', media: [episode('m1', 1)] } },
+            } as never;
+          }
+          if (id === 'show-1') {
+            return {
+              data: {
+                collection: {
+                  id: 'show-1',
+                  children: [
+                    { id: 'season-2', name: 'Season 2' },
+                    { id: 'season-1', name: 'Season 1' },
+                  ],
+                },
+              },
+            } as never;
+          }
+          return {
+            data: {
+              collection: {
+                id: 'season-2',
+                seasonDetails: { seasonNumber: 2 },
+                media: [
+                  { ...episode('m9', 2, 'season-2'), name: 'Second' },
+                  { ...episode('m8', 1, 'season-2'), name: 'First' },
+                ],
+              },
+            },
+          } as never;
+        });
+
+        const result = await playing('m1');
+
+        await waitFor(() =>
+          expect(result.current.nextItem).toMatchObject({
+            id: 'm8',
+            type: 'episode',
+            seasonNumber: 2,
+            episodeNumber: 1,
+          })
+        );
+      });
+
+      it('offers nothing after the last episode of the last season', async () => {
+        mockApi.getCollection.mockImplementation(async (id: string) =>
+          (id === 'season-1'
+            ? { data: { collection: { id: 'season-1', parentId: 'show-1', media: [episode('m1', 1)] } } }
+            : { data: { collection: { id: 'show-1', children: [{ id: 'season-1', name: 'Season 1' }] } } }) as never
+        );
+
+        const result = await playing('m1');
+
+        await waitFor(() => expect(result.current.hasNextItem()).toBe(false));
+      });
+
+      it('offers nothing for a film', async () => {
+        library.film = {
+          id: 'film',
+          name: 'Heat',
+          duration: 10200,
+          type: 'Video',
+          streams: [],
+          collectionId: 'col-heat',
+          videoDetails: undefined as never,
+        };
+
+        const result = await playing('film');
+
+        await waitFor(() => expect(result.current.currentMedia?.id).toBe('film'));
+        expect(result.current.nextItem).toBeNull();
+        expect(mockApi.getCollection).not.toHaveBeenCalled();
+      });
     });
   });
 });
