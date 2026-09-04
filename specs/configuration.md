@@ -83,6 +83,11 @@ startup summary. Notable defaults:
   is not `production`; in production a missing, blank or placeholder value throws at import
   (`authService.ts`, `resolveJwtSecret()`), so the process exits before listening.
 - `REDIS_PASSWORD` -> `undefined`; `REDIS_PORT` -> `6379` via `Number(x) || 6379`.
+- `REDIS_DB` -> `0` (2026-09-04). BullMQ keys queues by name, so two servers on one Redis share
+  them: a development or test instance started beside a running one takes jobs meant for it and
+  writes the results into whatever database it was pointed at, and the job is gone from the queue
+  either way. Pointing the second instance at another database keeps them apart. Found the hard
+  way, by doing exactly that.
 - `NODE_ENV` controls Prisma query logging (`['query','error','warn']` in development) and whether
   the Prisma client is stashed on `global` for hot reload.
 - `FILE_WATCHER_ENABLED` is the only env var that overrides a config-file key: `index.ts:652-654`
@@ -240,7 +245,7 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
   (`SettingsPage`, Vite proxy `PORT`); [Deployment](deployment.md) (`TUBECA_CONFIG_PATH`,
   `/etc/tubeca/*`, systemd units, `tsx` vs `node`); [Overview](overview.md).
 - **Shared data:** `Settings`, `TranscodingSettings` tables; config keys `imagePath`, `hlsCache`,
-  `fileWatcher`, `scrapers`; env `PORT`, `DATABASE_URL`, `REDIS_HOST/PORT/PASSWORD`, `JWT_SECRET`,
+  `fileWatcher`, `scrapers`; env `PORT`, `DATABASE_URL`, `REDIS_HOST/PORT/PASSWORD/DB`, `JWT_SECRET`,
   `NODE_ENV`, `FILE_WATCHER_ENABLED`, `TUBECA_CONFIG_PATH`; the single `redisConnection` shared by
   every queue and worker in [Libraries & Scanning](libraries-and-scanning.md),
   [Metadata Scraping](metadata-scraping.md) and [Streaming & Transcoding](streaming-and-transcoding.md).
@@ -269,6 +274,7 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
 - 2026-09-03 `TUBECA_VAAPI_DEVICE` env var; transcoding settings validated on write.
 - 2026-09-03 `TUBECA_ROLE` (`api`/`worker`/`all`) and `FRONTEND_DIST` env vars; workers loaded lazily by role; esbuild bundle replaces `tsx` at runtime.
 - 2026-09-03 `routes/settings.ts` routed through `SettingsService` rather than its own inline find-or-create; the service's unused `updateSettings`/`resetSettings` removed; both gained tests.
+- 2026-09-04 `REDIS_DB` added so a second instance on the same Redis does not consume the first one's queued jobs.
 
 ## Known Limitations
 

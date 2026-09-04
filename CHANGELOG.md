@@ -6,6 +6,8 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- `REDIS_DB` selects which Redis database the queues use, so a second server on the same machine
+  no longer takes jobs meant for the first.
 - TVDB can now identify and scrape a show and its seasons, not only episodes; its requests time
   out after ten seconds and are retried when the fault looks temporary, and its logos resolve
   (the artwork id being asked for was a season banner, which a show never has). A show scraped

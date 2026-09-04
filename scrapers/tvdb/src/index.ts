@@ -70,6 +70,13 @@ interface TVDBSeasonExtended extends TVDBSeasonSummary {
   name?: string
   overview?: string
   episodes?: TVDBEpisode[]
+  /**
+   * Which languages have a translation. The entries are sometimes one
+   * comma-joined string rather than one code each, so they are split before
+   * being read.
+   */
+  nameTranslations?: string[]
+  overviewTranslations?: string[]
 }
 
 interface TVDBSeasonResponse {
@@ -422,14 +429,19 @@ class TVDBScraper implements ScraperPlugin {
   /**
    * The season's name and overview.
    *
-   * A season record carries a name but no overview at all — v4 keeps the
-   * overview in translations — so the translation is fetched unless the record
-   * happens to have both. What the record does have wins.
+   * A season record carries neither in practice — v4 keeps both in
+   * translations — so they are fetched unless the record happens to have them.
+   * The record lists which languages it has, so a season with none in this
+   * language costs no request at all; without that check every such season
+   * spends a round trip on a 404.
    */
   private async seasonText(
     season: TVDBSeasonExtended
   ): Promise<{ name?: string; overview?: string }> {
     if (season.name && season.overview) {
+      return { name: season.name, overview: season.overview }
+    }
+    if (!this.hasTranslation(season)) {
       return { name: season.name, overview: season.overview }
     }
     try {
@@ -444,6 +456,14 @@ class TVDBScraper implements ScraperPlugin {
       // A season with no translation in this language is still a season.
       return { name: season.name, overview: season.overview }
     }
+  }
+
+  /** Whether the season lists a translation in the configured language. */
+  private hasTranslation(season: TVDBSeasonExtended): boolean {
+    const listed = [...(season.nameTranslations ?? []), ...(season.overviewTranslations ?? [])]
+      .flatMap((entry) => entry.split(','))
+      .map((code) => code.trim())
+    return listed.includes(this.language)
   }
 
   async getEpisodeMetadata(

@@ -439,6 +439,7 @@ describe('a season', () => {
         seriesId: 328724,
         number: 1,
         image: 'https://artworks.thetvdb.com/s1.jpg',
+        overviewTranslations: ['eng,deu'],
         episodes: [
           { id: 2, name: 'Lies', seasonNumber: 1, number: 2, aired: '2017-12-01' },
           { id: 1, name: 'Secrets', seasonNumber: 1, number: 1, aired: '2017-11-30' },
@@ -513,7 +514,7 @@ describe('a season', () => {
     expect(metadata).toMatchObject({ name: 'The Beginning', description: 'The first season.' });
   });
 
-  it('still returns the season when it has no translation in this language', async () => {
+  it('still returns the season when the translation it lists turns out to be missing', async () => {
     delete routes['/v4/seasons/701/translations/eng'];
     const plugin = await scraper();
 
@@ -521,6 +522,27 @@ describe('a season', () => {
       externalId: 'season-701',
       description: undefined,
     });
+  });
+
+  it('asks for no translation for a season that lists none in this language', async () => {
+    (routes['/v4/seasons/701/extended'] as { data: Record<string, unknown> }).data
+      .overviewTranslations = [];
+    const plugin = await scraper();
+
+    const metadata = await plugin.getSeasonMetadata!('series-328724', 1);
+
+    expect(metadata).toMatchObject({ externalId: 'season-701', description: undefined });
+    expect(requests.map((r) => r.path)).not.toContain('/v4/seasons/701/translations/eng');
+  });
+
+  it('reads a language list that arrives comma-joined in one entry', async () => {
+    (routes['/v4/seasons/701/extended'] as { data: Record<string, unknown> }).data
+      .overviewTranslations = ['pol,ell,deu,eng,swe'];
+    const plugin = await scraper();
+
+    expect((await plugin.getSeasonMetadata!('series-328724', 1))!.description).toBe(
+      'The first season.'
+    );
   });
 
   it('follows the configured language when it asks', async () => {
