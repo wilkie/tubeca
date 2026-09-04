@@ -6,6 +6,8 @@ import {
   Toolbar,
   Typography,
   IconButton,
+  InputAdornment,
+  InputBase,
   Box,
   Menu,
   MenuItem,
@@ -25,6 +27,7 @@ interface HeaderProps {
 export function Header({ onMenuClick }: HeaderProps) {
   const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [search, setSearch] = useState('');
   const { user, logout } = useAuth();
   const { activeLibraryId, setActiveLibrary } = useActiveLibrary();
   const navigate = useNavigate();
@@ -44,6 +47,16 @@ export function Header({ onMenuClick }: HeaderProps) {
     handleMenuClose();
     logout();
     navigate('/login');
+  };
+
+  /**
+   * The search page reads its query from `?q=`, so the box only has to send
+   * one there; the page owns the searching, the history entry and the results.
+   */
+  const handleSearchSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const query = search.trim();
+    navigate(query ? `/search?q=${encodeURIComponent(query)}` : '/search');
   };
 
   const handleLibraryClick = (libraryId: string) => {
@@ -100,11 +113,43 @@ export function Header({ onMenuClick }: HeaderProps) {
 
         <Box sx={{ flexGrow: 1 }} />
 
+        {/* A box from sm up, the icon alone on a narrow screen. */}
+        <Box
+          component="form"
+          role="search"
+          onSubmit={handleSearchSubmit}
+          sx={{
+            display: { xs: 'none', sm: 'flex' },
+            alignItems: 'center',
+            mr: 1,
+            px: 1,
+            borderRadius: 1,
+            bgcolor: 'rgba(255, 255, 255, 0.12)',
+            '&:focus-within': { bgcolor: 'rgba(255, 255, 255, 0.2)' },
+          }}
+        >
+          <InputBase
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('header.searchPlaceholder', 'Search')}
+            // type=search gives it the searchbox role and, on a phone, a
+            // keyboard with a search key rather than a return key.
+            inputProps={{ 'aria-label': t('header.search'), type: 'search' }}
+            sx={{ color: 'inherit', width: { sm: 140, md: 200 } }}
+            startAdornment={
+              <InputAdornment position="start" sx={{ color: 'inherit' }}>
+                <Search fontSize="small" />
+              </InputAdornment>
+            }
+          />
+        </Box>
+
         <IconButton
           size="large"
           color="inherit"
           aria-label={t('header.search')}
           onClick={() => navigate('/search')}
+          sx={{ display: { xs: 'inline-flex', sm: 'none' } }}
         >
           <Search />
         </IconButton>

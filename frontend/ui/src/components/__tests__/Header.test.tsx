@@ -77,6 +77,43 @@ describe('Header', () => {
       expect(screen.getByRole('button', { name: /menu/i })).toBeInTheDocument();
     });
 
+    it('sends what was typed to the search page', async () => {
+      const user = userEvent.setup();
+      render(<Header />);
+
+      await user.type(screen.getByRole('searchbox', { name: /search/i }), 'breaking bad{Enter}');
+
+      expect(mockNavigate).toHaveBeenCalledWith('/search?q=breaking%20bad');
+    });
+
+    it('trims what was typed, and opens the bare page for nothing at all', async () => {
+      const user = userEvent.setup();
+      render(<Header />);
+
+      await user.type(screen.getByRole('searchbox', { name: /search/i }), '   {Enter}');
+
+      expect(mockNavigate).toHaveBeenCalledWith('/search');
+    });
+
+    it('keeps a query with an ampersand in one piece', async () => {
+      const user = userEvent.setup();
+      render(<Header />);
+
+      await user.type(screen.getByRole('searchbox', { name: /search/i }), 'fry & laurie{Enter}');
+
+      expect(mockNavigate).toHaveBeenCalledWith('/search?q=fry%20%26%20laurie');
+    });
+
+    it('leaves the box alone after searching, so the query can be refined', async () => {
+      const user = userEvent.setup();
+      render(<Header />);
+      const box = screen.getByRole('searchbox', { name: /search/i });
+
+      await user.type(box, 'heat{Enter}');
+
+      expect(box).toHaveValue('heat');
+    });
+
     it('renders search button', () => {
       render(<Header />);
 

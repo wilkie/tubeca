@@ -6,6 +6,9 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A search box in the header, so searching no longer means going to the search page first.
+- A library remembers which content ratings you hid and which keywords you filtered by, the way
+  it already remembered posters-or-list and the sort.
 - A daily database backup, `tubeca-backup.timer`, keeping the last seven copies and catching up
   if the machine was off; upgrades already made one, this covers the days in between.
 - `REDIS_DB` selects which Redis database the queues use, so a second server on the same machine

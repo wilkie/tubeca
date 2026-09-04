@@ -21,7 +21,8 @@
     "menu": "Menu",
     "favorites": "Favorites",
     "watchLater": "Watch Later",
-    "queue": "Playback Queue"
+    "queue": "Playback Queue",
+    "searchPlaceholder": "Search"
   },
   "nav": {
     "settings": "Settings",

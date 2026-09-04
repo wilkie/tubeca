@@ -210,10 +210,11 @@ The page owns what the viewer is doing; `useLibraryCollections` owns the data an
 5. Infinite scroll: an `IntersectionObserver` on a sentinel `div` below the grid calls the
    hook's `loadMore()` (`fetchNextPage`) when 10% visible and `hasMore`.
 6. Keywords are a query enabled the first time the filter panel opens (`loadKeywords`).
-7. `viewMode` ('poster' | 'list', 33b11fc) and the sort come from
-   `useLibraryViewPreferences`, which keeps them per library id in `localStorage`; a value that
-   is not one we wrote is ignored, and storage being unavailable only costs the memory of the
-   choice.
+7. `viewMode` ('poster' | 'list', 33b11fc), the sort, and since 2026-09-04 the excluded content
+   ratings and selected keywords all come from `useLibraryViewPreferences`, which keeps them per
+   library id in `localStorage`; a value that is not one we wrote is ignored, entry by entry, and
+   storage being unavailable only costs the memory of the choice. A keyword that has since been
+   deleted still filters and matches nothing, but its chip is on screen, so it can be cleared.
    Poster cards show a hover-only overlay with content rating and `★ 7.5` (f2f8070) via a CSS
    `&:hover .rating-overlay` rule. List mode uses `MediaListItem` with an inline
    `CardQuickActions`.
@@ -369,6 +370,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-03 Third coverage push: `ScrollRestorationContext`, `StandardCollectionView`, `StickyHeroBreadcrumbs`, `NavigationLoadingOverlay`, `SortableMediaListItem` and the playlist drag-reorder handler tested; the collection-type chip moved to `t()`; `jest.setup.ts` stubs `ResizeObserver`, which jsdom does not implement.
 - 2026-09-04 `HeroSection`, `UpNextPopup`, `ViewModeMenu` and `RecentCollectionMenuItem` tested, which leaves no untested component, page, context or hook.
 - 2026-09-04 `src/i18n/__tests__/translations.test.ts` checks every `t()` key in the source against `en.json`. It found 98 of the 291 keys in use missing — every one of them rendering correctly from its inline default — and all 98 were added from those defaults. A generated pseudo-locale (`en-XA`, `?lng=en-XA`) answers the other half of the question: which strings never went through `t()` at all.
+- 2026-09-04 A search box in the header (a form submitting to `/search?q=`, the icon alone below `sm`), and excluded ratings and selected keywords persisted per library alongside the view mode and sort.
 
 ## Known Limitations
 
@@ -408,9 +410,6 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - **`selectAll` only selects loaded pages**, not the full filtered set the backend knows about.
 
 ## Opportunities
-
-- **Persist filters per library** (S): excluded ratings and selected keywords alongside the view
-  mode and sort that are already stored.
 
 - **Split `client.ts` by domain** (`auth`, `libraries`, `collections`, `stream`, `userCollections`)
   behind the same `request()` helper, or generate it from the backend's OpenAPI spec, which

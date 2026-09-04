@@ -151,7 +151,57 @@ const mockShowCollections: Collection[] = [
 describe('LibraryPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.localStorage.clear();
     mockLibraryId = 'lib-123';
+  });
+
+  describe('filters the viewer chose last time', () => {
+    beforeEach(() => {
+      mockApiClient.getLibrary.mockResolvedValue({ data: { library: mockLibrary } });
+      mockApiClient.getCollectionsByLibrary.mockResolvedValue({ data: paginatedResponse(mockCollections) });
+    });
+
+    it('asks the server for them without being told again', async () => {
+      window.localStorage.setItem(
+        'tubeca_library_view_lib-123',
+        JSON.stringify({ excludedRatings: ['R'], selectedKeywords: [{ id: 'k1', name: 'heist' }] })
+      );
+
+      render(<LibraryPage />);
+
+      await waitFor(() =>
+        expect(mockApiClient.getCollectionsByLibrary).toHaveBeenCalledWith(
+          'lib-123',
+          expect.objectContaining({ excludedRatings: ['R'], keywordIds: ['k1'] })
+        )
+      );
+    });
+
+    it('asks for everything when nothing was stored', async () => {
+      render(<LibraryPage />);
+
+      await waitFor(() => expect(mockApiClient.getCollectionsByLibrary).toHaveBeenCalled());
+      expect(mockApiClient.getCollectionsByLibrary).toHaveBeenCalledWith(
+        'lib-123',
+        expect.objectContaining({ excludedRatings: undefined, keywordIds: undefined })
+      );
+    });
+
+    it('does not carry one library\'s filters into another', async () => {
+      window.localStorage.setItem(
+        'tubeca_library_view_lib-123',
+        JSON.stringify({ excludedRatings: ['R'] })
+      );
+      mockLibraryId = 'lib-999';
+
+      render(<LibraryPage />);
+
+      await waitFor(() => expect(mockApiClient.getCollectionsByLibrary).toHaveBeenCalled());
+      expect(mockApiClient.getCollectionsByLibrary).toHaveBeenCalledWith(
+        'lib-999',
+        expect.objectContaining({ excludedRatings: undefined })
+      );
+    });
   });
 
   describe('loading state', () => {

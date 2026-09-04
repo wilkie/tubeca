@@ -9,6 +9,8 @@ describe('readLibraryViewPreferences', () => {
       viewMode: 'poster',
       sortField: 'name',
       sortDirection: 'asc',
+      excludedRatings: [],
+      selectedKeywords: [],
     });
   });
 
@@ -22,6 +24,8 @@ describe('readLibraryViewPreferences', () => {
       viewMode: 'poster',
       sortField: 'name',
       sortDirection: 'asc',
+      excludedRatings: [],
+      selectedKeywords: [],
     });
   });
 
@@ -90,5 +94,53 @@ describe('useLibraryViewPreferences', () => {
 
     expect(result.current.viewMode).toBe('list');
     expect(window.localStorage.length).toBe(0);
+  });
+});
+
+describe('the stored filters', () => {
+  it('remembers excluded ratings and selected keywords', () => {
+    const { result } = renderHook(() => useLibraryViewPreferences('lib-1'));
+
+    act(() => result.current.setExcludedRatings(['R', 'NC-17']));
+    act(() => result.current.setSelectedKeywords([{ id: 'k1', name: 'heist' }]));
+
+    expect(readLibraryViewPreferences('lib-1')).toMatchObject({
+      excludedRatings: ['R', 'NC-17'],
+      selectedKeywords: [{ id: 'k1', name: 'heist' }],
+    });
+  });
+
+  it('keeps each library\'s filters to itself', () => {
+    const { result } = renderHook(() => useLibraryViewPreferences('lib-1'));
+    act(() => result.current.setExcludedRatings(['R']));
+
+    expect(readLibraryViewPreferences('lib-2').excludedRatings).toEqual([]);
+  });
+
+  it('drops entries that are not the shape we wrote', () => {
+    window.localStorage.setItem(
+      'tubeca_library_view_lib-1',
+      JSON.stringify({
+        excludedRatings: ['R', 7, null],
+        selectedKeywords: [{ id: 'k1', name: 'heist' }, 'heist', { id: 5 }],
+      })
+    );
+
+    expect(readLibraryViewPreferences('lib-1')).toMatchObject({
+      excludedRatings: ['R'],
+      selectedKeywords: [{ id: 'k1', name: 'heist' }],
+    });
+  });
+
+  it('survives a stored value that is not an array at all', () => {
+    window.localStorage.setItem(
+      'tubeca_library_view_lib-1',
+      JSON.stringify({ excludedRatings: 'R', selectedKeywords: 42 })
+    );
+
+    expect(readLibraryViewPreferences('lib-1')).toMatchObject({
+      excludedRatings: [],
+      selectedKeywords: [],
+    });
   });
 });

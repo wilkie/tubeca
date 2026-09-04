@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Alert, Box, CircularProgress, Collapse, Container, Grid, Stack, Typography } from '@mui/material';
-import { apiClient, type Collection, type Keyword } from '../api/client';
+import { apiClient, type Collection } from '../api/client';
 import { useScrollRestoration } from '../context/ScrollRestorationContext';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { CollectionListCard, CollectionPosterCard } from '../components/CollectionCard';
@@ -34,11 +34,26 @@ export function LibraryPage() {
   // themselves come from the query cache.
   useScrollRestoration(`library-${libraryId}`);
 
-  const { viewMode, sortField, sortDirection, setViewMode, setSortField, setSortDirection } =
-    useLibraryViewPreferences(libraryId);
+  const {
+    viewMode,
+    sortField,
+    sortDirection,
+    excludedRatings: storedExcludedRatings,
+    selectedKeywords,
+    setViewMode,
+    setSortField,
+    setSortDirection,
+    setExcludedRatings: storeExcludedRatings,
+    setSelectedKeywords,
+  } = useLibraryViewPreferences(libraryId);
 
-  const [excludedRatings, setExcludedRatings] = useState<Set<string>>(new Set());
-  const [selectedKeywords, setSelectedKeywords] = useState<Keyword[]>([]);
+  // The filter chips and the query work in sets; storage holds a list.
+  const excludedRatings = useMemo(() => new Set(storedExcludedRatings), [storedExcludedRatings]);
+  const setExcludedRatings = useCallback(
+    (next: Set<string>) => storeExcludedRatings([...next]),
+    [storeExcludedRatings]
+  );
+
   const [showFilters, setShowFilters] = useState(false);
 
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
@@ -175,7 +190,7 @@ export function LibraryPage() {
   const clearFilters = useCallback(() => {
     setExcludedRatings(new Set());
     setSelectedKeywords([]);
-  }, []);
+  }, [setExcludedRatings, setSelectedKeywords]);
 
   // Content ratings only mean something for films.
   const showContentRatingFilter = library?.libraryType === 'Film' && availableContentRatings.length > 0;
@@ -235,12 +250,10 @@ export function LibraryPage() {
             options={availableContentRatings}
             excluded={excludedRatings}
             onToggle={(rating) => {
-              setExcludedRatings((prev) => {
-                const next = new Set(prev);
-                if (next.has(rating)) next.delete(rating);
-                else next.add(rating);
-                return next;
-              });
+              const next = new Set(excludedRatings);
+              if (next.has(rating)) next.delete(rating);
+              else next.add(rating);
+              setExcludedRatings(next);
             }}
             onClear={() => setExcludedRatings(new Set())}
             onSelectOnly={(rating) => setExcludedRatings(new Set(availableContentRatings.filter((r) => r !== rating)))}

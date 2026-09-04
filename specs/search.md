@@ -222,6 +222,7 @@ the index holds keyword names rather than ids.
 - `758f70f` 2025-12-20 — Scroll/state restoration for Search and Library pages.
 - 2026-09-03 — `/api/persons/search` registered before `/:id`, with a router-order test.
 - 2026-09-03 — Search scope now comes from `LibraryService.getAccessibleLibraries`; public libraries are searchable by everyone and the response shape no longer changes for users without groups. Route tests added.
+- 2026-09-04 A search box in the header submits to `/search?q=`; the page still owns the searching, the history entry and the results.
 
 ## Known Limitations
 
@@ -266,7 +267,6 @@ the index holds keyword names rather than ids.
   ranking behaviour, and let it be scoped to the libraries a viewer can see.
 - **A merged, ranked result list** (M): collections and media are two lists with two offsets;
   one list ordered by score across both would page correctly and read better.
-- **A Header search box** that submits to `/search?q=` (S), now that the page searches live.
 - **Offer the library's sort fields on the Search page** by ordering on the denormalised
   `sortReleaseDate` / `sortRating` / `sortRuntime` columns, as the library view already does. S.
 - **Broaden `useQuickSearch` key acceptance** to `/\p{L}|\p{N}|[\s'\-:]/u` and add an
