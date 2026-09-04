@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { prisma } from '../config/database';
 import { authenticate, requireRole } from '../middleware/auth';
+import { SettingsService } from '../services/settingsService';
 import {
   getTranscodingSettingsWithInfo,
   updateTranscodingSettings,
@@ -9,6 +9,10 @@ import {
 } from '../services/transcodingSettingsService';
 
 const router = Router();
+const settingsService = new SettingsService();
+
+/** What a fresh instance calls itself until someone renames it. */
+const DEFAULT_INSTANCE_NAME = 'Tubeca';
 
 // All settings routes require authentication
 router.use(authenticate);
@@ -37,14 +41,7 @@ router.use(authenticate);
  */
 router.get('/', async (_req, res) => {
   try {
-    let settings = await prisma.settings.findFirst();
-
-    if (!settings) {
-      settings = await prisma.settings.create({
-        data: { instanceName: 'Tubeca' },
-      });
-    }
-
+    const settings = await settingsService.getOrCreateSettings(DEFAULT_INSTANCE_NAME);
     res.json({ settings });
   } catch {
     res.status(500).json({ error: 'Failed to fetch settings' });
@@ -76,18 +73,11 @@ const updateInstanceSettings = async (req: Request, res: Response) => {
   try {
     const { instanceName } = req.body;
 
-    let settings = await prisma.settings.findFirst();
-
-    if (!settings) {
-      settings = await prisma.settings.create({
-        data: { instanceName: instanceName || 'Tubeca' },
-      });
-    } else {
-      settings = await prisma.settings.update({
-        where: { id: settings.id },
-        data: { instanceName },
-      });
-    }
+    // A request that names nothing still has to answer with the settings, so it
+    // falls back to the same find-or-create the GET does.
+    const settings = instanceName
+      ? await settingsService.updateInstanceName(instanceName)
+      : await settingsService.getOrCreateSettings(DEFAULT_INSTANCE_NAME);
 
     res.json({ settings });
   } catch {

@@ -35,6 +35,7 @@
 | `backend/src/services/importService.ts` | Shared by scanner and watcher: `ensureCollection`/`ensureCollectionPath`, `importMediaFile` (probe, streams, trickplay, unique-path race handling), pure `buildMediaHints`/`buildCollectionHints`, `queueMediaScrapes`/`queueCollectionScrapes`, `reprobeMediaFile`, `syncExternalSubtitles`, `findMissing`, `removeMissing`. |
 | `backend/src/services/contentDeletionService.ts` | `deleteMedia`, `deleteCollectionTree`, `deleteLibraryContents`: remove rows and every artwork file they own (including credit photos). Used by the collection/media/library services, the watcher and reconciliation. |
 | `backend/src/services/fileWatcherService.ts` | Singleton chokidar wrapper: `start/stop/sync/watchLibrary/unwatchLibrary`, debounced add handlers, unlink handler; delegates all creation to `ImportService`. |
+| `backend/src/services/__tests__/fileWatcherService.test.ts` | 27 cases against a fake chokidar watcher and fake timers: which libraries are watched, `sync` add/remove/rebuild, debounce, extension filtering, the rename grace window, directory rules. |
 | `backend/src/utils/mediaParser.ts` | `parseEpisodeFromFilename`, `parseMovieFromFilename`, `parseTitleAndYear`, `getShowNameFromCollectionPath`, `extractYear`. |
 | `backend/src/services/__tests__/{importService,libraryScanService,contentDeletionService}.test.ts` | Hint building, collection chains, idempotent import, scrape queueing order, reconciliation, temp-tree scans, tree deletes with file cleanup. |
 | `backend/src/utils/__tests__/mediaParser.test.ts` | 7 Jest cases, all for `parseTitleAndYear` only. |
@@ -165,6 +166,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - `7052d0c` 2026-07-01 — DNS-threadpool starvation fix: 30 s poll + `binaryInterval`, `UV_THREADPOOL_SIZE=24`, c-ares DNS in TMDB scraper.
 - `27c0663` 2026-09-02 — `parseTitleAndYear` (+ first parser tests) used by scrape workers and IdentifyDialog; frontend mirror in `utils/parseTitle.ts`.
 - 2026-09-03 `getCollectionType` and media extension lists extracted to `utils/libraryLayout.ts` (with tests) and used by both the scan worker and file watcher.
+- 2026-09-03 The watcher gained tests: the chokidar module is faked and the debounce and rename-grace timers are driven by hand, so the event handlers are exercised without touching a real filesystem watcher.
 - 2026-09-03 Import integrity: `ImportService`, `LibraryScanService` and `ContentDeletionService` extracted; scanner and watcher share one import path; `Media.path` unique with a dedupe migration; orphan reconciliation after each complete scan; library, collection and media deletes clean artwork files.
 - 2026-09-03 Music hidden: removed from the library picker and the create-route allow-list; scans stop queueing Artist/Album/Audio scrapes. Schema and existing libraries untouched.
 - 2026-09-03 Rename/move detection: `Media.fileSize`/`fileMtimeMs` recorded at import (migration `20260903150000_media_file_identity`), unknown paths matched against vanished rows in the same library, watcher unlink waits 10 s for the matching add; `ScanResult.mediaMoved`.
@@ -183,7 +185,6 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Music is hidden and import-only**: existing Music libraries get a correct tree and durations, but no tag reading (ID3/Vorbis), no scraper, and no audio player beyond the progressive route. Reviving the type means: read `format.tags` at import, a MusicBrainz-style scraper implementing `searchAudio`/`getAudioMetadata` and the Artist/Album branches of `collectionScrapeWorker`, an audio player path in `PlayerContext`, and re-adding `Music` to `LibraryDialog` and the create-route allow-list.
 - **Scan concurrency is two**, so a third library queues behind them; the number is a constant, not a setting.
 - **A dry run is a separate scan.** There is no "review then apply" flow: the report says how many rows would go, and acting on it means running a normal scan, which recomputes the set.
-- **The watcher has no tests.** The re-probe on `change` and the rebuild on a path change are covered only through `ImportService`.
 - **A new sidecar is only noticed by a scan.** The watcher filters events by media extension, so dropping a `.srt` next to a video does not import it until the next scan of that library.
 - **The directory picker shows the whole server filesystem** to an admin, who could already type any path; it lists folders only and hides dot-directories, but there is no configured root to stay inside.
 

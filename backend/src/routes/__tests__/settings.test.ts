@@ -119,3 +119,58 @@ describe('PUT /api/settings/transcoding', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('GET /api/settings', () => {
+  it('needs a signed-in user', async () => {
+    const res = await request(app).get('/api/settings');
+    expect(res.status).toBe(401);
+  });
+
+  it('names a fresh instance Tubeca and keeps that row', async () => {
+    const { authHeader } = await createUser({ role: 'Viewer' });
+
+    const res = await request(app).get('/api/settings').set('Authorization', authHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body.settings.instanceName).toBe('Tubeca');
+
+    await request(app).get('/api/settings').set('Authorization', authHeader);
+    expect(await prisma.settings.count()).toBe(1);
+  });
+});
+
+describe('PUT /api/settings', () => {
+  it('is Admin only', async () => {
+    const { authHeader } = await createUser({ role: 'Editor' });
+
+    const res = await request(app)
+      .put('/api/settings')
+      .set('Authorization', authHeader)
+      .send({ instanceName: 'Nope' });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('renames the instance', async () => {
+    const res = await request(app)
+      .put('/api/settings')
+      .set('Authorization', adminHeader)
+      .send({ instanceName: 'Wilkie Media' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.settings.instanceName).toBe('Wilkie Media');
+  });
+
+  it('leaves the name alone when the request carries none', async () => {
+    await request(app)
+      .put('/api/settings')
+      .set('Authorization', adminHeader)
+      .send({ instanceName: 'Wilkie Media' });
+
+    const res = await request(app).put('/api/settings').set('Authorization', adminHeader).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.settings.instanceName).toBe('Wilkie Media');
+    expect(await prisma.settings.count()).toBe(1);
+  });
+});

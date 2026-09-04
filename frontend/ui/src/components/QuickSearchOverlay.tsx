@@ -1,5 +1,6 @@
 import { Box, Typography, Fade } from '@mui/material';
 import { Search } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 
 interface QuickSearchOverlayProps {
   /** The current search query */
@@ -15,6 +16,7 @@ interface QuickSearchOverlayProps {
  * Appears when user starts typing to filter items.
  */
 export function QuickSearchOverlay({ query, matchCount, totalCount }: QuickSearchOverlayProps) {
+  const { t } = useTranslation();
   const isActive = query.length > 0;
 
   return (
@@ -67,7 +69,10 @@ export function QuickSearchOverlay({ query, matchCount, totalCount }: QuickSearc
           </Typography>
           {matchCount !== undefined && totalCount !== undefined && (
             <Typography variant="caption" color="text.secondary">
-              {matchCount} of {totalCount}
+              {t('library.quickSearchMatches', '{{count}} of {{total}}', {
+                count: matchCount,
+                total: totalCount,
+              })}
             </Typography>
           )}
         </Box>

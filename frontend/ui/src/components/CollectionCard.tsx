@@ -285,6 +285,7 @@ export function CollectionListCard(props: CollectionCardProps & { onPlay: (colle
         <IconButton
           color="primary"
           onClick={() => props.onPlay(collection.id)}
+          aria-label={t('common.play', 'Play')}
           sx={{ width: 40, height: 56, borderRadius: 0.5 }}
         >
           <PlayArrow sx={{ fontSize: 28 }} />

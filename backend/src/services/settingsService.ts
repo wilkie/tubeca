@@ -38,25 +38,4 @@ export class SettingsService {
       data: { instanceName },
     });
   }
-
-  // Update settings (generic)
-  async updateSettings(data: Partial<Omit<Settings, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Settings> {
-    const settings = await this.getSettings();
-
-    if (!settings) {
-      return await prisma.settings.create({
-        data: data as { instanceName: string },
-      });
-    }
-
-    return await prisma.settings.update({
-      where: { id: settings.id },
-      data,
-    });
-  }
-
-  // Delete all settings (use with caution)
-  async resetSettings(): Promise<void> {
-    await prisma.settings.deleteMany({});
-  }
 }

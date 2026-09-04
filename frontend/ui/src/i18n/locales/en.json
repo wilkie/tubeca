@@ -40,7 +40,8 @@
     "create": "Create",
     "back": "Back",
     "showMore": "Show more...",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "play": "Play"
   },
   "settings": {
     "title": "Settings",
@@ -112,7 +113,8 @@
       "noTags": "No tags found",
       "clearAll": "Clear",
       "toggle": "Toggle filters"
-    }
+    },
+    "quickSearchMatches": "{{count}} of {{total}}"
   },
   "collection": {
     "notFound": "Collection not found",

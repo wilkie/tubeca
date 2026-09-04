@@ -62,7 +62,7 @@
 |------|------|
 | `backend/src/routes/stream.ts` | All `/api/stream/*` endpoints: `streamAuth` middleware, legacy progressive `/video/:id`, `/subtitles/:id`, `/audio/:id`, `/trickplay/:id[...]`, and the HLS trio (`master.m3u8`, `:quality.m3u8`, `:quality/:segment.ts`) plus `/hls/:id/qualities`. |
 | `backend/src/services/hlsService.ts` | `HlsService`: playlist synthesis, segment cache layout, per-segment FFmpeg invocation, in-flight de-duplication, transcode semaphore, prefetching, encoder/preset selection, cache stats and TTL sweep. |
-| `backend/src/services/hlsCacheCleanupService.ts` | Singleton timer: first sweep 30 s after boot, then hourly; logs freed MB. Started/stopped from `index.ts`. |
+| `backend/src/services/hlsCacheCleanupService.ts` | Singleton timer: first sweep 30 s after boot, then hourly; logs freed MB. Started/stopped from `index.ts`. Covered by `__tests__/hlsCacheCleanupService.test.ts` (fake timers, `HlsService` mocked). |
 | `backend/src/services/transcodingSettingsService.ts` | Read/create/update the `TranscodingSettings` singleton row with a 30 s in-memory cache; adds detected/active encoder and preset list for the settings UI. |
 | `backend/src/routes/settings.ts` | `GET`/`PUT /api/settings/transcoding` (Admin only). |
 | `backend/src/utils/hwaccel.ts` | `detectBestEncoder()`/`detectBestEncoderAsync()` (run `ffmpeg -encoders` then a 1-frame `lavfi` test encode per candidate, sharing one cache), `resolvePreferredEncoder()` (verify an admin's choice), `getEncoderArgs()` (rate control, profile, scale+pad filter) and `getEncoderInputArgs()` (VAAPI's render node, which must precede `-i`). |
@@ -365,6 +365,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-03 `hlsService.test.ts` added (playlist synthesis, with `hwaccel` and `appConfig` mocked so no ffmpeg runs).
 - 2026-09-03 Every `/api/stream/*` route now runs `requireLibraryAccess(mediaParam('id'))` after `streamAuth`; covered by `routes/__tests__/stream.test.ts`.
 - 2026-09-03 Streaming robustness: codec-aware `Original` (`isDirectPlayable`), single de-dup key for all segment paths, per-segment FFmpeg timeout with partial-file cleanup, tracked processes killed on shutdown, lazy `HlsService` singleton, `maxSizeGB` enforced LRU-first, cache evicted on media delete, settings cache invalidated by version.
+- 2026-09-03 `hlsCacheCleanupService` tested: the startup delay, the hourly repeat, the refusal to start twice, and that a failed sweep does not stop the next one.
 
 ## Known Limitations
 
@@ -408,8 +409,8 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   seconds there. Results are not cached across restarts.
 - **Tests cover playlists, direct-play eligibility, segment de-duplication, timeout and shutdown,
   slot priority and prefetch cancellation (against a fake `child_process`), the cache helpers,
-  encoder argument construction and the settings validation and purge**; probing and most stream
-  routes are still untested.
+  encoder argument construction, the settings validation and purge, and the cleanup timer**;
+  probing and most stream routes are still untested.
 
 ## Opportunities
 

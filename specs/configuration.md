@@ -56,7 +56,7 @@
 | `tubeca.config.example.json` | Example app config (file watcher + scraper keys only; omits `imagePath`/`hlsCache`) |
 | `backend/prisma.config.ts` | Prisma 7 config; reads `DATABASE_URL` via `env()` and `dotenv/config` |
 | `backend/prisma/schema.prisma:537-570` | `Settings` and `TranscodingSettings` singleton models |
-| `backend/src/services/settingsService.ts` | `SettingsService` class (get/create/update/reset instance settings) |
+| `backend/src/services/settingsService.ts` | `SettingsService` class: `getSettings`, `getOrCreateSettings`, `updateInstanceName` (+ tests) |
 | `backend/src/services/transcodingSettingsService.ts` | Cached accessor + updater for `TranscodingSettings`; encoder detection info |
 | `backend/src/routes/settings.ts` | `GET/PUT /api/settings`, `GET/PUT /api/settings/transcoding` |
 | `backend/src/index.ts` | App bootstrap, middleware, route mounting, inline legacy routes, `startServer()`, `shutdown()` |
@@ -118,10 +118,10 @@ options reach it unchanged. Language codes are the provider's own: TMDB expects 
 
 ### Layer 3: database settings
 
-`Settings` holds a single row with `instanceName`. Three code paths touch it with different default
-names: `SettingsService.getOrCreateSettings()` (`'Tubeca Instance'`), `routes/settings.ts:104`
-(`'Tubeca'`). `instanceName` is only displayed on the Settings page itself; no other frontend or
-backend code reads it.
+`Settings` holds a single row with `instanceName`. `routes/settings.ts` is its only caller and goes
+through `SettingsService`, passing `'Tubeca'` as the name a fresh instance takes; the service's own
+`'Tubeca Instance'` default is now only a fallback for a caller that names nothing. `instanceName`
+is only displayed on the Settings page itself; no other frontend or backend code reads it.
 
 `TranscodingSettings` is created lazily with schema defaults (`veryfast`, 2 concurrent transcodes,
 6 s segments, 8000/5000/2500/1000 kbps). `transcodingSettingsService.ts` caches the row for 30 s and
@@ -268,6 +268,7 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
 - 2026-09-03 Legacy inline handlers removed from `index.ts`; `PATCH /api/settings` added to the router (Admin); `JWT_SECRET` validated at startup in production.
 - 2026-09-03 `TUBECA_VAAPI_DEVICE` env var; transcoding settings validated on write.
 - 2026-09-03 `TUBECA_ROLE` (`api`/`worker`/`all`) and `FRONTEND_DIST` env vars; workers loaded lazily by role; esbuild bundle replaces `tsx` at runtime.
+- 2026-09-03 `routes/settings.ts` routed through `SettingsService` rather than its own inline find-or-create; the service's unused `updateSettings`/`resetSettings` removed; both gained tests.
 
 ## Known Limitations
 
@@ -294,8 +295,7 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
 - Introduce a single typed config module (e.g. zod schema over env + file) that validates once at
   startup and logs the effective configuration, extending the `JWT_SECRET` check to the other
   layers. Rationale: removes the silent-default class of bugs above. (M)
-- Align `DATABASE_URL` defaults and make `SettingsService` the only writer of `Settings` (routes
-  currently bypass it with a different default name). (S)
+- Align `DATABASE_URL` defaults. (S)
 - Cache `loadAppConfig()` once per process (or inject the loaded config) and drop the second cache
   layer in `HlsService`, so settings apply within one TTL. (S)
 - Consolidate signal handling into `index.ts` (remove handlers from `database.ts`/`redis.ts`),

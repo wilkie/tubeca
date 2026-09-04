@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from '@mui/material';
 import { PlayArrow } from '@mui/icons-material';
+import { useTranslation } from 'react-i18next';
 
 export interface MediaListItemProps {
   /** URL of the image to display */
@@ -51,6 +52,8 @@ export function MediaListItem({
   onPlay,
   actions,
 }: MediaListItemProps) {
+  const { t } = useTranslation();
+
   return (
     <Card sx={{ display: 'flex' }}>
       {/* Image and Details - single clickable area */}
@@ -124,7 +127,7 @@ export function MediaListItem({
       {/* Actions */}
       <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 0.5 }}>
         {onPlay && (
-          <Tooltip title="Play">
+          <Tooltip title={t('common.play', 'Play')}>
             <IconButton
               color="primary"
               onClick={onPlay}
