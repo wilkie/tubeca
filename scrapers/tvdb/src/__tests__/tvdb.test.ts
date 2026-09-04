@@ -142,7 +142,8 @@ describe('searching', () => {
   it('lets a search failure through rather than reporting no results', async () => {
     const plugin = await scraper();
 
-    await expect(plugin.searchSeries!('Dark')).rejects.toThrow('TVDB API error: 404');
+    // A search endpoint that 404s is TVDB not answering, not "no such show".
+    await expect(plugin.searchSeries!('Dark')).rejects.toThrow(/TVDB has no/);
   });
 });
 
@@ -598,8 +599,17 @@ describe('when TVDB misbehaves', () => {
   it('gives up on a client error rather than retrying', async () => {
     const plugin = await scraper();
     fetchMock.mockClear();
+    fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({}) } as never);
 
-    await expect(plugin.searchSeries!('Dark')).rejects.toThrow('TVDB API error: 404');
+    await expect(plugin.searchSeries!('Dark')).rejects.toThrow('TVDB API error: 401');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a record the provider says it does not have', async () => {
+    const plugin = await scraper();
+    fetchMock.mockClear();
+
+    await expect(plugin.searchSeries!('Dark')).rejects.toThrow(/TVDB has no/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -796,6 +806,21 @@ describe('a film', () => {
     const plugin = await scraper();
 
     expect(await plugin.getVideoMetadata!('movie-999')).toBeNull();
+  });
+
+  it('lets a provider failure escape rather than passing it off as a miss', async () => {
+    jest.useFakeTimers();
+    try {
+      const plugin = await scraper();
+      fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) } as never);
+      const fetching = plugin.getVideoMetadata!('movie-1305');
+      const settled = expect(fetching).rejects.toThrow('TVDB API error: 503');
+
+      await jest.advanceTimersByTimeAsync(10000);
+      await settled;
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('keeps only the top twenty of a long cast, as TMDB does', async () => {

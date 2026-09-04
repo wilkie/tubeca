@@ -10,13 +10,23 @@ import type {
   CreditType,
   PersonMetadata,
 } from '@tubeca/scraper-types'
-import { createScraperAgent } from '@tubeca/scraper-http'
+import { createScraperAgent, isProviderNotFound, ProviderNotFoundError } from '@tubeca/scraper-http'
 
 const TVDB_API_URL = 'https://api4.thetvdb.com/v4'
 
 // Pooled connections and a DNS cache that stays off the libuv threadpool; see
 // @tubeca/scraper-http for why that matters here.
 const httpAgent = createScraperAgent('TVDB')
+
+/**
+ * A by-id method reports "the provider does not have this" as null, and
+ * anything else by throwing, so the worker can tell a vanished record from a
+ * provider having a bad afternoon.
+ */
+function notFoundOrThrow(error: unknown): null {
+  if (isProviderNotFound(error)) return null
+  throw error
+}
 
 interface TVDBAuthResponse {
   status: string
@@ -339,6 +349,11 @@ class TVDBScraper implements ScraperPlugin {
         })
 
         if (!response.ok) {
+          // A 404 is an answer: the record is not there. Everything else is a
+          // reason to try again later.
+          if (response.status === 404) {
+            throw new ProviderNotFoundError(`TVDB has no ${endpoint}`)
+          }
           throw new Error(`TVDB API error: ${response.status}`)
         }
 
@@ -418,8 +433,8 @@ class TVDBScraper implements ScraperPlugin {
         logoUrls,
         credits,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -451,8 +466,8 @@ class TVDBScraper implements ScraperPlugin {
         logoUrls,
         credits: this.mapCharactersToCredits(movie.characters ?? []),
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -521,8 +536,8 @@ class TVDBScraper implements ScraperPlugin {
         seasonCount: officialSeasons(series).filter((s) => s.number > 0).length,
         credits: this.mapCharactersToCredits(series.characters ?? []),
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -563,8 +578,8 @@ class TVDBScraper implements ScraperPlugin {
         posterUrl: season.image ?? summary.image,
         episodeCount: episodes.length,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -657,8 +672,8 @@ class TVDBScraper implements ScraperPlugin {
         episodeTitle: episodeData.name,
         credits,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -719,8 +734,8 @@ class TVDBScraper implements ScraperPlugin {
         photoUrl: person.image || undefined,
         tvdbId: person.id,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 }

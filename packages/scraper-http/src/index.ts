@@ -2,6 +2,26 @@ import dns from 'node:dns'
 import { Agent } from 'undici'
 
 /**
+ * The provider answered, and does not have this.
+ *
+ * A plugin's by-id methods report a miss by returning `null`, which the worker
+ * takes as "the entry has gone" and records as a no-match. A timeout or a 5xx
+ * is not that: it means try again later, and must reach the worker as a thrown
+ * error so it can be retried. Only a 404 becomes this.
+ */
+export class ProviderNotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ProviderNotFoundError'
+  }
+}
+
+/** True for the error above, however it crossed a package boundary. */
+export function isProviderNotFound(error: unknown): boolean {
+  return error instanceof Error && error.name === 'ProviderNotFoundError'
+}
+
+/**
  * A pooled HTTP dispatcher for scraper plugins, with DNS that stays off the
  * libuv threadpool.
  *

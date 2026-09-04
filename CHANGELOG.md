@@ -53,6 +53,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- A title a provider has deleted is now recorded as unmatched instead of being retried three
+  times and left as a failure, and a season whose scrape hit a timeout is retried instead of
+  being written off as unmatched. The two cases had been the other way round.
 - 98 pieces of interface text were not actually translatable: the code asked for a key that was
   not in the translation file and fell back to the English written beside it. They are now real
   entries, and a test keeps it that way.

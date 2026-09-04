@@ -103,3 +103,26 @@ describe('the scraper DNS lookup', () => {
     expect(resolve4).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('ProviderNotFoundError', () => {
+  it('is recognised as itself', async () => {
+    const { ProviderNotFoundError, isProviderNotFound } = await import('../index');
+
+    expect(isProviderNotFound(new ProviderNotFoundError('gone'))).toBe(true);
+  });
+
+  it('is recognised across a package boundary, where instanceof cannot be trusted', async () => {
+    const { isProviderNotFound } = await import('../index');
+    const fromElsewhere = new Error('gone');
+    fromElsewhere.name = 'ProviderNotFoundError';
+
+    expect(isProviderNotFound(fromElsewhere)).toBe(true);
+  });
+
+  it('is not just any error', async () => {
+    const { isProviderNotFound } = await import('../index');
+
+    expect(isProviderNotFound(new Error('fetch failed'))).toBe(false);
+    expect(isProviderNotFound(undefined)).toBe(false);
+  });
+});

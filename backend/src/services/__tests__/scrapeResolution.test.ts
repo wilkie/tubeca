@@ -33,11 +33,13 @@ describe('resolveByIdentity', () => {
     expect(attempt).toMatchObject({ status: 'matched', scraperId: 'tmdb', externalId: '949' });
   });
 
-  it('reports a transient empty response as a retryable failure instead of searching', async () => {
+  it('reports an entry the provider no longer has as a miss, without searching for a new one', async () => {
+    // A plugin returns null only for a provider that answered and does not
+    // have the id; a failure reaches here as a thrown error instead.
     const scraper = fakeScraper('tmdb', { fetch: async () => null });
     const attempt = await resolveByIdentity(scraper, 'tmdb', '949', (s) => s.getVideoMetadata?.('949'));
-    expect(attempt).toMatchObject({ status: 'failed', retryable: true });
-    expect((attempt as { message: string }).message).toMatch(/identification kept/);
+    expect(attempt).toMatchObject({ status: 'nomatch' });
+    expect((attempt as { message: string }).message).toMatch(/no longer has 949; identification kept/);
   });
 
   it('handles a missing or incapable scraper without throwing', async () => {

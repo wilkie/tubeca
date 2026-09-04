@@ -51,11 +51,13 @@ export async function resolveByIdentity<T>(
       return { status: 'nomatch', message: `Scraper "${scraperId}" does not support this item type` };
     }
     if (metadata === null) {
+      // A plugin returns null only when the provider answered and does not
+      // have the entry: the title was deleted or merged there. Retrying three
+      // times cannot help, so this is a no-match, and the identification is
+      // kept so a person can see what it was pointing at.
       return {
-        status: 'failed',
-        message: `Scraper "${scraperId}" returned nothing for ${externalId}; identification kept`,
-        error: new Error('empty metadata for identified item'),
-        retryable: true,
+        status: 'nomatch',
+        message: `Scraper "${scraperId}" no longer has ${externalId}; identification kept`,
       };
     }
     return { status: 'matched', scraperId, externalId, metadata };

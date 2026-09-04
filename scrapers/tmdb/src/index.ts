@@ -11,7 +11,7 @@ import type {
   SeasonMetadata,
   PersonMetadata,
 } from '@tubeca/scraper-types'
-import { createScraperAgent } from '@tubeca/scraper-http'
+import { createScraperAgent, isProviderNotFound, ProviderNotFoundError } from '@tubeca/scraper-http'
 
 const TMDB_API_URL = 'https://api.themoviedb.org/3'
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
@@ -22,6 +22,16 @@ const CANDIDATE_LIMIT = 12
 // Pooled connections and a DNS cache that stays off the libuv threadpool; see
 // @tubeca/scraper-http for why that matters here.
 const httpAgent = createScraperAgent('TMDB')
+
+/**
+ * A by-id method reports "the provider does not have this" as null, and
+ * anything else by throwing, so the worker can tell a vanished entry from a
+ * provider having a bad afternoon.
+ */
+function notFoundOrThrow(error: unknown): null {
+  if (isProviderNotFound(error)) return null
+  throw error
+}
 
 // TMDB API response types
 interface TMDBSearchResult {
@@ -237,11 +247,11 @@ class TMDBScraper implements ScraperPlugin {
         clearTimeout(timeoutId)
 
         if (!response.ok) {
-          // Don't retry on client errors (4xx) except rate limiting (429)
-          if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-            throw new Error(`TMDB API error: ${response.status}`)
+          // A 404 is an answer: the entry is not there, and asking again will
+          // not change that. Every other failure is a reason to try later.
+          if (response.status === 404) {
+            throw new ProviderNotFoundError(`TMDB has no ${endpoint}`)
           }
-          // Retry on server errors (5xx) and rate limiting (429)
           throw new Error(`TMDB API error: ${response.status}`)
         }
 
@@ -432,15 +442,17 @@ class TMDBScraper implements ScraperPlugin {
     try {
       const [type, id] = externalId.split('-')
 
+      // Awaited on purpose: returning the promise would let the rejection
+      // escape the catch below, which is where a miss becomes null.
       if (type === 'movie') {
-        return this.getMovieMetadata(parseInt(id, 10))
+        return await this.getMovieMetadata(parseInt(id, 10))
       } else if (type === 'tv') {
-        return this.getTVMetadata(parseInt(id, 10))
+        return await this.getTVMetadata(parseInt(id, 10))
       }
 
       return null
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -560,8 +572,8 @@ class TMDBScraper implements ScraperPlugin {
         episodeTitle: episodeData.name,
         credits,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -605,8 +617,8 @@ class TMDBScraper implements ScraperPlugin {
         seasonCount: tv.number_of_seasons,
         credits,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -626,8 +638,8 @@ class TMDBScraper implements ScraperPlugin {
         posterUrl: this.getImageUrl(season.poster_path),
         episodeCount: season.episode_count,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 
@@ -699,8 +711,8 @@ class TMDBScraper implements ScraperPlugin {
         tmdbId: person.id,
         imdbId: person.imdb_id || undefined,
       }
-    } catch {
-      return null
+    } catch (error) {
+      return notFoundOrThrow(error)
     }
   }
 }

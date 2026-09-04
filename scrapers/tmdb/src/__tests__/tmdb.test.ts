@@ -5,13 +5,16 @@ import { TMDBScraper } from '../index';
 let routes: Record<string, unknown>;
 let requested: string[];
 
-const fetchMock = jest.fn(async (input: unknown) => {
+/** Answer from `routes`, and remember what was asked. */
+const respond = async (input: unknown) => {
   const url = new URL(String(input));
   requested.push(url.pathname + url.search);
   const body = routes[url.pathname];
   if (body === undefined) return { ok: false, status: 404, json: async () => ({}) };
   return { ok: true, status: 200, json: async () => body };
-});
+};
+
+const fetchMock = jest.fn(respond);
 
 async function scraper(config: Record<string, unknown> = {}) {
   const plugin = new TMDBScraper();
@@ -26,7 +29,10 @@ const queryFor = (path: string) =>
 beforeEach(() => {
   routes = {};
   requested = [];
-  fetchMock.mockClear();
+  // A reset, not a clear: a test that makes fetch misbehave must not leave it
+  // misbehaving for the next one.
+  fetchMock.mockReset();
+  fetchMock.mockImplementation(respond);
   (globalThis as { fetch: unknown }).fetch = fetchMock;
 });
 
@@ -251,14 +257,22 @@ describe('a film', () => {
     expect(metadata!.credits!.filter((c) => c.type === 'actor')).toHaveLength(20);
   });
 
-  // The catch in getVideoMetadata returns null, but the movie and tv branches
-  // return the promise instead of awaiting it, so a TMDB error is thrown past
-  // it. The worker turns that into a retryable Failed rather than a miss, so
-  // this is pinned as it stands rather than quietly changed.
-  it('lets a TMDB error escape rather than reporting a miss', async () => {
-    await expect((await scraper()).getVideoMetadata!('movie-404')).rejects.toThrow(
-      'TMDB API error: 404'
-    );
+  it('reports a film TMDB no longer has as a miss', async () => {
+    expect(await (await scraper()).getVideoMetadata!('movie-404')).toBeNull();
+  });
+
+  it('lets a provider failure escape rather than passing it off as a miss', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) } as never);
+    jest.useFakeTimers();
+    try {
+      const plugin = await scraper();
+      const fetching = plugin.getVideoMetadata!('movie-949');
+      const settled = expect(fetching).rejects.toThrow('TMDB API error: 503');
+      await jest.advanceTimersByTimeAsync(10000);
+      await settled;
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('does report a miss for an id shaped for another provider', async () => {

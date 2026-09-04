@@ -125,6 +125,21 @@ A show is the only level that can be searched for. Seasons and episodes are addr
 
 A scan uses `'seasons'` because `ImportService` already queues the new episodes itself; Identify uses `'all'` because the existing episodes are the ones that are wrong.
 
+### A miss and a failure are different answers
+
+A by-id fetch has two ways to come back empty, and until 2026-09-04 they were the same: both
+plugins caught everything and returned `null`, and the worker treated `null` as a retryable
+failure. So a title deleted at the provider was retried three times before settling at `Failed`,
+while a timeout on a season was recorded as a miss and never retried at all — the two cases
+exactly the wrong way round.
+
+Now a plugin returns `null` only for a 404 (the provider answered and does not have it) and
+throws for everything else, using `ProviderNotFoundError` from `@tubeca/scraper-http` so the two
+can be told apart across a package boundary. `resolveByIdentity` records `null` as `NoMatch` with
+the identification kept, so a person can still see what it pointed at, and a thrown error as
+`Failed`, retryable when it looks transient. `scrapeSeasonMetadata` no longer swallows: a season
+that fails to fetch is retried like a show or a film.
+
 ### Caching provider responses (`scrapeCache.ts`)
 
 Every call a worker makes into a plugin goes through `cachedCall`, keyed by scraper id, method and arguments, with a 10-minute TTL and a 500-entry cap. A scan asks the same questions repeatedly: every episode of a show searches for that show, every season re-reads the series record, and a refresh re-runs the detail call it just made. Concurrent callers share one in-flight promise, and failures are never cached, so a transient error is retried rather than remembered. The cache lives in the worker process, so a restart or a change on the provider's side is picked up within ten minutes.
@@ -181,6 +196,7 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - 2026-09-04 The TVDB mapping checked against the published v4 schema, which corrected three things: a season's overview is only ever in a translation (so a record with a name no longer skips that fetch), a tag's value is `name` rather than `tagName`, and the logo artwork id was 6 — a season banner a series record never carries — rather than 23.
 - 2026-09-04 Both plugins return the artwork they did not choose, so the images dialog can offer it; see [Images](images.md).
 - 2026-09-04 TVDB can match a film: `type=movie` search and the `/movies/{id}/extended` record, verified live. Its credits are capped at twenty like TMDB's, and both plugins now dispatch through `@tubeca/scraper-http` — the pooled agent and DNS cache TMDB had, shared rather than copied a second time.
+- 2026-09-04 A by-id miss and a by-id failure told apart: plugins return `null` only for a 404 and throw otherwise, `resolveByIdentity` records the former as `NoMatch` rather than a retried `Failed`, and the season path stopped swallowing provider errors.
 - 2026-09-04 A working v4 key arrived and the plugin was run against the live API for a show, a season and an episode. It confirmed all three schema corrections — a series record does carry season artwork (types 6 and 7), so the old logo id resolved to a season banner — and caught a fourth: `score` is a popularity count, not a rating, and was being written to the field a card shows and a library sorts by. TVDB is enabled in the developer's local config from this date.
 - 2026-09-04 A show in the real library identified as a TVDB series through the API, against a copy of the database: the show matched with backdrop, logo and poster, and all five seasons matched with their own ids, air dates and posters. A mistyped external id on the first attempt showed the by-id retry limitation for real — a series that does not exist is retried three times and settles at `Failed`.
 
@@ -212,7 +228,6 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **Follow the configured region for certifications** (S): TMDB's US-only certification lookup and TVDB's `country === 'usa'` should use the `region` that now reaches the plugins, and image language should follow `language`.
 - **Score `originalTitle` too and expose scores in Identify** (S): `pickBestMatch` could take alternative titles, and `/collections/search` could return and sort by the score so the dialog's ordering matches the worker's.
 - **Library-level scrape overview** (M): an "unmatched items" filter or count per library (a `where: { scrapeStatus: 'NoMatch' }` query) and polling of `scrapeStatus` on the page after Refresh/Identify so `Pending` resolves without a reload.
-- **Distinguish "null because error" from "null because missing"** (S): have plugins throw on transport errors and return `null` only on 404, so an identified item whose provider entry vanished becomes `NoMatch` instead of a retried `Failed`. This also settles what `getVideoMetadata`'s unawaited `try/catch` should have been doing.
 - **Make a season's provider error retryable** (S): `scrapeSeasonMetadata` should return a
   `failed` attempt for a transient error rather than swallowing it into `NoMatch`, the way the
   show and film paths already do.

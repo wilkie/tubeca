@@ -362,8 +362,17 @@ describe('the collection scrape worker', () => {
       expect(queueEpisodeScrapes).not.toHaveBeenCalled();
     });
 
-    it('treats a provider error as a miss rather than a retry', async () => {
+    it('fails the job so BullMQ retries when the provider is unreachable', async () => {
       scraper.getSeasonMetadata.mockRejectedValue(new Error('fetch failed'));
+
+      await expect(
+        processor(seasonJob({ parentScraperId: 'tmdb', parentExternalId: 'tmdb-1396' }))
+      ).rejects.toThrow('fetch failed');
+      expect(await collectionRow(seasonId)).toMatchObject({ scrapeStatus: 'Failed' });
+    });
+
+    it('records a season the provider does not have as a miss', async () => {
+      scraper.getSeasonMetadata.mockResolvedValue(null);
 
       const result = await processor(
         seasonJob({ parentScraperId: 'tmdb', parentExternalId: 'tmdb-1396' })
@@ -371,6 +380,17 @@ describe('the collection scrape worker', () => {
 
       expect(result).toEqual({ success: false, error: 'No season metadata found' });
       expect(await collectionRow(seasonId)).toMatchObject({ scrapeStatus: 'NoMatch' });
+    });
+
+    it('does not retry a provider error that is not worth retrying', async () => {
+      scraper.getSeasonMetadata.mockRejectedValue(new Error('TMDB API error: 401'));
+
+      const result = await processor(
+        seasonJob({ parentScraperId: 'tmdb', parentExternalId: 'tmdb-1396' })
+      );
+
+      expect(result).toMatchObject({ success: false });
+      expect(await collectionRow(seasonId)).toMatchObject({ scrapeStatus: 'Failed' });
     });
   });
 

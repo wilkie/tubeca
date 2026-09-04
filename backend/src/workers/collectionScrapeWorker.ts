@@ -11,6 +11,7 @@ import { parseTitleAndYear } from '../utils/mediaParser';
 import { syncCollectionSortFields } from '../services/collectionSortFields';
 import { searchIndexService } from '../services/searchIndexService';
 import {
+  isRetryableError,
   resolveByIdentity,
   resolveBySearch,
   recordCollectionScrape,
@@ -175,12 +176,22 @@ async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<
     return { status: 'nomatch', message: 'Scraper does not support season metadata' };
   }
 
+  let metadata: SeasonMetadata | null;
   try {
-    const metadata = await cachedCall(
+    metadata = await cachedCall(
       scrapeCacheKey(scraper.id, 'season', parentExternalId, seasonNumber),
       () => scraper.getSeasonMetadata!(parentExternalId!, seasonNumber!)
     );
+  } catch (error) {
+    // A timeout here used to be recorded as "no season metadata found", so a
+    // season lost to a bad afternoon was never retried and sat unscraped until
+    // the next scan. Report it as the failure it is and let BullMQ decide.
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.warn(`Failed to get season metadata for ${collectionName}:`, err);
+    return { status: 'failed', message: err.message, error: err, retryable: isRetryableError(err) };
+  }
 
+  try {
     if (metadata) {
       await applySeasonMetadata(collectionId, metadata, parentScraperId, skipImages, imagesOnly);
       console.log(`✅ Found season metadata for ${collectionName} via ${scraper.name}`);
@@ -199,7 +210,11 @@ async function scrapeSeasonMetadata(job: Job<CollectionScrapeJobData>): Promise<
       return { status: 'matched', scraperId: parentScraperId, externalId: metadata.externalId, metadata };
     }
   } catch (error) {
-    console.warn(`Failed to get season metadata for ${collectionName}:`, error);
+    // Applying what was fetched failed: a disk error, a database error. That
+    // is worth another attempt too.
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.warn(`Failed to apply season metadata for ${collectionName}:`, err);
+    return { status: 'failed', message: err.message, error: err, retryable: true };
   }
 
   return { status: 'nomatch', message: 'No season metadata found' };
