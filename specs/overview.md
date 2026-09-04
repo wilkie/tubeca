@@ -339,8 +339,9 @@ Ranked 2026-09-03 from what the third round left behind; all four landed on 2026
 
 In rough order of what it costs a user:
 
-- **Scraping**: TVDB cannot complete a Show or Season job but is still offered in Identify, so
-  picking it produces a job that can only fail. Finish it or drop it from the results
+- **Scraping**: TVDB can complete a Show or Season job as of 2026-09-04, but the new paths are
+  written against the documented v4 shapes rather than verified — the key in the local config is
+  rejected — and its search is still series-only, so it can never match a film
   ([Metadata Scraping](metadata-scraping.md)).
 - **Operations**: backups happen on upgrade only rather than on a timer, and the database still
   lives under `/opt/tubeca/backend/prisma` rather than `/var/lib/tubeca` ([Deployment](deployment.md)).

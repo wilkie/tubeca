@@ -220,6 +220,21 @@ describe('the collection scrape worker', () => {
       expect(queueSeasonScrapes).not.toHaveBeenCalled();
     });
 
+    it('passes over a scraper that can find a show but not fetch it', async () => {
+      const partial = {
+        id: 'partial',
+        isConfigured: () => true,
+        searchSeries: jest.fn<(...args: unknown[]) => Promise<unknown[]>>(),
+      };
+      partial.searchSeries.mockResolvedValue(found('p-1', 'Breaking Bad', 2008));
+      scraperManager.getByMediaType.mockReturnValue([partial, scraper]);
+
+      const result = await processor(showJob());
+
+      expect(partial.searchSeries).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ success: true, scraperId: 'tmdb' });
+    });
+
     it('goes straight to the id once the show has been identified', async () => {
       await processor(showJob({ scraperId: 'tmdb', externalId: 'tmdb-1396' }));
 

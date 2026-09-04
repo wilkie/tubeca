@@ -123,8 +123,10 @@ async function scrapeShowMetadata(job: Job<CollectionScrapeJobData>): Promise<Sc
     attempt = await resolveBySearch(
       scrapers,
       { title, year },
+      // Both halves are needed: a plugin that can find a show but not fetch it
+      // would match and then throw on the fetch.
       (s) =>
-        s.searchSeries
+        s.searchSeries && s.getSeriesMetadata
           ? cachedCall(scrapeCacheKey(s.id, 'searchSeries', title), () => s.searchSeries!(title))
           : undefined,
       (s, id) => cachedCall(scrapeCacheKey(s.id, 'series', id), () => s.getSeriesMetadata!(id))
@@ -228,7 +230,7 @@ async function scrapeFilmMetadata(job: Job<CollectionScrapeJobData>): Promise<Sc
       scrapers,
       query,
       (s) =>
-        s.searchVideo
+        s.searchVideo && s.getVideoMetadata
           ? cachedCall(scrapeCacheKey(s.id, 'searchVideo', query.title, query.year, 'movie'), () =>
               s.searchVideo!(query.title, { year: query.year, videoType: 'movie' })
             )

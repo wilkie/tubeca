@@ -5,7 +5,8 @@ import { TVDBScraper } from '../index';
 let routes: Record<string, unknown>;
 let requests: Array<{ path: string; headers: Record<string, string>; method?: string }>;
 
-const fetchMock = jest.fn(async (input: unknown, init?: unknown) => {
+/** Answer from `routes`, and remember what was asked. */
+const respond = async (input: unknown, init?: unknown) => {
   const url = new URL(String(input));
   const options = (init ?? {}) as { headers?: Record<string, string>; method?: string };
   requests.push({
@@ -16,7 +17,9 @@ const fetchMock = jest.fn(async (input: unknown, init?: unknown) => {
   const body = routes[url.pathname + url.search] ?? routes[url.pathname];
   if (body === undefined) return { ok: false, status: 404, json: async () => ({}) };
   return { ok: true, status: 200, json: async () => body };
-});
+};
+
+const fetchMock = jest.fn(respond);
 
 const loggedIn = { data: { token: 'a-token' } };
 
@@ -30,7 +33,10 @@ async function scraper(config: Record<string, unknown> = {}) {
 beforeEach(() => {
   routes = {};
   requests = [];
-  fetchMock.mockClear();
+  // A reset, not a clear: a test that makes fetch misbehave must not leave it
+  // misbehaving for the next one, which signs in before it sets its own mocks.
+  fetchMock.mockReset();
+  fetchMock.mockImplementation(respond);
   (globalThis as { fetch: unknown }).fetch = fetchMock;
 });
 
@@ -310,13 +316,272 @@ describe('a person', () => {
   });
 });
 
-describe('what it cannot do', () => {
-  it('offers no series or season metadata, so a collection job cannot complete', async () => {
-    // The worker asks a plugin for these before using it; TVDB has neither, so
-    // a Show or Season job that picks TVDB can only report no match.
-    const plugin = (await scraper()) as unknown as Record<string, unknown>;
+describe('a show', () => {
+  const seriesRecord = {
+    id: 328724,
+    name: 'Dark',
+    originalName: 'Dark',
+    overview: 'A missing child.',
+    firstAired: '2017-12-01',
+    lastAired: '2020-06-27',
+    status: { name: 'Ended' },
+    score: 1234,
+    image: 'https://artworks.thetvdb.com/fallback.jpg',
+    genres: [{ name: 'Drama' }],
+    tags: [{ name: 'time travel' }, { tagName: 'category', name: 'mystery' }],
+    artworks: [
+      { type: 2, image: 'https://artworks.thetvdb.com/poster.jpg' },
+      { type: 3, image: 'https://artworks.thetvdb.com/backdrop.jpg' },
+      { type: 6, image: 'https://artworks.thetvdb.com/logo.png' },
+    ],
+    characters: [
+      { id: 1, name: 'Jonas', personName: 'Louis Hofmann', type: 3, sort: 1, peopleId: 10 },
+    ],
+    seasons: [
+      { id: 700, number: 0, type: { type: 'official' } },
+      { id: 701, number: 1, type: { type: 'official' }, image: 'https://artworks.thetvdb.com/s1.jpg' },
+      { id: 702, number: 2, type: { type: 'official' } },
+      { id: 800, number: 1, type: { type: 'dvd' } },
+    ],
+  };
 
-    expect(plugin.getSeriesMetadata).toBeUndefined();
-    expect(plugin.getSeasonMetadata).toBeUndefined();
+  beforeEach(() => {
+    routes['/v4/series/328724/extended'] = { data: seriesRecord };
+  });
+
+  it('maps the show a Show collection needs', async () => {
+    const plugin = await scraper();
+
+    expect(await plugin.getSeriesMetadata!('series-328724')).toMatchObject({
+      externalId: 'series-328724',
+      title: 'Dark',
+      description: 'A missing child.',
+      firstAirDate: new Date('2017-12-01'),
+      lastAirDate: new Date('2020-06-27'),
+      status: 'Ended',
+      rating: 1234,
+      genres: ['Drama'],
+      keywords: ['time travel', 'mystery'],
+      posterUrl: 'https://artworks.thetvdb.com/poster.jpg',
+      backdropUrl: 'https://artworks.thetvdb.com/backdrop.jpg',
+      logoUrl: 'https://artworks.thetvdb.com/logo.png',
+    });
+  });
+
+  it('counts the aired seasons, leaving out specials and other orderings', async () => {
+    const plugin = await scraper();
+
+    expect((await plugin.getSeriesMetadata!('series-328724'))!.seasonCount).toBe(2);
+  });
+
+  it('carries the cast through', async () => {
+    const plugin = await scraper();
+
+    expect((await plugin.getSeriesMetadata!('series-328724'))!.credits).toEqual([
+      { name: 'Louis Hofmann', role: 'Jonas', type: 'actor', order: 1, photoUrl: undefined, tvdbId: 10 },
+    ]);
+  });
+
+  it('leaves out an original name that says the same thing', async () => {
+    const plugin = await scraper();
+
+    expect((await plugin.getSeriesMetadata!('series-328724'))!.originalTitle).toBeUndefined();
+  });
+
+  it('takes a bare id as well as a prefixed one', async () => {
+    const plugin = await scraper();
+
+    expect(await plugin.getSeriesMetadata!('328724')).toMatchObject({ title: 'Dark' });
+  });
+
+  it('says nothing when the show is not there', async () => {
+    const plugin = await scraper();
+
+    expect(await plugin.getSeriesMetadata!('series-999')).toBeNull();
+  });
+});
+
+describe('a season', () => {
+  beforeEach(() => {
+    routes['/v4/series/328724/extended'] = {
+      data: {
+        id: 328724,
+        name: 'Dark',
+        seasons: [
+          { id: 700, number: 0, type: { type: 'official' } },
+          { id: 701, number: 1, type: { type: 'official' }, image: 'https://artworks.thetvdb.com/s1-summary.jpg' },
+          { id: 800, number: 1, type: { type: 'dvd' } },
+        ],
+      },
+    };
+    routes['/v4/seasons/701/extended'] = {
+      data: {
+        id: 701,
+        seriesId: 328724,
+        number: 1,
+        image: 'https://artworks.thetvdb.com/s1.jpg',
+        episodes: [
+          { id: 2, name: 'Lies', seasonNumber: 1, number: 2, aired: '2017-12-01' },
+          { id: 1, name: 'Secrets', seasonNumber: 1, number: 1, aired: '2017-11-30' },
+        ],
+      },
+    };
+    routes['/v4/seasons/701/translations/eng'] = {
+      data: { name: 'Season 1', overview: 'The first season.' },
+    };
+  });
+
+  it('resolves the season number to its own id before asking for it', async () => {
+    const plugin = await scraper();
+
+    const metadata = await plugin.getSeasonMetadata!('series-328724', 1);
+
+    expect(requests.map((r) => r.path)).toContain('/v4/seasons/701/extended');
+    expect(metadata).toMatchObject({ externalId: 'season-701', seasonNumber: 1, episodeCount: 2 });
+  });
+
+  it('dates the season from the earliest episode in it', async () => {
+    const plugin = await scraper();
+
+    expect((await plugin.getSeasonMetadata!('series-328724', 1))!.airDate).toEqual(
+      new Date('2017-11-30')
+    );
+  });
+
+  it('reads the name and overview from the translation the record lacks', async () => {
+    const plugin = await scraper();
+
+    const metadata = await plugin.getSeasonMetadata!('series-328724', 1);
+
+    expect(metadata!.description).toBe('The first season.');
+    // "Season 1" is what the UI would have said anyway.
+    expect(metadata!.name).toBeUndefined();
+  });
+
+  it('keeps a season name worth having', async () => {
+    routes['/v4/seasons/701/translations/eng'] = {
+      data: { name: 'The Beginning', overview: 'The first season.' },
+    };
+    const plugin = await scraper();
+
+    expect((await plugin.getSeasonMetadata!('series-328724', 1))!.name).toBe('The Beginning');
+  });
+
+  it('asks for no translation when the record carries the text itself', async () => {
+    (routes['/v4/seasons/701/extended'] as { data: Record<string, unknown> }).data.overview =
+      'On the record.';
+    const plugin = await scraper();
+
+    const metadata = await plugin.getSeasonMetadata!('series-328724', 1);
+
+    expect(metadata!.description).toBe('On the record.');
+    expect(requests.map((r) => r.path)).not.toContain('/v4/seasons/701/translations/eng');
+  });
+
+  it('still returns the season when it has no translation in this language', async () => {
+    delete routes['/v4/seasons/701/translations/eng'];
+    const plugin = await scraper();
+
+    expect(await plugin.getSeasonMetadata!('series-328724', 1)).toMatchObject({
+      externalId: 'season-701',
+      description: undefined,
+    });
+  });
+
+  it('follows the configured language when it asks', async () => {
+    routes['/v4/seasons/701/translations/deu'] = { data: { overview: 'Die erste Staffel.' } };
+    const plugin = await scraper({ language: 'deu' });
+
+    expect((await plugin.getSeasonMetadata!('series-328724', 1))!.description).toBe(
+      'Die erste Staffel.'
+    );
+  });
+
+  it('says nothing for a season the show does not have', async () => {
+    const plugin = await scraper();
+
+    expect(await plugin.getSeasonMetadata!('series-328724', 9)).toBeNull();
+  });
+
+  it('says nothing when the show itself is gone', async () => {
+    const plugin = await scraper();
+
+    expect(await plugin.getSeasonMetadata!('series-999', 1)).toBeNull();
+  });
+});
+
+describe('when TVDB misbehaves', () => {
+  it('gives up on a client error rather than retrying', async () => {
+    const plugin = await scraper();
+    fetchMock.mockClear();
+
+    await expect(plugin.searchSeries!('Dark')).rejects.toThrow('TVDB API error: 404');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a server error, then gives up with it', async () => {
+    jest.useFakeTimers();
+    try {
+      const plugin = await scraper();
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) } as never);
+      const searching = plugin.searchSeries!('Dark');
+      const settled = expect(searching).rejects.toThrow('TVDB API error: 503');
+
+      await jest.advanceTimersByTimeAsync(10000);
+      await settled;
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('retries a rate limit, and keeps the answer when it comes', async () => {
+    jest.useFakeTimers();
+    try {
+      const plugin = await scraper();
+      fetchMock.mockClear();
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) } as never)
+        .mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: [] }) } as never);
+      const searching = plugin.searchSeries!('Dark');
+
+      await jest.advanceTimersByTimeAsync(10000);
+
+      expect(await searching).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('gives a request that never answers a deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const plugin = await scraper();
+      fetchMock.mockClear();
+      fetchMock.mockImplementation(
+        (_input: unknown, init?: unknown) =>
+          new Promise((_resolve, reject) => {
+            const signal = (init as { signal?: AbortSignal }).signal;
+            signal?.addEventListener('abort', () => {
+              const error = new Error('This operation was aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          })
+      );
+      const searching = plugin.searchSeries!('Dark');
+      const settled = expect(searching).rejects.toThrow(/aborted/);
+
+      await jest.advanceTimersByTimeAsync(60000);
+      await settled;
+
+      // Three attempts, each abandoned after ten seconds.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

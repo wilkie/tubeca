@@ -2,6 +2,8 @@ import type {
   ScraperPlugin,
   ScraperConfig,
   SearchResult,
+  SeasonMetadata,
+  SeriesMetadata,
   VideoMetadata,
   VideoSearchOptions,
   CreditInfo,
@@ -38,10 +40,47 @@ interface TVDBSeries {
   originalName?: string
   overview?: string
   firstAired?: string
+  lastAired?: string
+  /** v4 returns a record, not a string. */
+  status?: { name?: string }
+  score?: number
   image?: string
   artworks?: Array<{ image: string; type: number }>
   genres?: Array<{ name: string }>
   contentRatings?: Array<{ name: string; country: string }>
+  /** Free-form tags; the display value is `name`. */
+  tags?: Array<{ name?: string; tagName?: string }>
+  seasons?: TVDBSeasonSummary[]
+}
+
+/** A season as it appears in the series' own record. */
+interface TVDBSeasonSummary {
+  id: number
+  number: number
+  image?: string
+  type?: { type?: string }
+}
+
+/**
+ * A season's own record. v4 keeps the name and overview in translations
+ * rather than on the record, so both are optional here and fetched
+ * separately when they are missing.
+ */
+interface TVDBSeasonExtended extends TVDBSeasonSummary {
+  seriesId?: number
+  name?: string
+  overview?: string
+  episodes?: TVDBEpisode[]
+}
+
+interface TVDBSeasonResponse {
+  status: string
+  data: TVDBSeasonExtended
+}
+
+interface TVDBTranslationResponse {
+  status: string
+  data: { name?: string; overview?: string }
 }
 
 interface TVDBEpisode {
@@ -98,6 +137,49 @@ interface TVDBPerson {
 interface TVDBPersonResponse {
   status: string
   data: TVDBPerson
+}
+
+const REQUEST_TIMEOUT_MS = 10000
+const MAX_ATTEMPTS = 3
+const RETRY_BASE_DELAY_MS = 1000
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Worth another attempt: a timeout, a dropped connection, a 5xx or a rate limit. */
+function isRetryable(error: unknown): boolean {
+  if (error instanceof Error && error.name === 'AbortError') return true
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  if (message.includes('fetch failed') || message.includes('socket hang up')) return true
+  const status = message.match(/tvdb api error: (\d{3})/)?.[1]
+  return status ? status.startsWith('5') || status === '429' : false
+}
+
+/** Artwork ids TVDB uses on a series record. */
+const ARTWORK_POSTER = 2
+const ARTWORK_BACKDROP = 3
+const ARTWORK_LOGO = 6
+
+/** The first artwork of each kind the series carries. */
+function pickArtwork(series: TVDBSeries): {
+  poster?: string
+  backdrop?: string
+  logo?: string
+} {
+  const of = (type: number) => series.artworks?.find((a) => a.type === type)?.image
+  return { poster: of(ARTWORK_POSTER), backdrop: of(ARTWORK_BACKDROP), logo: of(ARTWORK_LOGO) }
+}
+
+/**
+ * The seasons in aired order.
+ *
+ * A show also carries DVD, absolute and regional orderings; mixing them in
+ * would give a season number two records. A record with no type at all is
+ * kept, since older entries predate the field.
+ */
+function officialSeasons(series: TVDBSeries): TVDBSeasonSummary[] {
+  const seasons = series.seasons ?? []
+  const official = seasons.filter((s) => s.type?.type === 'official')
+  return official.length > 0 ? official : seasons.filter((s) => !s.type?.type)
 }
 
 class TVDBScraper implements ScraperPlugin {
@@ -157,18 +239,39 @@ class TVDBScraper implements ScraperPlugin {
   private async request<T>(endpoint: string): Promise<T> {
     await this.ensureAuthenticated()
 
-    const response = await fetch(`${TVDB_API_URL}${endpoint}`, {
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        'Accept-Language': this.language,
-      },
-    })
+    // A scrape worker takes one job at a time, so a request with no deadline
+    // stops every other job behind it. Server errors and rate limits are
+    // worth another try; a 4xx is an answer.
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-    if (!response.ok) {
-      throw new Error(`TVDB API error: ${response.status}`)
+      try {
+        const response = await fetch(`${TVDB_API_URL}${endpoint}`, {
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            'Accept-Language': this.language,
+          },
+        })
+
+        if (!response.ok) {
+          throw new Error(`TVDB API error: ${response.status}`)
+        }
+
+        return (await response.json()) as T
+      } catch (error) {
+        if (attempt === MAX_ATTEMPTS || !isRetryable(error)) {
+          throw error
+        }
+        await sleep(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) + Math.random() * 1000)
+      } finally {
+        clearTimeout(timeout)
+      }
     }
 
-    return response.json() as Promise<T>
+    // Unreachable: the loop either returns or throws on its last attempt.
+    throw new Error('TVDB request failed')
   }
 
   async searchVideo(query: string, options?: VideoSearchOptions): Promise<SearchResult[]> {
@@ -205,10 +308,7 @@ class TVDBScraper implements ScraperPlugin {
       const series = response.data
       const credits = this.mapCharactersToCredits(series.characters ?? [])
 
-      // Find artwork by type: poster (2), backdrop (3), logo (6)
-      const backdrop = series.artworks?.find((a) => a.type === 3)
-      const poster = series.artworks?.find((a) => a.type === 2)
-      const logo = series.artworks?.find((a) => a.type === 6)
+      const { poster, backdrop, logo } = pickArtwork(series)
 
       return {
         externalId,
@@ -218,13 +318,113 @@ class TVDBScraper implements ScraperPlugin {
         releaseDate: series.firstAired ? new Date(series.firstAired) : undefined,
         rating: series.contentRatings?.find((r) => r.country === 'usa')?.name,
         genres: series.genres?.map((g) => g.name),
-        posterUrl: poster?.image ?? series.image,
-        backdropUrl: backdrop?.image,
-        logoUrl: logo?.image,
+        posterUrl: poster ?? series.image,
+        backdropUrl: backdrop,
+        logoUrl: logo,
         credits,
       }
     } catch {
       return null
+    }
+  }
+
+  /**
+   * A show's own record, for a Show collection.
+   *
+   * The same `/series/{id}/extended` call the video form uses; this shape
+   * keeps the fields a collection cares about (when it ran, whether it has
+   * ended, how many seasons) rather than the ones an item cares about.
+   */
+  async getSeriesMetadata(seriesId: string): Promise<SeriesMetadata | null> {
+    try {
+      const id = seriesId.replace('series-', '')
+      const response = await this.request<TVDBSeriesExtendedResponse>(
+        `/series/${id}/extended?meta=translations`
+      )
+      const series = response.data
+      const { poster, backdrop, logo } = pickArtwork(series)
+
+      return {
+        externalId: `series-${series.id}`,
+        title: series.name,
+        originalTitle: series.originalName !== series.name ? series.originalName : undefined,
+        description: series.overview,
+        firstAirDate: series.firstAired ? new Date(series.firstAired) : undefined,
+        lastAirDate: series.lastAired ? new Date(series.lastAired) : undefined,
+        status: series.status?.name,
+        rating: series.score,
+        genres: series.genres?.map((g) => g.name),
+        keywords: series.tags?.map((t) => t.name ?? t.tagName).filter((t): t is string => Boolean(t)),
+        posterUrl: poster ?? series.image,
+        backdropUrl: backdrop,
+        logoUrl: logo,
+        // Specials and alternative orderings are seasons too; only the aired
+        // order counts towards the number a viewer would recognise.
+        seasonCount: officialSeasons(series).filter((s) => s.number > 0).length,
+        credits: this.mapCharactersToCredits(series.characters ?? []),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * One season of a show.
+   *
+   * Seasons are addressed by their own id, which only the series record
+   * knows, so this resolves the number to an id first. The name and the
+   * overview live in translations rather than on the record, and are fetched
+   * only when the record does not carry them.
+   */
+  async getSeasonMetadata(seriesId: string, seasonNumber: number): Promise<SeasonMetadata | null> {
+    try {
+      const id = seriesId.replace('series-', '')
+      const series = await this.request<TVDBSeriesExtendedResponse>(`/series/${id}/extended`)
+
+      const summary = officialSeasons(series.data).find((s) => s.number === seasonNumber)
+      if (!summary) {
+        return null
+      }
+
+      const season = (await this.request<TVDBSeasonResponse>(`/seasons/${summary.id}/extended`)).data
+      const { name, overview } = await this.seasonText(season)
+
+      const episodes = season.episodes ?? []
+      const firstAired = episodes
+        .map((e) => e.aired)
+        .filter((a): a is string => Boolean(a))
+        .sort()[0]
+
+      return {
+        externalId: `season-${season.id}`,
+        seasonNumber: season.number,
+        // "Season 1" tells a viewer nothing they cannot see already.
+        name: name && name !== `Season ${season.number}` ? name : undefined,
+        description: overview || undefined,
+        airDate: firstAired ? new Date(firstAired) : undefined,
+        posterUrl: season.image ?? summary.image,
+        episodeCount: episodes.length,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** The season's name and overview, from the record or from its translation. */
+  private async seasonText(
+    season: TVDBSeasonExtended
+  ): Promise<{ name?: string; overview?: string }> {
+    if (season.name || season.overview) {
+      return { name: season.name, overview: season.overview }
+    }
+    try {
+      const translation = await this.request<TVDBTranslationResponse>(
+        `/seasons/${season.id}/translations/${this.language}`
+      )
+      return { name: translation.data.name, overview: translation.data.overview }
+    } catch {
+      // A season with no translation in this language is still a season.
+      return {}
     }
   }
 
