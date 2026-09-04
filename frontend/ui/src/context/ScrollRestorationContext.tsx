@@ -1,16 +1,23 @@
 import { createContext, useContext, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { useNavigationType } from 'react-router-dom';
 
-interface CachedPageState<T = unknown> {
-  data: T;
+/**
+ * Where a page was scrolled to when it was left.
+ *
+ * This used to hold the page's rows as well, because coming back would
+ * otherwise refetch from page one and lose everything below the fold. The
+ * query cache holds the rows now, so all that is left is the offset, which
+ * nothing else knows.
+ */
+interface SavedScroll {
   scrollY: number;
   timestamp: number;
 }
 
-// Module-level cache that persists across component re-renders
-const pageCache = new Map<string, CachedPageState>();
+// Module-level, so it survives the component unmounting on navigation.
+const scrollPositions = new Map<string, SavedScroll>();
 
-// Cache expires after 10 minutes
+/** Long enough to cover a look at one title and back, short enough to forget. */
 const CACHE_TTL = 10 * 60 * 1000;
 
 interface ScrollRestorationContextType {
@@ -23,13 +30,12 @@ export function ScrollRestorationProvider({ children }: { children: ReactNode })
   const navigationType = useNavigationType();
   const isBackNavigation = navigationType === 'POP';
 
-  // Clean up expired cache entries periodically
   useEffect(() => {
     const cleanup = () => {
       const now = Date.now();
-      for (const [key, value] of pageCache.entries()) {
+      for (const [key, value] of scrollPositions.entries()) {
         if (now - value.timestamp > CACHE_TTL) {
-          pageCache.delete(key);
+          scrollPositions.delete(key);
         }
       }
     };
@@ -54,52 +60,28 @@ function useScrollRestorationContext() {
 }
 
 /**
- * Get cached state for a page. Call this at the top of your component
- * to get initial state if returning via back button.
+ * Remember this page's scroll offset, and put it back on a back navigation.
+ *
+ * Saving happens on any click that might navigate, because there is no event
+ * for "about to leave". Restoring waits for the page to grow tall enough to
+ * hold the offset, which it does once the cached rows have rendered.
  */
-export function useCachedState<T>(cacheKey: string): {
-  cachedState: T | null;
-  isBackNavigation: boolean;
-} {
-  const { isBackNavigation } = useScrollRestorationContext();
-  const cached = pageCache.get(cacheKey);
-
-  // Only return cached state on back navigation
-  // Note: We skip expiry check during render for purity - expired entries are cleaned up periodically
-  if (isBackNavigation && cached) {
-    return {
-      cachedState: cached.data as T,
-      isBackNavigation: true
-    };
-  }
-
-  return { cachedState: null, isBackNavigation };
-}
-
-/**
- * Hook for managing scroll restoration. Returns a saveState function
- * that should be called before navigation.
- */
-export function useScrollRestoration<T>(
-  cacheKey: string,
-  getCurrentState: () => T | null
-) {
+export function useScrollRestoration(cacheKey: string) {
   const scrollPositionRef = useRef<number | null>(null);
   const hasRestoredRef = useRef(false);
   const { isBackNavigation } = useScrollRestorationContext();
 
-  // Check for cached scroll position on mount
   useEffect(() => {
     if (isBackNavigation && !hasRestoredRef.current) {
-      const cached = pageCache.get(cacheKey);
-      if (cached) {
+      const saved = scrollPositions.get(cacheKey);
+      if (saved) {
         hasRestoredRef.current = true;
-        scrollPositionRef.current = cached.scrollY;
+        scrollPositionRef.current = saved.scrollY;
       }
     }
   }, [cacheKey, isBackNavigation]);
 
-  // Restore scroll position after content renders
+  // Restore after content renders.
   useEffect(() => {
     if (scrollPositionRef.current === null) return;
 
@@ -110,7 +92,7 @@ export function useScrollRestoration<T>(
       attempts++;
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
 
-      // Wait until page is tall enough or give up after 50 attempts
+      // Wait until the page is tall enough, or give up.
       if (maxScroll >= targetScroll * 0.9 || attempts > 50) {
         window.scrollTo(0, Math.min(targetScroll, maxScroll));
         scrollPositionRef.current = null;
@@ -119,23 +101,14 @@ export function useScrollRestoration<T>(
       }
     };
 
-    // Start after a brief delay to let React render
     requestAnimationFrame(() => requestAnimationFrame(attemptScroll));
   });
 
-  // Save state function - call this before navigating
   const saveState = useCallback(() => {
-    const state = getCurrentState();
-    if (state !== null) {
-      pageCache.set(cacheKey, {
-        data: state,
-        scrollY: window.scrollY,
-        timestamp: Date.now(),
-      });
-    }
-  }, [cacheKey, getCurrentState]);
+    scrollPositions.set(cacheKey, { scrollY: window.scrollY, timestamp: Date.now() });
+  }, [cacheKey]);
 
-  // Listen for clicks on navigation elements
+  // There is no "about to navigate" event, so save on anything clickable.
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -143,7 +116,6 @@ export function useScrollRestoration<T>(
       const cardAction = target.closest('[class*="MuiCardActionArea"]');
       const button = target.closest('button');
 
-      // Save state when clicking navigable elements
       if ((link && link.href && !link.target) || cardAction || button) {
         saveState();
       }
@@ -154,15 +126,4 @@ export function useScrollRestoration<T>(
   }, [saveState]);
 
   return { saveState };
-}
-
-// For backwards compatibility
-export function usePageScrollRestoration<T>(
-  cacheKey: string,
-  currentState: T | null,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _onRestore: (state: T) => void
-) {
-  const getCurrentState = useCallback(() => currentState, [currentState]);
-  return useScrollRestoration(cacheKey, getCurrentState);
 }

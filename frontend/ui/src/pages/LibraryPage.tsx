@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Alert, Box, CircularProgress, Collapse, Container, Grid, Stack, Typography } from '@mui/material';
 import { apiClient, type Collection, type Keyword } from '../api/client';
-import { useCachedState, useScrollRestoration } from '../context/ScrollRestorationContext';
+import { useScrollRestoration } from '../context/ScrollRestorationContext';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { CollectionListCard, CollectionPosterCard } from '../components/CollectionCard';
 import { FilterChips } from '../components/FilterChips';
@@ -13,10 +13,7 @@ import { QuickSearchOverlay } from '../components/QuickSearchOverlay';
 import { SelectionActionBar } from '../components/SelectionActionBar';
 import type { SortOption } from '../components/SortControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import {
-  useLibraryCollections,
-  type LibraryCollectionsSnapshot,
-} from '../hooks/useLibraryCollections';
+import { useLibraryCollections } from '../hooks/useLibraryCollections';
 import { useLibraryViewPreferences, type SortField } from '../hooks/useLibraryViewPreferences';
 import { useQuickSearch } from '../hooks/useQuickSearch';
 import { useWatchState } from '../hooks/useWatchState';
@@ -33,9 +30,9 @@ export function LibraryPage() {
   const { libraryId } = useParams<{ libraryId: string }>();
   const navigate = useNavigate();
 
-  // Restored when the viewer comes back to this library with the back button.
-  const cacheKey = `library-${libraryId}`;
-  const { cachedState } = useCachedState<LibraryCollectionsSnapshot>(cacheKey);
+  // Coming back with the back button restores the scroll offset; the rows
+  // themselves come from the query cache.
+  useScrollRestoration(`library-${libraryId}`);
 
   const { viewMode, sortField, sortDirection, setViewMode, setSortField, setSortDirection } =
     useLibraryViewPreferences(libraryId);
@@ -68,14 +65,13 @@ export function LibraryPage() {
     keywordsLoading,
     loadKeywords,
     loadMore,
-    snapshot,
-  } = useLibraryCollections(
-    libraryId,
-    { sortField, sortDirection, excludedRatings, selectedKeywords, nameFilter: debouncedSearchQuery },
-    cachedState
-  );
-
-  useScrollRestoration(cacheKey, snapshot);
+  } = useLibraryCollections(libraryId, {
+    sortField,
+    sortDirection,
+    excludedRatings,
+    selectedKeywords,
+    nameFilter: debouncedSearchQuery,
+  });
 
   const collectionIds = useMemo(() => collections.map((c) => c.id), [collections]);
   const { summaries: watchSummaries } = useWatchState({ collectionIds });

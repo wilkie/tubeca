@@ -1,4 +1,10 @@
-import { useQuery, type UseQueryOptions, type QueryKey } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useQuery,
+  type QueryKey,
+  type UseInfiniteQueryOptions,
+  type UseQueryOptions,
+} from '@tanstack/react-query';
 
 /** The shape every `apiClient` method resolves to. */
 export interface ApiResult<T> {
@@ -37,6 +43,41 @@ export function useApiQuery<T>(
   return {
     ...query,
     /** The server's message, or null. Pages render this directly. */
+    errorMessage: query.error ? query.error.message : null,
+  };
+}
+
+/**
+ * The same adapter for a paginated call.
+ *
+ * Pages live in the cache, so returning to a list that was scrolled ten pages
+ * deep re-renders all ten without asking the server again, and "load more" is
+ * `fetchNextPage` rather than page state kept by the component.
+ */
+export function useApiInfiniteQuery<T extends { page: number; hasMore: boolean }>(
+  queryKey: QueryKey,
+  call: (page: number) => Promise<ApiResult<T>>,
+  options?: Omit<
+    UseInfiniteQueryOptions<T, Error, { pages: T[]; pageParams: number[] }, QueryKey, number>,
+    'queryKey' | 'queryFn' | 'initialPageParam' | 'getNextPageParam'
+  >
+) {
+  const query = useInfiniteQuery({
+    queryKey,
+    queryFn: async ({ pageParam }) => {
+      const result = await call(pageParam);
+      if (result.error) throw new ApiError(result.error);
+      if (result.data === undefined) throw new ApiError('No data returned');
+      return result.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: (last: T) => (last.hasMore ? last.page + 1 : undefined),
+    ...options,
+  });
+
+  return {
+    ...query,
+    pages: query.data?.pages ?? [],
     errorMessage: query.error ? query.error.message : null,
   };
 }

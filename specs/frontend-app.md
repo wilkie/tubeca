@@ -61,7 +61,7 @@
 | `frontend/ui/src/api/client.ts` | `ApiClient` class, 74 public methods, `apiClient` singleton (803 lines) |
 | `frontend/ui/src/context/AuthContext.tsx` | Setup check, token validation, `login`/`setup`/`logout` (see [Auth & Users](auth-and-users.md)) |
 | `frontend/ui/src/context/ActiveLibraryContext.tsx` | Derives the active library id from the URL; fetches it for collection/media routes |
-| `frontend/ui/src/context/ScrollRestorationContext.tsx` | Module-level page cache keyed by route; `useCachedState` / `useScrollRestoration` hooks |
+| `frontend/ui/src/context/ScrollRestorationContext.tsx` | Module-level map of route key to scroll offset; the `useScrollRestoration` hook |
 | `frontend/ui/src/context/PlayerContext.tsx` | Global player + `MiniPlayer` host, 1167 lines (see [Playback](playback.md)) |
 | `frontend/ui/src/components/Header.tsx` | AppBar with menu button, wordmark, library tab buttons, search/favorites/watch-later/queue icons, account menu |
 | `frontend/ui/src/components/Sidebar.tsx` | Temporary `Drawer`: libraries, collections section, admin section |
@@ -110,7 +110,10 @@ top-level `Routes` with `/login`, `/setup`, and a catch-all `/*` that is wrapped
 `App.tsx` adds `ActiveLibraryProvider`, the header/sidebar chrome, and a nested `Routes` with 18
 routes. Every page except `HomePage` is a `React.lazy` import behind one `Suspense` whose
 fallback is a centred spinner, so a page's code arrives when it is first visited and the build
-emits a chunk per page rather than one file. `HomePage` stays eager because it is where a
+emits a chunk per page rather than one file. hls.js is a dynamic `import()` inside
+`PlayerContext`, resolved the first time something plays: the context is mounted app-wide for
+the mini-player, so a static import put 522 kB in front of the login form. The initial bundle is
+657 kB (205 kB gzipped), down from 1,177 kB. `HomePage` stays eager because it is where a
 signed-in user lands. The `/` route renders `HomePage`, a card grid of the
 libraries the user can see (icon by type, click sets the active library and opens
 `/library/:id`, empty state with an admin shortcut to `/admin/libraries`); `LoginPage`,
@@ -154,13 +157,13 @@ id is used synchronously; for `/collection/:id` and `/media/:id` it fires a *sec
 same record). `setActiveLibrary` lets `Header`/`Sidebar` pre-set the id before navigating to
 avoid a tab flash.
 
-**ScrollRestorationContext** (758f70f) keeps a module-level `Map<string, {data, scrollY,
-timestamp}>` with a 10-minute TTL swept every 60s. `useCachedState(key)` returns cached data only
-when `useNavigationType() === 'POP'`. `useScrollRestoration(key, getState)` installs a capturing
-document click listener that snapshots state whenever the user clicks an `<a>`, a
-`MuiCardActionArea` or any `<button>`, then on mount retries `window.scrollTo` via
-`requestAnimationFrame` up to 50 times until the document is tall enough. Only `LibraryPage` and
-`SearchPage` use it. `NavigationLoadingOverlay` complements it by showing a 70% black overlay on
+**ScrollRestorationContext** (758f70f) keeps a module-level `Map<string, {scrollY, timestamp}>`
+with a 10-minute TTL swept every 60s. `useScrollRestoration(key)` installs a capturing document
+click listener that saves the offset whenever the user clicks an `<a>`, a `MuiCardActionArea` or
+any `<button>`, since there is no "about to navigate" event, then on a `POP` retries
+`window.scrollTo` via `requestAnimationFrame` up to 50 times until the document is tall enough.
+It used to store the page's rows too; the query cache holds those now, so what comes back is the
+offset alone. Only `LibraryPage` and `SearchPage` use it. `NavigationLoadingOverlay` complements it by showing a 70% black overlay on
 `popstate` and hiding it 50ms after the location changes.
 
 ### Layout chrome
@@ -195,22 +198,18 @@ learn the library id.
 The page owns what the viewer is doing; `useLibraryCollections` owns the data and
 `LibraryToolbar`, `CollectionPosterCard` and `CollectionListCard` own the markup. The flow:
 
-1. `useCachedState('library-<id>')` seeds state on back navigation; a `restoredFromCacheRef`
-   blocks the initial fetch and pauses the `IntersectionObserver` for 500ms so restoring the
-   scroll position does not trigger page 2.
-2. Otherwise the hook's `libraryId` effect synchronously clears all state (with an explicit
-   `eslint-disable react-hooks/set-state-in-effect`), fetches `getLibrary`, then
-   `fetchPage(1)`.
-3. `fetchPage` calls `getCollectionsByLibrary` with `page`, `limit: 50`, `sortField`,
+1. Coming back re-renders the pages already in the query cache, and
+   `useScrollRestoration('library-<id>')` puts the offset back once the page is tall enough.
+2. Otherwise the hook runs two queries: `getLibrary`, and an infinite query over the pages.
+3. Each page calls `getCollectionsByLibrary` with `page`, `limit: 50`, `sortField`,
    `sortDirection`, `excludedRatings`, `keywordIds` and the debounced quick-search `nameFilter`.
-   After each page it fires `checkFavorites` and `checkWatchLater` for the new ids and merges
-   them into two `Set`s, and accumulates distinct `filmDetails.contentRating` values into the
-   filter chip list ordered G, PG, PG-13, R, NC-17, NR, Unrated.
-4. A second effect refetches page 1 when any sort/filter/search dependency changes; the old grid
-   stays visible under a translucent `CircularProgress` overlay.
+   `checkFavorites` and `checkWatchLater` are their own queries keyed on the loaded ids, and the
+   rating filter is derived from the loaded pages, ordered G, PG, PG-13, R, NC-17, NR, Unrated.
+4. A sort, filter or search change is a different query key, so the first page of the new query
+   is fetched while the old grid stays visible under a translucent `CircularProgress` overlay.
 5. Infinite scroll: an `IntersectionObserver` on a sentinel `div` below the grid calls the
-   hook's `loadMore()` when 10% visible and `hasMore`.
-6. Keywords are lazy-loaded on first open of the filter panel (`loadKeywords`).
+   hook's `loadMore()` (`fetchNextPage`) when 10% visible and `hasMore`.
+6. Keywords are a query enabled the first time the filter panel opens (`loadKeywords`).
 7. `viewMode` ('poster' | 'list', 33b11fc) and the sort come from
    `useLibraryViewPreferences`, which keeps them per library id in `localStorage`; a value that
    is not one we wrote is ignored, and storage being unavailable only costs the memory of the
@@ -331,6 +330,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - `0229cc8` 2025-12-01 Library tabs in the header (`ActiveLibraryContext`).
 - `24d1114` 2025-12-01 `CLAUDE.md`, Users admin page, route restructure.
 - `d7d4c32` 2025-12-01 Lint forces semicolons; `c3a9f25` 2025-12-02 husky pre-commit lint+typecheck.
+- 2026-09-03 hls.js loaded on demand; `LibraryPage` and `SearchPage` moved to `useInfiniteQuery`, after which `ScrollRestorationContext` kept only the scroll offset.
 - 2026-09-03 TanStack Query adopted: `useApiQuery` adapter and a `queryKeys` table, eleven
   pages and two contexts converted, shared library/collection/media reads, `LibraryPage` split into `useLibraryCollections`,
   `LibraryToolbar` and the collection cards, routes lazy-loaded, view mode and sort persisted
@@ -360,10 +360,8 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Known Limitations
 
-- **hls.js is still in the initial bundle.** Routes are split, but `PlayerContext` is mounted
-  app-wide for the mini-player and imports hls.js at the top, so the largest single dependency
-  is loaded before the login form renders. A dynamic import inside the context is the remaining
-  win.
+- **The initial bundle is still 657 kB** (205 kB gzipped) after hls.js moved out of it: MUI,
+  react-router and i18next are all eager, and nothing is split below the route level.
 - **Expired tokens are not handled.** `request()` returns the backend error text on 401; nothing
   clears the token or redirects, so every page shows "Invalid token"-style alerts until logout.
 - **Single locale in practice.** i18next is configured with a language detector but only `en`
@@ -371,12 +369,11 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   untranslated.
 - **Filters are not persisted.** View mode and sort are remembered per library, but excluded
   ratings and selected keywords are not, so returning to a library clears them.
-- **`SearchPage` is not converted.** It keeps its own `cancelled`-free `performSearch`, so its
-  pagination does not benefit from the cache. `SettingsPage` is left deliberately: its fetch
-  seeds twelve controlled inputs once.
-- **The scroll-restoration cache still stores data.** With a query cache in place, a library
-  page revisited within the cache window could render from it and restore only the scroll
-  offset, but `LibraryPage` and `SearchPage` still snapshot their rows.
+- **`SettingsPage` still hand-rolls its fetches**, deliberately: they seed twelve controlled
+  inputs once and gain nothing from a cache.
+- **Restoring a scrolled list depends on the query cache window.** Pages are held for five
+  minutes; come back later and the list starts at page one with the saved scroll offset
+  unreachable, so the page settles at the bottom of what it has.
 - **Scroll restoration heuristics.** State is saved on *any* button click (including favourite
   toggles and menu openers), restoration polls up to 50 frames, and a global `setInterval` runs
   for the app's lifetime. Only two pages participate; `CollectionPage` and `PersonPage` lose
@@ -396,11 +393,6 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Opportunities
 
-- **Move the two paginated pages to `useInfiniteQuery`** (M): `LibraryPage` and `SearchPage`
-  still page by hand, and doing this would let `ScrollRestorationContext` drop its data snapshot
-  and restore only the scroll offset.
-- **Load hls.js on demand** (S): a dynamic `import('hls.js')` inside `PlayerContext` would take
-  the largest dependency out of the initial download now that routes are split.
 - **Persist filters per library** (S): excluded ratings and selected keywords alongside the view
   mode and sort that are already stored.
 

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react';
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
 import { apiClient, type Media, type TrickplayResolution, type UserCollectionItem } from '../api/client';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../components/VideoControls';
 import { MiniPlayer } from '../components/MiniPlayer';
@@ -11,6 +11,20 @@ import { MiniPlayer } from '../components/MiniPlayer';
  * index saved on one video could select a wildly different quality on the next.
  */
 const QUALITY_HEIGHT_KEY = 'tubeca_last_quality_height';
+
+/**
+ * hls.js is the largest thing this app ships, and the player context is
+ * mounted for every page because of the mini player, so a static import put
+ * it in front of the login form. It is fetched the first time something
+ * actually plays, and kept for the rest of the session.
+ */
+let hlsConstructor: typeof Hls | null = null;
+async function loadHls(): Promise<typeof Hls> {
+  if (!hlsConstructor) {
+    hlsConstructor = (await import('hls.js')).default;
+  }
+  return hlsConstructor;
+}
 /** Give up recovering from fatal HLS errors after this many attempts and tell the user. */
 const MAX_FATAL_RECOVERIES = 3;
 
@@ -236,13 +250,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Initialize HLS playback
-  const initHls = useCallback((mediaId: string, audioTrack?: number, startPosition = 0) => {
-    const video = videoRef.current;
-    if (!video) return;
+  const initHls = useCallback(async (mediaId: string, audioTrack?: number, startPosition = 0) => {
+    if (!videoRef.current) return;
 
     destroyHls();
 
     const hlsUrl = apiClient.getHlsMasterPlaylistUrl(mediaId, audioTrack);
+    const Hls = await loadHls();
+
+    // The element can be replaced while the library is on its way.
+    const video = videoRef.current;
+    if (!video) return;
 
     if (Hls.isSupported()) {
       // Get auth token for HLS requests
@@ -695,7 +713,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // Set video source using HLS.js for video content
       if (media.type === 'Video') {
-        initHls(mediaId, defaultAudioTrack?.streamIndex, resumePosition);
+        void initHls(mediaId, defaultAudioTrack?.streamIndex, resumePosition);
       } else {
         // For audio, stream the file directly through the shared element
         const video = videoRef.current;
@@ -796,7 +814,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [isMuted, volume]);
 
-  const setAudioTrack = useCallback((streamIndex: number) => {
+  const setAudioTrack = useCallback(async (streamIndex: number) => {
     const video = videoRef.current;
     if (!video || !currentMedia) return;
 
@@ -813,6 +831,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       destroyHls();
 
       const hlsUrl = apiClient.getHlsMasterPlaylistUrl(currentMedia.id, streamIndex);
+      const Hls = await loadHls();
 
       if (Hls.isSupported()) {
         // Get auth token for HLS requests

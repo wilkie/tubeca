@@ -1,23 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { apiClient, type Collection, type Keyword, type Library } from '../api/client';
 import type { SortDirection } from '../components/SortControls';
+import { queryKeys, useApiInfiniteQuery, useApiQuery } from './useApiQuery';
 import type { SortField } from './useLibraryViewPreferences';
 
 export const LIBRARY_PAGE_SIZE = 50;
 
 /** Ratings in the order a viewer expects to see them, not alphabetical. */
 const CONTENT_RATING_ORDER = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR', 'Unrated'];
-
-export interface LibraryCollectionsSnapshot {
-  library: Library;
-  collections: Collection[];
-  page: number;
-  hasMore: boolean;
-  total: number;
-  favoritedIds: string[];
-  watchLaterIds: string[];
-  availableContentRatings: string[];
-}
 
 export interface LibraryCollectionsFilters {
   sortField: SortField;
@@ -43,206 +33,115 @@ function sortRatings(values: Iterable<string>): string[] {
  * a page at a time of its contents, which of them the viewer has favourited or
  * saved for later, and the filter values the contents imply.
  *
- * It lives apart from the page because the page was a thousand lines in which
- * the fetching, the filter state and the markup were interleaved. Restoring a
- * previous visit is supported through `restored`: when the caller has a cached
- * snapshot it hands it in, and the first load is skipped.
+ * Paging is `useInfiniteQuery`, so the loaded pages live in the query cache
+ * rather than in component state. Coming back to a library that was scrolled
+ * some way down re-renders what was already fetched instead of starting again
+ * at page one, which is what the page's own snapshot used to be for.
  */
-export function useLibraryCollections(
-  libraryId: string | undefined,
-  filters: LibraryCollectionsFilters,
-  restored?: LibraryCollectionsSnapshot | null
-) {
-  const [library, setLibrary] = useState<Library | null>(restored?.library ?? null);
-  const [collections, setCollections] = useState<Collection[]>(restored?.collections ?? []);
-  const [isLoading, setIsLoading] = useState(!restored);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [page, setPage] = useState(restored?.page ?? 1);
-  const [hasMore, setHasMore] = useState(restored?.hasMore ?? false);
-  const [total, setTotal] = useState(restored?.total ?? 0);
-
-  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set(restored?.favoritedIds ?? []));
-  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set(restored?.watchLaterIds ?? []));
-  const [availableContentRatings, setAvailableContentRatings] = useState<string[]>(
-    restored?.availableContentRatings ?? []
-  );
-
-  const [availableKeywords, setAvailableKeywords] = useState<Keyword[]>([]);
-  const [keywordsLoading, setKeywordsLoading] = useState(false);
-  const keywordsLoadedRef = useRef(false);
-
-  // A restored page must not fetch again on mount, and must not paginate until
-  // the browser has finished putting the scroll position back.
-  const restoredRef = useRef(restored != null || collections.length > 0);
-
+export function useLibraryCollections(libraryId: string | undefined, filters: LibraryCollectionsFilters) {
   const { sortField, sortDirection, excludedRatings, selectedKeywords, nameFilter } = filters;
 
-  const fetchPage = useCallback(
-    async (pageNum: number, append = false) => {
-      if (!libraryId) return;
-      if (pageNum === 1) setIsLoading(true);
-      else setIsLoadingMore(true);
+  const excluded = useMemo(() => Array.from(excludedRatings).sort(), [excludedRatings]);
+  const keywordIds = useMemo(() => selectedKeywords.map((k) => k.id).sort(), [selectedKeywords]);
 
-      const result = await apiClient.getCollectionsByLibrary(libraryId, {
-        page: pageNum,
+  const libraryQuery = useApiQuery(
+    queryKeys.library(libraryId ?? ''),
+    () => apiClient.getLibrary(libraryId!),
+    { enabled: Boolean(libraryId) }
+  );
+  const library: Library | null = libraryQuery.data?.library ?? null;
+
+  const collectionsQuery = useApiInfiniteQuery(
+    queryKeys.libraryCollections(libraryId ?? '', {
+      sortField,
+      sortDirection,
+      excluded,
+      keywordIds,
+      nameFilter,
+    }),
+    (page) =>
+      apiClient.getCollectionsByLibrary(libraryId!, {
+        page,
         limit: LIBRARY_PAGE_SIZE,
         sortField,
         sortDirection,
-        excludedRatings: excludedRatings.size > 0 ? Array.from(excludedRatings) : undefined,
-        keywordIds: selectedKeywords.length > 0 ? selectedKeywords.map((k) => k.id) : undefined,
+        excludedRatings: excluded.length > 0 ? excluded : undefined,
+        keywordIds: keywordIds.length > 0 ? keywordIds : undefined,
         nameFilter: nameFilter || undefined,
-      });
-
-      if (result.error) {
-        setError(result.error);
-      } else if (result.data) {
-        const loaded = result.data.collections;
-        setCollections((prev) => (append ? [...prev, ...loaded] : loaded));
-        setTotal(result.data.total);
-        setHasMore(result.data.hasMore);
-        setPage(result.data.page);
-
-        const newIds = loaded.map((c) => c.id);
-        if (newIds.length > 0) {
-          const [favResult, watchLaterResult] = await Promise.all([
-            apiClient.checkFavorites(newIds),
-            apiClient.checkWatchLater(newIds),
-          ]);
-          if (favResult.data) {
-            setFavoritedIds((prev) => new Set([...prev, ...favResult.data!.collectionIds]));
-          }
-          if (watchLaterResult.data) {
-            setWatchLaterIds((prev) => new Set([...prev, ...watchLaterResult.data!.collectionIds]));
-          }
-        }
-
-        // Ratings accumulate as pages load; a film only present on page four
-        // still belongs in the filter.
-        if (!append) {
-          const ratings = loaded.map((c) => c.filmDetails?.contentRating).filter((r): r is string => Boolean(r));
-          setAvailableContentRatings((prev) => sortRatings([...prev, ...ratings]));
-        }
-      }
-
-      setIsLoading(false);
-      setIsLoadingMore(false);
-    },
-    [libraryId, sortField, sortDirection, excludedRatings, selectedKeywords, nameFilter]
+      }),
+    { enabled: Boolean(libraryId) }
   );
 
-  // Initial load: the library itself, then its first page.
-  useEffect(() => {
-    if (!libraryId) return;
-    if (restoredRef.current) return;
+  const collections: Collection[] = useMemo(
+    () => collectionsQuery.pages.flatMap((page) => page.collections),
+    [collectionsQuery.pages]
+  );
+  const total = collectionsQuery.pages[0]?.total ?? 0;
 
-    let cancelled = false;
+  // Favourites and watch-later for what is on screen. Keyed on the ids, so
+  // loading another page asks about the whole set once rather than merging
+  // answers into a Set the component has to keep.
+  const idsKey = collections.map((c) => c.id).join(',');
+  const favoritesQuery = useApiQuery(
+    ['library-favorites', idsKey],
+    () => apiClient.checkFavorites(idsKey.split(',')),
+    { enabled: idsKey.length > 0 }
+  );
+  const watchLaterQuery = useApiQuery(
+    ['library-watch-later', idsKey],
+    () => apiClient.checkWatchLater(idsKey.split(',')),
+    { enabled: idsKey.length > 0 }
+  );
 
-    // Clear the previous library at once so its contents do not flash under
-    // the new name.
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync clear on libraryId change
-    setLibrary(null);
-    setCollections([]);
-    setAvailableKeywords([]);
-    setAvailableContentRatings([]);
-    setFavoritedIds(new Set());
-    setWatchLaterIds(new Set());
-    setPage(1);
-    setTotal(0);
-    setHasMore(false);
-    keywordsLoadedRef.current = false;
+  const favoritedIds = useMemo(
+    () => new Set(favoritesQuery.data?.collectionIds ?? []),
+    [favoritesQuery.data]
+  );
+  const watchLaterIds = useMemo(
+    () => new Set(watchLaterQuery.data?.collectionIds ?? []),
+    [watchLaterQuery.data]
+  );
 
-    async function load() {
-      setIsLoading(true);
-      setError(null);
+  // Derived from what has loaded, so a rating that only appears on page four
+  // joins the filter when page four arrives.
+  const availableContentRatings = useMemo(
+    () =>
+      sortRatings(
+        collections.map((c) => c.filmDetails?.contentRating).filter((r): r is string => Boolean(r))
+      ),
+    [collections]
+  );
 
-      const libraryResult = await apiClient.getLibrary(libraryId!);
-      if (cancelled) return;
-
-      if (libraryResult.error) {
-        setError(libraryResult.error);
-        setIsLoading(false);
-        return;
-      }
-      if (libraryResult.data) setLibrary(libraryResult.data.library);
-
-      // Keywords wait until the filter panel is opened.
-      await fetchPage(1);
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [libraryId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sort or filter changed: fetch page one again, keeping what is on screen
-  // visible until the new page arrives.
-  useEffect(() => {
-    if (!library) return;
-    if (restoredRef.current) return;
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync clear on filter change
-    setFavoritedIds(new Set());
-    setWatchLaterIds(new Set());
-    fetchPage(1);
-  }, [sortField, sortDirection, excludedRatings, selectedKeywords, nameFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Restoration is done once the browser has had a moment to scroll.
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    const timeout = setTimeout(() => {
-      restoredRef.current = false;
-    }, 500);
-    return () => clearTimeout(timeout);
-  }, []);
+  // Keywords are a separate list, fetched the first time the filter panel opens.
+  const [keywordsWanted, setKeywordsWanted] = useState(false);
+  const keywordsQuery = useApiQuery(
+    queryKeys.libraryKeywords(libraryId ?? ''),
+    () => apiClient.getKeywordsByLibrary(libraryId!),
+    { enabled: keywordsWanted && Boolean(libraryId) }
+  );
+  const loadKeywords = useCallback(() => setKeywordsWanted(true), []);
 
   const loadMore = useCallback(() => {
-    if (restoredRef.current || !hasMore || isLoadingMore) return;
-    fetchPage(page + 1, true);
-  }, [fetchPage, hasMore, isLoadingMore, page]);
-
-  /** Fetch the keyword list, once, when the filter panel first opens. */
-  const loadKeywords = useCallback(async () => {
-    if (keywordsLoadedRef.current || !libraryId) return;
-    keywordsLoadedRef.current = true;
-    setKeywordsLoading(true);
-    const result = await apiClient.getKeywordsByLibrary(libraryId);
-    if (result.data) setAvailableKeywords(result.data.keywords);
-    setKeywordsLoading(false);
-  }, [libraryId]);
-
-  /** What the caller stores for a later restore. Null until the library loads. */
-  const snapshot = useCallback((): LibraryCollectionsSnapshot | null => {
-    if (!library) return null;
-    return {
-      library,
-      collections,
-      page,
-      hasMore,
-      total,
-      favoritedIds: Array.from(favoritedIds),
-      watchLaterIds: Array.from(watchLaterIds),
-      availableContentRatings,
-    };
-  }, [library, collections, page, hasMore, total, favoritedIds, watchLaterIds, availableContentRatings]);
+    if (collectionsQuery.hasNextPage && !collectionsQuery.isFetchingNextPage) {
+      void collectionsQuery.fetchNextPage();
+    }
+  }, [collectionsQuery]);
 
   return {
     library,
     collections,
-    isLoading,
-    isLoadingMore,
-    error,
+    // The page shows a spinner only before anything is known.
+    isLoading: libraryQuery.isPending || collectionsQuery.isPending,
+    isLoadingMore: collectionsQuery.isFetchingNextPage,
+    error: libraryQuery.errorMessage ?? collectionsQuery.errorMessage,
     total,
-    hasMore,
+    hasMore: Boolean(collectionsQuery.hasNextPage),
     favoritedIds,
     watchLaterIds,
     availableContentRatings,
-    availableKeywords,
-    keywordsLoading,
+    availableKeywords: keywordsQuery.data?.keywords ?? [],
+    keywordsLoading: keywordsWanted && keywordsQuery.isPending,
     loadKeywords,
     loadMore,
-    snapshot,
   };
 }

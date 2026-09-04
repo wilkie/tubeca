@@ -76,6 +76,10 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- The app downloads about half as much before it can show you anything: the video engine is
+  fetched the first time you play something rather than on the way to the login form.
+- Coming back to a library or a search you had scrolled through shows what you were looking at
+  instead of reloading from the top.
 - The services now tell systemd when they are ready and keep reporting that they can still
   reach the database and Redis, so a stuck process is restarted rather than sitting there.
 - Crash logs point at the source rather than the bundle.
