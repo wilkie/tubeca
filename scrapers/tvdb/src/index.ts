@@ -154,10 +154,16 @@ function isRetryable(error: unknown): boolean {
   return status ? status.startsWith('5') || status === '429' : false
 }
 
-/** Artwork ids TVDB uses on a series record. */
+/**
+ * Artwork ids, from the `/artwork/types` endpoint.
+ *
+ * The ids are per record type, and a series record only ever carries series
+ * artwork: 2 poster, 3 background, 23 clearlogo. 6 is a *season* banner, which
+ * is what this asked for until 2026-09-04, so a TVDB logo never resolved.
+ */
 const ARTWORK_POSTER = 2
 const ARTWORK_BACKDROP = 3
-const ARTWORK_LOGO = 6
+const ARTWORK_LOGO = 23
 
 /** The first artwork of each kind the series carries. */
 function pickArtwork(series: TVDBSeries): {
@@ -354,7 +360,8 @@ class TVDBScraper implements ScraperPlugin {
         status: series.status?.name,
         rating: series.score,
         genres: series.genres?.map((g) => g.name),
-        keywords: series.tags?.map((t) => t.name ?? t.tagName).filter((t): t is string => Boolean(t)),
+        // A tag's `name` is its value; `tagName` is the category it sits under.
+        keywords: series.tags?.map((t) => t.name).filter((t): t is string => Boolean(t)),
         posterUrl: poster ?? series.image,
         backdropUrl: backdrop,
         logoUrl: logo,
@@ -410,21 +417,30 @@ class TVDBScraper implements ScraperPlugin {
     }
   }
 
-  /** The season's name and overview, from the record or from its translation. */
+  /**
+   * The season's name and overview.
+   *
+   * A season record carries a name but no overview at all — v4 keeps the
+   * overview in translations — so the translation is fetched unless the record
+   * happens to have both. What the record does have wins.
+   */
   private async seasonText(
     season: TVDBSeasonExtended
   ): Promise<{ name?: string; overview?: string }> {
-    if (season.name || season.overview) {
+    if (season.name && season.overview) {
       return { name: season.name, overview: season.overview }
     }
     try {
       const translation = await this.request<TVDBTranslationResponse>(
         `/seasons/${season.id}/translations/${this.language}`
       )
-      return { name: translation.data.name, overview: translation.data.overview }
+      return {
+        name: season.name ?? translation.data.name,
+        overview: season.overview ?? translation.data.overview,
+      }
     } catch {
       // A season with no translation in this language is still a season.
-      return {}
+      return { name: season.name, overview: season.overview }
     }
   }
 

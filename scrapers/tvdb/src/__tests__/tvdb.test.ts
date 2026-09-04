@@ -164,7 +164,7 @@ describe('a series', () => {
         artworks: [
           { id: 1, type: 3, image: 'https://artworks.thetvdb.com/backdrop.jpg' },
           { id: 2, type: 2, image: 'https://artworks.thetvdb.com/poster.jpg' },
-          { id: 3, type: 6, image: 'https://artworks.thetvdb.com/logo.png' },
+          { id: 3, type: 23, image: 'https://artworks.thetvdb.com/logo.png' },
         ],
         characters: [
           { id: 1, name: 'Jonas', personName: 'Louis Hofmann', type: 3, sort: 1, peopleId: 10 },
@@ -332,7 +332,7 @@ describe('a show', () => {
     artworks: [
       { type: 2, image: 'https://artworks.thetvdb.com/poster.jpg' },
       { type: 3, image: 'https://artworks.thetvdb.com/backdrop.jpg' },
-      { type: 6, image: 'https://artworks.thetvdb.com/logo.png' },
+      { type: 23, image: 'https://artworks.thetvdb.com/logo.png' },
     ],
     characters: [
       { id: 1, name: 'Jonas', personName: 'Louis Hofmann', type: 3, sort: 1, peopleId: 10 },
@@ -366,6 +366,21 @@ describe('a show', () => {
       backdropUrl: 'https://artworks.thetvdb.com/backdrop.jpg',
       logoUrl: 'https://artworks.thetvdb.com/logo.png',
     });
+  });
+
+  it('takes the logo from the series clearlogo, not the season banner id', async () => {
+    // Artwork ids are per record type: 6 is a season banner, so a series record
+    // never carries one and the old mapping could not resolve a logo at all.
+    routes['/v4/series/328724/extended'] = {
+      data: {
+        id: 328724,
+        name: 'Dark',
+        artworks: [{ type: 6, image: 'https://artworks.thetvdb.com/banner.jpg' }],
+      },
+    };
+    const plugin = await scraper();
+
+    expect((await plugin.getSeriesMetadata!('series-328724'))!.logoUrl).toBeUndefined();
   });
 
   it('counts the aired seasons, leaving out specials and other orderings', async () => {
@@ -467,15 +482,31 @@ describe('a season', () => {
     expect((await plugin.getSeasonMetadata!('series-328724', 1))!.name).toBe('The Beginning');
   });
 
-  it('asks for no translation when the record carries the text itself', async () => {
-    (routes['/v4/seasons/701/extended'] as { data: Record<string, unknown> }).data.overview =
-      'On the record.';
+  it('asks for no translation when the record carries both name and overview', async () => {
+    const season = (routes['/v4/seasons/701/extended'] as { data: Record<string, unknown> }).data;
+    season.name = 'The Beginning';
+    season.overview = 'On the record.';
     const plugin = await scraper();
 
     const metadata = await plugin.getSeasonMetadata!('series-328724', 1);
 
-    expect(metadata!.description).toBe('On the record.');
+    expect(metadata).toMatchObject({ name: 'The Beginning', description: 'On the record.' });
     expect(requests.map((r) => r.path)).not.toContain('/v4/seasons/701/translations/eng');
+  });
+
+  // The record has a name field but never an overview, so a name alone must not
+  // stop the fetch that gets the overview.
+  it('still asks for the translation when only the name is on the record', async () => {
+    (routes['/v4/seasons/701/extended'] as { data: Record<string, unknown> }).data.name =
+      'The Beginning';
+    routes['/v4/seasons/701/translations/eng'] = {
+      data: { name: 'Ignored', overview: 'The first season.' },
+    };
+    const plugin = await scraper();
+
+    const metadata = await plugin.getSeasonMetadata!('series-328724', 1);
+
+    expect(metadata).toMatchObject({ name: 'The Beginning', description: 'The first season.' });
   });
 
   it('still returns the season when it has no translation in this language', async () => {
