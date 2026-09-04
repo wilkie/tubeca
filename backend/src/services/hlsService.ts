@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
+import type { Writable } from 'stream';
 import { spawn, type ChildProcess } from 'child_process';
 import { loadAppConfig, getHlsCacheConfig } from '../config/appConfig';
 import { MediaService } from './mediaService';
@@ -66,6 +68,19 @@ export interface PlaylistInfo {
  * and when deciding what to abandon after a seek.
  */
 export type SegmentPriority = 'live' | 'prefetch'
+
+/**
+ * How a segment request was answered.
+ *
+ * `file` is the cached case, and the caller serves it with a Content-Length.
+ * `streamed` means the bytes were written to the sink as FFmpeg produced
+ * them, so there is nothing left to send. `missing` means it could not be
+ * produced at all.
+ */
+export type SegmentDelivery =
+  | { kind: 'file'; path: string }
+  | { kind: 'streamed' }
+  | { kind: 'missing' }
 
 /** Thrown when a prefetch is abandoned because the player moved elsewhere. */
 export class SegmentCancelledError extends Error {
@@ -269,7 +284,9 @@ export class HlsService {
     segmentIndex: number,
     audioTrack: string,
     variantPath: string,
-    priority: SegmentPriority = 'live'
+    priority: SegmentPriority = 'live',
+    /** When given, the encode is written here as it is produced. */
+    sink?: Writable
   ): Promise<void> {
     const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
     try {
@@ -301,7 +318,8 @@ export class HlsService {
       segmentIndex,
       audioTrack,
       variantPath,
-      job
+      job,
+      sink
     ).finally(() => {
       // Only clear our own entry: a cancelled job may already have been
       // replaced by a fresh request for the same segment.
@@ -451,6 +469,91 @@ export class HlsService {
    * Returns the path to the segment file, generating it if needed
    * Also triggers prefetching of upcoming segments
    */
+  /**
+   * Answer a player's request for a segment, streaming it if it has to be
+   * encoded first.
+   *
+   * The segment is written to `sink` as FFmpeg produces it, so the first byte
+   * arrives after the muxer's first packets rather than after a whole segment
+   * of video. On a slow encoder that is the difference between a seek costing
+   * a fraction of a second and costing six.
+   *
+   * A cached segment is reported back as a file so the caller can serve it
+   * with a Content-Length; only a fresh encode streams. A request arriving
+   * while the same segment is already being encoded waits for it and then
+   * gets the file, rather than starting a second encode of the same thing.
+   */
+  async serveSegment(
+    mediaId: string,
+    quality: string,
+    segmentIndex: number,
+    audioTrack: string,
+    sink: Writable
+  ): Promise<SegmentDelivery> {
+    const media = await this.mediaService.getVideoById(mediaId);
+    if (!media) return { kind: 'missing' };
+
+    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
+    const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
+    const settings = await this.getSettings();
+
+    // The player has told us where it is; anything still encoding behind it is
+    // wasted work holding a transcode slot.
+    this.cancelStalePrefetches(variantPath, segmentIndex, settings.prefetchSegments || 2);
+
+    const prefetchNext = () =>
+      this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
+
+    if (fs.existsSync(segmentPath)) {
+      if (fs.statSync(segmentPath).size > 0) {
+        this.touchFile(segmentPath);
+        prefetchNext();
+        return { kind: 'file', path: segmentPath };
+      }
+      // A zero-byte file is an interrupted encode.
+      fs.unlinkSync(segmentPath);
+    }
+
+    // Already being encoded, by a prefetch or another viewer: wait for it
+    // rather than running FFmpeg over the same seconds twice.
+    const existing = this.generatingSegments.get(`${variantPath}:${segmentIndex}`);
+    if (existing) {
+      existing.priority = 'live';
+      try {
+        await existing.promise;
+      } catch {
+        return { kind: 'missing' };
+      }
+      if (fs.existsSync(segmentPath)) {
+        prefetchNext();
+        return { kind: 'file', path: segmentPath };
+      }
+      return { kind: 'missing' };
+    }
+
+    try {
+      await this.ensureSegment(
+        media.path,
+        media.duration || 0,
+        quality,
+        segmentIndex,
+        audioTrack,
+        variantPath,
+        'live',
+        sink
+      );
+    } catch (error) {
+      console.error(`Segment generation failed for ${mediaId} ${quality}/${segmentIndex}:`, error);
+      // A failure after the first bytes went out has already cut the response;
+      // one before it (a segment past the end of the file, a missing input)
+      // has not, and the caller still owes the client an answer.
+      return sink.destroyed || sink.writableEnded ? { kind: 'streamed' } : { kind: 'missing' };
+    }
+
+    prefetchNext();
+    return { kind: 'streamed' };
+  }
+
   async getSegment(
     mediaId: string,
     quality: string,
@@ -542,7 +645,13 @@ export class HlsService {
     segmentIndex: number,
     audioTrack: string,
     outputDir: string,
-    job: SegmentJob = { promise: Promise.resolve(), variantPath: outputDir, index: segmentIndex, priority: 'live', cancelled: false, child: null }
+    job: SegmentJob = { promise: Promise.resolve(), variantPath: outputDir, index: segmentIndex, priority: 'live', cancelled: false, child: null },
+    /**
+     * When given, FFmpeg writes to a pipe and every chunk goes here as well as
+     * to the cache file, so the player gets its first bytes after the muxer's
+     * first packets rather than after the whole segment.
+     */
+    sink?: Writable
   ): Promise<void> {
     // Ensure output directory exists
     if (!fs.existsSync(outputDir)) {
@@ -664,10 +773,18 @@ export class HlsService {
     ffmpegArgs.push(
       '-f', 'mpegts',
       '-mpegts_copyts', '1',
-      '-avoid_negative_ts', 'disabled',
-      '-y', // Overwrite output file if exists
-      outputPath
+      '-avoid_negative_ts', 'disabled'
     );
+
+    // Streaming writes to a pipe and the cache file is assembled alongside it;
+    // a prefetch, which nobody is waiting for, writes straight to the file.
+    const streaming = Boolean(sink);
+    const tempPath = `${outputPath}.part-${randomUUID().slice(0, 8)}`;
+    if (streaming) {
+      ffmpegArgs.push('pipe:1');
+    } else {
+      ffmpegArgs.push('-y', outputPath);
+    }
 
     // Acquire a transcode slot (waits if at max concurrency)
     const releaseSlot = await this.acquireTranscodeSlot(job);
@@ -682,6 +799,24 @@ export class HlsService {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs);
       job.child = ffmpeg;
       this.activeProcesses.add(ffmpeg);
+
+      // The cache copy is written under a temporary name and renamed only on
+      // a clean exit, so a truncated encode can never be served as complete.
+      const tempFile = streaming ? fs.createWriteStream(tempPath) : null;
+      // A write stream with no error listener throws out of the event loop, so
+      // a full disk would take the process down rather than one segment.
+      tempFile?.on('error', (error) => {
+        console.warn(`Could not write the cache copy of segment ${segmentIndex}:`, error);
+      });
+      if (streaming && ffmpeg.stdout) {
+        ffmpeg.stdout.on('data', (chunk: Buffer) => {
+          if (tempFile && !tempFile.destroyed) tempFile.write(chunk);
+          // Deliberately not awaiting backpressure from the sink: a client that
+          // stalls must not stall the encode, and one segment is small enough
+          // to hold. The cache write is the one that has to finish.
+          if (sink && !sink.destroyed) sink.write(chunk);
+        });
+      }
 
       let stderr = '';
       let timedOut = false;
@@ -703,28 +838,53 @@ export class HlsService {
         releaseSlot();
       };
 
+      /** Drop the half-written cache copy and cut the response short. */
+      const abandon = (error: Error) => {
+        if (tempFile) {
+          tempFile.destroy();
+          fs.rmSync(tempPath, { force: true });
+        }
+        fs.rmSync(outputPath, { force: true });
+        sink?.destroy(error);
+        reject(error);
+      };
+
       ffmpeg.on('close', (code) => {
         finish();
-        if (code === 0 && !job.cancelled) {
-          resolve();
-        } else {
-          // Never leave a partial segment behind: a zero-length or truncated file
-          // would be served as if complete.
-          fs.rmSync(outputPath, { force: true });
+
+        if (code !== 0 || job.cancelled) {
           if (job.cancelled) {
-            reject(new SegmentCancelledError(segmentIndex));
+            abandon(new SegmentCancelledError(segmentIndex));
           } else if (timedOut) {
-            reject(new Error(`FFmpeg timed out after ${this.segmentTimeoutMs}ms generating segment ${segmentIndex}`));
+            abandon(new Error(`FFmpeg timed out after ${this.segmentTimeoutMs}ms generating segment ${segmentIndex}`));
           } else {
             console.error(`FFmpeg segment generation failed:\n${stderr}`);
-            reject(new Error(`FFmpeg exited with code ${code}`));
+            abandon(new Error(`FFmpeg exited with code ${code}`));
           }
+          return;
         }
+
+        if (!tempFile) {
+          resolve();
+          return;
+        }
+
+        // Only now is the file complete, so give it the name the cache uses.
+        tempFile.end(() => {
+          try {
+            fs.renameSync(tempPath, outputPath);
+          } catch (error) {
+            console.warn(`Could not cache segment ${segmentIndex}:`, error);
+            fs.rmSync(tempPath, { force: true });
+          }
+          sink?.end();
+          resolve();
+        });
       });
 
       ffmpeg.on('error', (err) => {
         finish();
-        reject(err);
+        abandon(err);
       });
     });
   }

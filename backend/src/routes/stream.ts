@@ -861,18 +861,26 @@ router.get('/hls/:id/:quality/:segment.ts', mediaAccess, async (req, res) => {
       return res.status(400).json({ error: 'Invalid segment index' });
     }
 
-    const segmentPath = await hlsService.getSegment(id, quality, segmentIndex, audioTrack);
+    // Headers go out before the encode starts: a fresh segment is written to
+    // the response as FFmpeg produces it, so there is no length to declare.
+    res.setHeader('Content-Type', 'video/mp2t');
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache segments for 1 hour
 
-    if (!segmentPath) {
+    const delivery = await hlsService.serveSegment(id, quality, segmentIndex, audioTrack, res);
+
+    if (delivery.kind === 'missing') {
+      if (res.headersSent || res.destroyed) return res.end();
+      // The video content type was set in anticipation of bytes; this is JSON.
+      res.setHeader('Content-Type', 'application/json');
       return res.status(404).json({ error: 'Segment not found' });
     }
 
-    const stat = fs.statSync(segmentPath);
-    res.setHeader('Content-Type', 'video/mp2t');
-    res.setHeader('Content-Length', stat.size);
-    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache segments for 1 hour
-
-    fs.createReadStream(segmentPath).pipe(res);
+    if (delivery.kind === 'file') {
+      const stat = fs.statSync(delivery.path);
+      res.setHeader('Content-Length', stat.size);
+      fs.createReadStream(delivery.path).pipe(res);
+    }
+    // A streamed segment has already been written to the response.
   } catch (error) {
     console.error('HLS segment error:', error);
     return res.status(500).json({ error: 'Failed to get segment' });

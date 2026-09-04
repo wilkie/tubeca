@@ -96,7 +96,7 @@ and cached by browsers.
 | `GET /trickplay/:id/:width/:index` | `token` | Serves the sprite JPEG with `max-age=86400`. |
 | `GET /hls/:id/master.m3u8` | `audioTrack`, `token` | Master playlist; `no-cache`. |
 | `GET /hls/:id/:quality.m3u8` | `audioTrack`, `token` | Variant playlist; validates quality against `QUALITY_PRESETS`/`original`; triggers initial prefetch; `no-cache`. |
-| `GET /hls/:id/:quality/:segment.ts` | `audioTrack`, `token` | Blocks until the segment exists, then streams it with `video/mp2t`, `max-age=3600`. |
+| `GET /hls/:id/:quality/:segment.ts` | `audioTrack`, `token` | A cached segment is sent from disk with a `Content-Length`; a fresh one is streamed as it encodes, chunked. `video/mp2t`, `max-age=3600`. |
 | `GET /hls/:id/qualities` | `token` | JSON list of rungs; uses the static `DEFAULT_QUALITY_PRESETS`, not the settings-adjusted bitrates. Not called by the frontend. |
 
 ### HLS playlist synthesis
@@ -140,9 +140,11 @@ be linted as TypeScript). Layout is `<root>/<mediaId>/a<audioTrack|default>/<qua
    prefetch) through one `generatingSegments` map keyed on `<variantPath>:<index>`: a request
    arriving while a prefetch of the same segment is running awaits that encode instead of
    spawning a second FFmpeg into the same file.
-4. `generateSegment` (`hlsService.ts:425`) builds an FFmpeg command and runs it to completion; only
-   then does the route stream the file. Segment latency therefore equals encode time for a full
-   segment (6 s of video by default) and nothing is sent progressively.
+4. `generateSegment` builds the FFmpeg command. A prefetch writes straight to the cache file. A
+   segment a player is waiting for writes to a pipe instead: `serveSegment` hands the response in
+   as a sink, every chunk goes to it as FFmpeg produces it, and the same chunks are written to a
+   `.part-<id>` file that is renamed to `<index>.ts` only when FFmpeg exits cleanly. First byte
+   therefore costs the muxer's first packets rather than a whole segment.
 
 The FFmpeg command per segment:
 
@@ -173,6 +175,28 @@ hands them to the GPU, with `-vaapi_device` (default `/dev/dri/renderD128`, over
 `TUBECA_VAAPI_DEVICE`) placed before `-i` by `getEncoderInputArgs`. Decoding still happens in
 software. Before 2026-09-03 that plumbing was missing, so the test encode failed and a VAAPI-only
 box silently fell back to libx264.
+
+### Streaming a segment as it encodes
+
+`serveSegment` is what the route calls. A cached segment comes back as a path, so it is served
+from disk with a `Content-Length`. A segment already being encoded (by a prefetch, or another
+viewer) is waited for and then served from disk, so the same seconds are never encoded twice.
+Only a fresh one streams.
+
+The cache copy is written under a `.part-<id>` name and renamed into place on a clean exit, which
+is what keeps a truncated encode from ever being served as complete: the rename is atomic within
+the directory, and a failure unlinks the part file and destroys the response so the player sees a
+cut-short body and retries. Backpressure from the response is deliberately ignored — a stalled
+client must not stall the encode, and one segment is small enough to hold in memory — while the
+cache write is the one that has to finish.
+
+A failure before any bytes are sent (a segment index past the end of the file, an unreadable
+input) leaves the response untouched and is reported back as `missing`, so the route can still
+answer 404.
+
+Measured on a 1080p source, cold segment, this machine: with the software encoder first byte
+arrives at 0.39 s against 2.49 s for the complete segment; with NVENC, 0.95 s against 1.76 s. A
+cached segment answers in 0.02 s.
 
 ### Concurrency and process lifecycle
 
@@ -303,6 +327,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 
 ## History
 
+- 2026-09-03 Segments stream to the player as they encode, through a `.part` file renamed on a clean exit; `serveSegment` replaces the wait-then-send path in the route.
 - 2026-09-03 Streaming responsiveness: live requests take transcode slots ahead of prefetches and
   cancel the prefetches a seek left behind; encoder detection moved off the boot path and made
   async; `PUT /api/settings/transcoding` validated, with a cache purge when the segment duration
@@ -351,9 +376,11 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   codecs; the progressive route (used for audio and as a fallback) keeps the `.mp4`/`.webm` check.
 - **Only H.264 output, only stereo AAC audio, always letterboxed to 16:9 presets, no upscale guard,
   no HDR handling.** 4K sources are capped at 1080p unless the user picks `Original`.
-- **Segment latency equals full-segment encode time.** The route waits for FFmpeg to exit before
-  sending any bytes; with software x264 at 1080p on a slow CPU a seek costs one full 6 s segment of
-  encode before playback resumes.
+- **A streamed segment has no `Content-Length`**, so a player cannot show how much of it is left,
+  and a mid-encode failure arrives as a truncated body rather than an error status; hls.js treats
+  that as a fragment load error and retries.
+- **Time to first byte still includes FFmpeg startup and the seek**, which is most of the fixed
+  cost once the encoder is fast; only the encoding itself is now overlapped with delivery.
 - **Cancellation is by position, not by viewer.** A seek cancels the prefetches outside the new
   window for that variant, but the service has no session identity, so two people watching the same
   media at the same rung can cancel each other's prefetches; the work is re-queued on the next
@@ -387,6 +414,10 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 ## Opportunities
 
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
+- **Variable segment durations** (S/M): playlists are synthesised and HLS allows a variable
+  `EXTINF`, so the first few segments of a file could be shorter to cut startup further. It would
+  need one schedule function shared by the playlist and the segment generator, and it does not
+  help a seek into the middle.
 - **Cache encoder detection across restarts** (S): write the result next to the HLS cache so the
   first playback after a restart never waits for test encodes.
 - **Cancel by viewer rather than by position** (S/M): carry a session id on segment requests so one
@@ -394,9 +425,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   disconnects.
 - **Purge only what changed** (S): a `segmentDuration` change could re-encode lazily instead of
   emptying the whole cache.
-- **Stream segments while encoding / smaller first segments** (M): write to a temp path and start
-  serving once the muxer emits data, or use 2 s segments for the first rung to cut
-  time-to-first-frame.
 
 - **Filter subtitle streams by codec and cache extracted VTT** (S): only text codecs (`subrip`,
   `ass`, `webvtt`, `mov_text`) are convertible; write the VTT next to the HLS cache.

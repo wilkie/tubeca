@@ -76,6 +76,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- Video starts sooner. A segment that has to be encoded is now sent as it is produced instead of
+  after it finishes, which on a machine without hardware encoding is the difference between
+  waiting a fraction of a second and waiting for six seconds of video to encode.
 - The app downloads about half as much before it can show you anything: the video engine is
   fetched the first time you play something rather than on the way to the login form.
 - Coming back to a library or a search you had scrolled through shows what you were looking at

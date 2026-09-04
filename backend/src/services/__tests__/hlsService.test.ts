@@ -3,11 +3,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { EventEmitter } from 'events';
+import { PassThrough } from 'stream';
 import { prisma, resetDatabase, createVideoMedia } from '../../test/db';
 
 // FFmpeg is replaced with a fake child that only exits when told to.
 interface FakeChild extends EventEmitter {
   stderr: EventEmitter
+  stdout: EventEmitter
   kill: ReturnType<typeof jest.fn>
   args: string[]
 }
@@ -16,6 +18,7 @@ jest.unstable_mockModule('child_process', () => ({
   spawn: (_cmd: string, args: string[]) => {
     const child = new EventEmitter() as FakeChild;
     child.stderr = new EventEmitter();
+    child.stdout = new EventEmitter();
     child.args = args;
     child.kill = jest.fn(() => {
       setImmediate(() => child.emit('close', null));
@@ -275,6 +278,164 @@ describe('HlsService playlist synthesis', () => {
       spawned[2].emit('close', 0);
       spawned[3].emit('close', 0);
       await Promise.all([...busy, waiting, alsoWaiting, live]);
+    });
+  });
+
+  describe('streaming a segment while it encodes', () => {
+    const settle = () => new Promise((r) => setImmediate(r));
+
+    /** Stands in for the HTTP response. */
+    function fakeSink() {
+      const chunks: Buffer[] = [];
+      const sink = new PassThrough();
+      sink.on('data', (chunk: Buffer) => chunks.push(chunk));
+      return { sink, chunks };
+    }
+
+    beforeEach(async () => {
+      await resetDatabase();
+      spawned.length = 0;
+    });
+
+    it('writes bytes to the response before the encode has finished', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
+      const { sink, chunks } = fakeSink();
+
+      const delivery = service.serveSegment(media.id, '720p', 0, 'default', sink);
+      await settle();
+
+      // FFmpeg is told to write to a pipe rather than a file.
+      expect(spawned[0].args).toContain('pipe:1');
+      expect(spawned[0].args).not.toContain('-y');
+
+      spawned[0].stdout.emit('data', Buffer.from('first packets'));
+      await settle();
+
+      // The response has bytes while the process is still running.
+      expect(Buffer.concat(chunks).toString()).toBe('first packets');
+      expect(service.runningProcessCount).toBe(1);
+
+      spawned[0].emit('close', 0);
+      await expect(delivery).resolves.toEqual({ kind: 'streamed' });
+    });
+
+    it('only names the cache file once the encode exits cleanly', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const segmentPath = path.join(variant, '0.ts');
+      const { sink } = fakeSink();
+
+      const delivery = service.serveSegment(media.id, '720p', 0, 'default', sink);
+      await settle();
+      spawned[0].stdout.emit('data', Buffer.from('partial'));
+      await settle();
+
+      // Mid-encode there is a part file, but nothing under the cache name.
+      expect(fs.existsSync(segmentPath)).toBe(false);
+      expect(fs.readdirSync(variant).some((f) => f.startsWith('0.ts.part-'))).toBe(true);
+
+      spawned[0].emit('close', 0);
+      await delivery;
+      await settle();
+
+      expect(fs.readFileSync(segmentPath).toString()).toBe('partial');
+      expect(fs.readdirSync(variant).some((f) => f.includes('.part-'))).toBe(false);
+    });
+
+    it('leaves no cache file behind when the encode fails', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const { sink } = fakeSink();
+      sink.on('error', () => {});
+
+      const delivery = service.serveSegment(media.id, '720p', 3, 'default', sink);
+      await settle();
+      spawned[0].stdout.emit('data', Buffer.from('half a segment'));
+      await settle();
+      spawned[0].emit('close', 1);
+
+      await expect(delivery).resolves.toEqual({ kind: 'streamed' });
+      expect(fs.existsSync(path.join(variant, '3.ts'))).toBe(false);
+      expect(fs.readdirSync(variant).some((f) => f.includes('.part-'))).toBe(false);
+      // The response was cut short rather than ended cleanly.
+      expect(sink.destroyed).toBe(true);
+    });
+
+    it('serves a segment that is already cached from disk', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      fs.mkdirSync(variant, { recursive: true });
+      fs.writeFileSync(path.join(variant, '5.ts'), 'cached bytes');
+      const { sink, chunks } = fakeSink();
+
+      const delivery = await service.serveSegment(media.id, '720p', 5, 'default', sink);
+
+      expect(delivery).toEqual({ kind: 'file', path: path.join(variant, '5.ts') });
+      expect(chunks).toHaveLength(0);
+      expect(spawned).toHaveLength(0);
+    });
+
+    it('reports a segment past the end of the file rather than hanging', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/film.mkv', duration: 60 });
+      const { sink } = fakeSink();
+
+      // Nothing was sent, so the caller can still answer with a 404.
+      await expect(service.serveSegment(media.id, '720p', 9999, 'default', sink)).resolves.toEqual({
+        kind: 'missing',
+      });
+      expect(sink.destroyed).toBe(false);
+      expect(spawned).toHaveLength(0);
+    });
+
+    it('reports a missing media item without touching the response', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const { sink } = fakeSink();
+
+      await expect(service.serveSegment('gone', '720p', 0, 'default', sink)).resolves.toEqual({
+        kind: 'missing',
+      });
+      expect(sink.destroyed).toBe(false);
+    });
+
+    it('waits for an encode already running rather than starting a second', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const internals = service as unknown as {
+        ensureSegment: (
+          videoPath: string,
+          totalDuration: number,
+          quality: string,
+          segmentIndex: number,
+          audioTrack: string,
+          variantPath: string,
+          priority?: 'live' | 'prefetch'
+        ) => Promise<void>
+      };
+
+      // A prefetch is already encoding this one.
+      const prefetch = internals.ensureSegment(media.path, 600, '720p', 7, 'default', variant, 'prefetch');
+      await settle();
+      expect(spawned).toHaveLength(1);
+
+      const { sink, chunks } = fakeSink();
+      const delivery = service.serveSegment(media.id, '720p', 7, 'default', sink);
+      await settle();
+
+      expect(spawned).toHaveLength(1);
+
+      // The real FFmpeg would have written the file by the time it exits.
+      fs.mkdirSync(variant, { recursive: true });
+      fs.writeFileSync(path.join(variant, '7.ts'), 'prefetched');
+      spawned[0].emit('close', 0);
+      await prefetch;
+      await expect(delivery).resolves.toEqual({ kind: 'file', path: path.join(variant, '7.ts') });
+      expect(chunks).toHaveLength(0);
     });
   });
 
