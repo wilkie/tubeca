@@ -45,6 +45,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- 98 pieces of interface text were not actually translatable: the code asked for a key that was
+  not in the translation file and fell back to the English written beside it. They are now real
+  entries, and a test keeps it that way.
 - The installer for distributions without a package backed up a database file it had never
   written — it looked for `tubeca.db` while writing `prod.db` — so an upgrade migrated without a
   copy to fall back on.

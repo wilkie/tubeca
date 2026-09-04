@@ -349,9 +349,8 @@ In rough order of what it costs a user:
 - **Scraping, again**: there is no gallery of provider artwork to choose from even though the
   storage and the upload path now support one; it needs `posterUrls[]` on the plugin interface
   ([Metadata Scraping](metadata-scraping.md), [Images](images.md)).
-- **Browsing**: no header search box, filters are not persisted per library the way view mode
-  and sort now are, and there is no second locale to prove the i18n works
-  ([Search](search.md), [Frontend App](frontend-app.md)).
+- **Browsing**: no header search box, and filters are not persisted per library the way view mode
+  and sort now are ([Search](search.md), [Frontend App](frontend-app.md)).
 - **Music**: hidden since 2026-09-03 rather than removed. Reviving it means tag reading, a
   music scraper and an audio player; the alternative is pruning the schema
   ([Libraries](libraries-and-scanning.md)).

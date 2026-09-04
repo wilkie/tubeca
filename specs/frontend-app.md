@@ -93,7 +93,7 @@
 | `frontend/ui/src/pages/PersonPage.tsx` | Person bio and filmography grouped by credit type (635 lines) |
 | `frontend/ui/src/pages/LibrariesPage.tsx` | Admin list of libraries with scan start/cancel/poll (408 lines) |
 | `frontend/ui/src/pages/SettingsPage.tsx` | Tabs: instance name, transcoding settings (546 lines) |
-| `frontend/ui/src/i18n/index.ts`, `locales/en.json` | i18next setup with browser language detector; single `en` bundle, 197 leaf keys |
+| `frontend/ui/src/i18n/index.ts`, `locales/en.json`, `pseudo.ts` | i18next setup with browser language detector; `en` (324 leaf keys) and the generated `en-XA` pseudo-locale |
 | `frontend/ui/src/test-utils.tsx`, `jest.setup.ts`, `jest.config.cjs` | Custom `render` with i18n/theme/`MemoryRouter`; console.error trap; ts-jest + jsdom |
 | `frontend/ui/vite.config.ts`, `eslint.config.js`, `tsconfig.json` | Dev proxy for `/api`; flat ESLint config; strict TS |
 
@@ -257,11 +257,20 @@ only while an add menu is open.
 
 ### i18n
 
-`i18n/index.ts` registers one resource bundle (`en`), `fallbackLng: 'en'`, and
-`i18next-browser-languagedetector` reading `localStorage` then `navigator`. `en.json` has 197
-leaf keys across 21 namespaces (largest: `libraries` 31, `users` 30, `userCollections` 25). Most
-newer call sites pass an inline default (`t('view.poster', 'Poster')`), so missing keys degrade
-to English silently. There is no language switcher.
+`i18n/index.ts` registers `en` and the generated `en-XA`, `fallbackLng: 'en'`, and
+`i18next-browser-languagedetector` reading the query string, then `localStorage`, then
+`navigator`. `en.json` has 324 leaf keys across 21 namespaces. Most call sites pass an inline
+default (`t('view.poster', 'Poster')`), so a missing key degrades to English silently — which is
+why `translations.test.ts` checks every key in the source against `en.json`, and why 98 of the
+291 keys in use turned out to be missing when it was first run (2026-09-04). It also fails when
+an inline default and `en.json` disagree, since which one a user sees depends on whether the key
+exists.
+
+`en-XA` is `pseudo.ts` run over `en.json`: every letter accented, every string padded by 30%,
+interpolation and tags left alone. It is generated rather than written, so it cannot drift, and
+it answers what the key test cannot — a string still in plain English under `?lng=en-XA` never
+went through `t()` at all. There is still no language switcher, and `en-XA` is deliberately not
+in one.
 
 ### Dev proxy, build, production
 
@@ -359,6 +368,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-03 Second coverage push: `CollectionCard`, `MediaListItem`, `ContinueWatchingRow`, `FilterChips`, `SortControls`, `FavoriteButton` and `QuickSearchOverlay` tested; the play button on a list row labelled; the quick-search counter and the play tooltip moved to `t()` (`library.quickSearchMatches`, `common.play`).
 - 2026-09-03 Third coverage push: `ScrollRestorationContext`, `StandardCollectionView`, `StickyHeroBreadcrumbs`, `NavigationLoadingOverlay`, `SortableMediaListItem` and the playlist drag-reorder handler tested; the collection-type chip moved to `t()`; `jest.setup.ts` stubs `ResizeObserver`, which jsdom does not implement.
 - 2026-09-04 `HeroSection`, `UpNextPopup`, `ViewModeMenu` and `RecentCollectionMenuItem` tested, which leaves no untested component, page, context or hook.
+- 2026-09-04 `src/i18n/__tests__/translations.test.ts` checks every `t()` key in the source against `en.json`. It found 98 of the 291 keys in use missing — every one of them rendering correctly from its inline default — and all 98 were added from those defaults. A generated pseudo-locale (`en-XA`, `?lng=en-XA`) answers the other half of the question: which strings never went through `t()` at all.
 
 ## Known Limitations
 
@@ -409,9 +419,6 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   declared locally in `client.ts`. (S)
 - **Mobile layout**: collapse header tabs into the drawer below `md`, shrink `HeroSection`
   height, and make `MediaListItem` stack on `xs`. (M)
-- **Second locale + i18n lint**: add a `pseudo` or real locale and a test asserting every
-  `t()` key exists in `en.json`, since inline defaults currently hide missing keys — `common.play`
-  was referenced by `QueuePage` for weeks without existing in `en.json`. (S)
 - **Self-host the "Praise" font** in `public/` to drop the Google Fonts dependency. (S)
 - **Make `serve` mode self-sufficient** by adding `VITE_API_BASE` or an `serve.json` rewrite,
   or drop the frontend service in favour of the backend serving `dist/` (see

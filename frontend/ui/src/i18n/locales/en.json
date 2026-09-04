@@ -41,7 +41,16 @@
     "back": "Back",
     "showMore": "Show more...",
     "showLess": "Show less",
-    "play": "Play"
+    "play": "Play",
+    "add": "Add",
+    "ascending": "Ascending",
+    "deleting": "Deleting...",
+    "descending": "Descending",
+    "loading": "Loading...",
+    "moreOptions": "More options",
+    "search": "Search",
+    "sortByDate": "Sort by date",
+    "sortByName": "Sort by name"
   },
   "settings": {
     "title": "Settings",
@@ -49,7 +58,33 @@
     "instanceName": "Instance Name",
     "instanceNameHelp": "The name of this Tubeca instance",
     "save": "Save",
-    "saved": "Settings saved successfully"
+    "saved": "Settings saved successfully",
+    "activeEncoder": "Active Encoder",
+    "auto": "Auto",
+    "detectedEncoder": "Detected Encoder",
+    "enableHardwareAccel": "Enable hardware acceleration",
+    "enableHardwareAccelHelp": "Use GPU encoding when available for better performance",
+    "enableLowLatency": "Enable low latency mode",
+    "enableLowLatencyHelp": "Optimize for streaming with minimal buffering",
+    "encoder": "Video Encoder",
+    "encoderAutomatic": "Automatic",
+    "maxConcurrentTranscodes": "Max Concurrent Transcodes",
+    "maxConcurrentTranscodesHelp": "Maximum FFmpeg processes that can run simultaneously. Lower values reduce CPU load but may increase buffering.",
+    "performance": "Performance",
+    "preferredEncoder": "Preferred Encoder",
+    "preferredEncoderHelp": "Automatic picks the fastest encoder that works here. A choice that fails a test encode is ignored.",
+    "prefetchSegments": "Prefetch Segments",
+    "prefetchSegmentsHelp": "Number of segments to generate ahead for smoother playback",
+    "preset": "Encoding Preset",
+    "presetHelp": "Faster presets use less CPU but produce larger files",
+    "quality": "Quality Bitrates",
+    "qualityHelp": "Higher bitrates produce better quality but require more bandwidth",
+    "segmentDuration": "Segment Duration",
+    "segmentDurationHelp": "Shorter segments allow faster quality switching",
+    "segments": "HLS Segments",
+    "threadCount": "Threads Per Process",
+    "threadCountHelp": "Number of CPU threads each FFmpeg process uses (0 = auto-detect)",
+    "transcoding": "Transcoding"
   },
   "libraries": {
     "title": "Libraries",
@@ -88,7 +123,15 @@
     "watchForChangesHelp": "Automatically detect and import new media files added to this library",
     "notWatching": "Not watching for changes",
     "scanResultRemoved": "Removed {{media}} media items and {{collections}} collections that were no longer on disk",
-    "scanResultMoved": "Recognised {{count}} renamed or moved files"
+    "scanResultMoved": "Recognised {{count}} renamed or moved files",
+    "browse": "Browse",
+    "choosePath": "Choose a folder",
+    "noSubfolders": "No folders here.",
+    "parentFolder": "Up",
+    "scanNoRemove": "Scan without removing",
+    "scanNoRemoveDesc": "Import new files and report what is missing, but delete nothing",
+    "scanResultWouldRemove": "Missing but kept: {{media}} media, {{collections}} collections",
+    "useThisFolder": "Use this folder"
   },
   "library": {
     "notFound": "Library not found",
@@ -112,7 +155,8 @@
       "searchTags": "Search tags...",
       "noTags": "No tags found",
       "clearAll": "Clear",
-      "toggle": "Toggle filters"
+      "toggle": "Toggle filters",
+      "loadingKeywords": "Loading keywords..."
     },
     "quickSearchMatches": "{{count}} of {{total}}"
   },
@@ -131,7 +175,25 @@
     "typeShow": "Show",
     "typeSeason": "Season",
     "typeArtist": "Artist",
-    "typeAlbum": "Album"
+    "typeAlbum": "Album",
+    "albums": "Albums",
+    "delete": "Delete",
+    "deleteConfirmation": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone and will remove all associated media and metadata.",
+    "deleteTitle": "Delete Collection?",
+    "episodes": "Episodes",
+    "images": "Images",
+    "imagesTitle": "Collection Images",
+    "media": "Media",
+    "refreshImages": "Refresh images",
+    "refreshMetadata": "Refresh metadata",
+    "refreshing": "Refreshing...",
+    "refreshingImages": "Refreshing...",
+    "seasonCount": "{{count}} Seasons",
+    "seasons": "Seasons",
+    "selectSeason": "Select Season",
+    "specialFeatures": "Special Features",
+    "subfolders": "Subfolders",
+    "tracks": "Tracks"
   },
   "media": {
     "notFound": "Media not found",
@@ -139,7 +201,24 @@
     "duration": "Duration",
     "play": "Play",
     "playInMiniPlayer": "Play in mini player",
-    "audioNotSupported": "Your browser does not support audio playback"
+    "audioNotSupported": "Your browser does not support audio playback",
+    "album": "Album",
+    "artist": "Artist",
+    "cast": "Cast",
+    "castAndCrew": "Cast & Crew",
+    "delete": "Delete",
+    "deleteConfirmation": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
+    "deleteTitle": "Delete Media?",
+    "director": "Director",
+    "images": "Images",
+    "imagesTitle": "Media Images",
+    "playAfter": "Play after current",
+    "refreshImages": "Refresh images",
+    "refreshMetadata": "Refresh metadata",
+    "refreshing": "Refreshing...",
+    "refreshingImages": "Refreshing...",
+    "track": "Track",
+    "writer": "Writer"
   },
   "users": {
     "title": "Users & Groups",
@@ -182,7 +261,8 @@
     "placeholder": "Search for shows, movies, episodes...",
     "noResults": "No results found",
     "collections": "Shows & Movies",
-    "media": "Episodes & Tracks"
+    "media": "Episodes & Tracks",
+    "people": "People"
   },
   "errors": {
     "networkError": "Network error",
@@ -254,7 +334,12 @@
     },
     "filter": {
       "type": "Type"
-    }
+    },
+    "collectionType": "Collection Type",
+    "playlist": "Playlist",
+    "playlistDescription": "An ordered list of items for sequential playback",
+    "set": "Set",
+    "setDescription": "An unordered collection of items"
   },
   "selection": {
     "enterMode": "Select items",
@@ -292,5 +377,22 @@
     "errorMedia": "Playback stopped: this video could not be decoded.",
     "errorLoad": "This item could not be loaded.",
     "retry": "Try again"
+  },
+  "images": {
+    "delete": "Delete image",
+    "noImages": "No images available.",
+    "title": "Images",
+    "upload": "Upload poster",
+    "useThis": "Use this"
+  },
+  "person": {
+    "age": "age",
+    "born": "Born",
+    "died": "Died",
+    "episodes": "Episode Appearances",
+    "films": "Films",
+    "notFound": "Person not found",
+    "refreshMetadata": "Refresh Metadata",
+    "shows": "Shows"
   }
 }
