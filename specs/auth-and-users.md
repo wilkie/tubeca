@@ -246,7 +246,7 @@ API calls return 403.
 - `requireRole` accepts a list but always resolves to the minimum level, so exact-role restrictions (e.g. "Editor but not Admin") are impossible; the API shape is misleading.
 
 - Frontend admin routes are registered for all roles; unauthorised users see empty pages with 403 errors instead of a redirect.
-- Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` and session invalidation (supertest), the last-admin guards, self-service password change, `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; there are still none for the query-token middlewares, `users.ts`, `groups.ts`, or the search filter. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
+- Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` and session invalidation (supertest), the last-admin guards, self-service password change, `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; `groups.ts` (admin-only enforcement, duplicate names, and the visibility consequence of deleting the last group on a library); there are still none for the query-token middlewares, `users.ts` or the search filter. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
 
 ## Opportunities
 

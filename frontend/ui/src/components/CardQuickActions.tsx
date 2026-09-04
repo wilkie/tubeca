@@ -156,6 +156,7 @@ export function CardQuickActions({
       <Tooltip title={favoriteTooltip} placement="left">
         <span>
           <IconButton
+            aria-label={favoriteTooltip}
             onClick={handleToggleFavorite}
             disabled={isTogglingFavorite}
             sx={{
@@ -170,6 +171,7 @@ export function CardQuickActions({
       <Tooltip title={watchLaterTooltip} placement="left">
         <span>
           <IconButton
+            aria-label={watchLaterTooltip}
             onClick={handleToggleWatchLater}
             disabled={isTogglingWatchLater}
             sx={{
@@ -183,6 +185,7 @@ export function CardQuickActions({
       </Tooltip>
       <Tooltip title={t('userCollections.addToCollection', 'Add to Collection')} placement="left">
         <IconButton
+          aria-label={t('userCollections.addToCollection', 'Add to Collection')}
           onClick={handleAddMenuClick}
           aria-controls={addMenuOpen ? 'card-add-menu' : undefined}
           aria-haspopup="true"

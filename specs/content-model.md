@@ -344,7 +344,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   unscraped folder still sorts "Episode 10" before "Episode 2".
 - **Backend tests are thin.** `collectionService.test.ts` covers root pagination, name and
   keyword filtering, rating exclusion and single-page sorting (and documents the cross-page sort
-  bug with `it.failing`); `mediaService`, `personService`, and the collections/media/persons
+  bug with `it.failing`); the collections and media routes are covered for access, delete status codes and refresh queueing; `mediaService`, `personService`, and the persons
   routers have no tests beyond the persons route-order check. The frontend has page tests for
   CollectionPage, MediaPage and PersonPage only.
 - Shared-type drift: `Image` lacks `filmCreditId`; `Collection.media` under-types what the detail

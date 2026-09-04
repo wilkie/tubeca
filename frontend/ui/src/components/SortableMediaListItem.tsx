@@ -25,6 +25,8 @@ export interface SortableMediaListItemProps {
   getItemSubtitle: (item: UserCollectionItem) => string;
   getItemIcon: (item: UserCollectionItem) => React.ReactNode;
   removeTooltip: string;
+  /** Label for the play control, which is an icon and otherwise unnamed. */
+  playLabel?: string;
   showDragHandle?: boolean;
   showRemoveButton?: boolean;
   showPlayButton?: boolean;
@@ -42,6 +44,7 @@ export function SortableMediaListItem({
   getItemSubtitle,
   getItemIcon,
   removeTooltip,
+  playLabel = 'Play',
   showDragHandle = true,
   showRemoveButton = true,
   showPlayButton,
@@ -170,6 +173,7 @@ export function SortableMediaListItem({
         {shouldShowPlayButton && (
           <IconButton
             color="primary"
+            aria-label={playLabel}
             onClick={(e) => onPlayItem(item, index, e)}
             sx={{ width: 40, height: 56, borderRadius: 0.5 }}
           >

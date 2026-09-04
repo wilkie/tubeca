@@ -285,6 +285,7 @@ export function QueuePage() {
                   getItemSubtitle={getItemSubtitle}
                   getItemIcon={getItemIcon}
                   removeTooltip={t('queue.remove', 'Remove from Queue')}
+                  playLabel={t('common.play', 'Play')}
                 />
               ))}
             </Stack>

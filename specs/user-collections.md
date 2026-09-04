@@ -288,5 +288,6 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `WatchProgress` rows would reuse the list page pattern. (M)
 - **Nested collections properly**: let `AddToCollectionDialog` add a user collection to a `Set`,
   render `itemUserCollection` in `UserCollectionPage`, and add cycle detection. (M)
-- **Frontend tests** for `QueuePage`, `CardQuickActions`, `SelectionActionBar`, DnD reorder
-  (mock `@dnd-kit` `onDragEnd`), and `PlayerContext` next/previous/auto-advance. (M)
+- **Frontend tests** for `SelectionActionBar`, the drag-reorder handler itself (mock `@dnd-kit`
+  `onDragEnd`), and `PlayerContext` next/previous/auto-advance. `QueuePage` and
+  `CardQuickActions` are covered. (M)

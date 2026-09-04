@@ -36,6 +36,8 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- Screen readers can now name the favourite, watch later and add buttons on a card, and the play
+  button on a queue row; they were unlabelled icons.
 - Reordering a collection can no longer move items that belong to somebody else's, and a
   reorder that only covers part of a list no longer leaves items sharing a position.
 - The playback queue only accepts media items, and checks they exist, instead of accepting

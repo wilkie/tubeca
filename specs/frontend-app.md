@@ -381,10 +381,12 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - **Responsiveness is grid-only.** No `useMediaQuery`; library tabs in the header do not collapse,
   `HeroSection` assumes viewport-height backdrops, `MediaListItem` fixes a 125px image column,
   `Sidebar` is 250px, and `body` has `min-width: 320px`.
-- **Accessibility is partial.** 70 `aria-*` attributes across 18 files, but hover-only rating
-  overlays, `CardActionArea` cards without labels, and the global keydown capture in
-  `useQuickSearch` (which swallows printable keys anywhere outside inputs) are not keyboard- or
-  screen-reader-friendly.
+- **Accessibility is partial.** Hover-only rating overlays, `CardActionArea` cards without
+  labels, and the global keydown capture in `useQuickSearch` (which swallows printable keys
+  anywhere outside inputs) are not keyboard- or screen-reader-friendly. Icon buttons wrapped in a
+  `Tooltip` need their own `aria-label`, because the tooltip names the `<span>` MUI puts around a
+  possibly-disabled button rather than the button: the favourite and watch-later controls on every
+  card had no accessible name until 2026-09-03 for exactly that reason.
 - **External font dependency.** `index.html` loads Google Fonts; on an air-gapped LAN the
   wordmark falls back to `cursive`.
 - **Standalone `serve` mode cannot reach the API** without nginx, because `API_BASE` is relative
