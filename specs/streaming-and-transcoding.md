@@ -367,6 +367,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-03 Streaming robustness: codec-aware `Original` (`isDirectPlayable`), single de-dup key for all segment paths, per-segment FFmpeg timeout with partial-file cleanup, tracked processes killed on shutdown, lazy `HlsService` singleton, `maxSizeGB` enforced LRU-first, cache evicted on media delete, settings cache invalidated by version.
 - 2026-09-03 `hlsCacheCleanupService` tested: the startup delay, the hourly repeat, the refusal to start twice, and that a failed sweep does not stop the next one.
 - 2026-09-04 Stream route guards tested (missing media and files, subtitle stream index and sidecar rows, trickplay resolutions, the quality ladder); the part-file assertion in `hlsService.test.ts` now waits for `createWriteStream` to open rather than assuming one tick, which made the suite flake under load.
+- 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
 

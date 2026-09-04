@@ -354,7 +354,9 @@ describe('HlsService playlist synthesis', () => {
       await settle();
 
       expect(fs.readFileSync(segmentPath).toString()).toBe('partial');
-      expect(fs.readdirSync(variant).some((f) => f.includes('.part-'))).toBe(false);
+      expect(await eventually(() => !fs.readdirSync(variant).some((f) => f.includes('.part-')))).toBe(
+        true
+      );
     });
 
     it('leaves no cache file behind when the encode fails', async () => {
@@ -372,7 +374,11 @@ describe('HlsService playlist synthesis', () => {
 
       await expect(delivery).resolves.toEqual({ kind: 'streamed' });
       expect(fs.existsSync(path.join(variant, '3.ts'))).toBe(false);
-      expect(fs.readdirSync(variant).some((f) => f.includes('.part-'))).toBe(false);
+      // The part file is unlinked once its stream closes, which is a tick or
+      // two after the encode failed.
+      expect(await eventually(() => !fs.readdirSync(variant).some((f) => f.includes('.part-')))).toBe(
+        true
+      );
       // The response was cut short rather than ended cleanly.
       expect(sink.destroyed).toBe(true);
     });

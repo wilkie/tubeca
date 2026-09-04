@@ -8,7 +8,9 @@ All notable changes to Tubeca are recorded here. The format follows
 ### Added
 - TVDB can now identify and scrape a show and its seasons, not only episodes; its requests time
   out after ten seconds and are retried when the fault looks temporary, and its logos resolve
-  (the artwork id being asked for was a season banner, which a show never has).
+  (the artwork id being asked for was a season banner, which a show never has). A show scraped
+  from TVDB no longer arrives with a rating of several million: that number is how many people
+  have it in a list, not a score out of ten.
 - Image and stream URLs carry a four-hour, media-scoped token instead of the session token,
   so a shared or logged URL cannot be used to drive the API.
 - Password changes, role changes and deletions end existing sessions immediately.

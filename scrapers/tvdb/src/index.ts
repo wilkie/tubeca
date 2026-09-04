@@ -43,7 +43,6 @@ interface TVDBSeries {
   lastAired?: string
   /** v4 returns a record, not a string. */
   status?: { name?: string }
-  score?: number
   image?: string
   artworks?: Array<{ image: string; type: number }>
   genres?: Array<{ name: string }>
@@ -358,7 +357,10 @@ class TVDBScraper implements ScraperPlugin {
         firstAirDate: series.firstAired ? new Date(series.firstAired) : undefined,
         lastAirDate: series.lastAired ? new Date(series.lastAired) : undefined,
         status: series.status?.name,
-        rating: series.score,
+        // Deliberately no rating: v4's `score` is a popularity count in the
+        // millions, not the 0-10 average this field means, and it feeds the
+        // rating shown on a card and the column a library sorts by.
+        rating: undefined,
         genres: series.genres?.map((g) => g.name),
         // A tag's `name` is its value; `tagName` is the category it sits under.
         keywords: series.tags?.map((t) => t.name).filter((t): t is string => Boolean(t)),

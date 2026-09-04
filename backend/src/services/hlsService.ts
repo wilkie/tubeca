@@ -841,8 +841,16 @@ export class HlsService {
       /** Drop the half-written cache copy and cut the response short. */
       const abandon = (error: Error) => {
         if (tempFile) {
+          // A write stream opens its file asynchronously, so a segment
+          // abandoned in its first moments can be unlinked before the file
+          // exists and then have it appear afterwards, stranding a `.part-`
+          // file in the cache. Wait for the stream to close first.
           tempFile.destroy();
-          fs.rmSync(tempPath, { force: true });
+          if (tempFile.closed) {
+            fs.rmSync(tempPath, { force: true });
+          } else {
+            tempFile.once('close', () => fs.rmSync(tempPath, { force: true }));
+          }
         }
         fs.rmSync(outputPath, { force: true });
         sink?.destroy(error);

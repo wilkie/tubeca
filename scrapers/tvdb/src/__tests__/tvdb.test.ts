@@ -325,7 +325,6 @@ describe('a show', () => {
     firstAired: '2017-12-01',
     lastAired: '2020-06-27',
     status: { name: 'Ended' },
-    score: 1234,
     image: 'https://artworks.thetvdb.com/fallback.jpg',
     genres: [{ name: 'Drama' }],
     tags: [{ name: 'time travel' }, { tagName: 'category', name: 'mystery' }],
@@ -359,13 +358,18 @@ describe('a show', () => {
       firstAirDate: new Date('2017-12-01'),
       lastAirDate: new Date('2020-06-27'),
       status: 'Ended',
-      rating: 1234,
       genres: ['Drama'],
       keywords: ['time travel', 'mystery'],
       posterUrl: 'https://artworks.thetvdb.com/poster.jpg',
       backdropUrl: 'https://artworks.thetvdb.com/backdrop.jpg',
       logoUrl: 'https://artworks.thetvdb.com/logo.png',
     });
+  });
+
+  it('offers no rating, since TVDB scores in the millions rather than out of ten', async () => {
+    const plugin = await scraper();
+
+    expect((await plugin.getSeriesMetadata!('series-328724'))!.rating).toBeUndefined();
   });
 
   it('takes the logo from the series clearlogo, not the season banner id', async () => {
