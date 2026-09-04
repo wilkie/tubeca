@@ -49,11 +49,37 @@
 1. A worker or route calls `downloadAndSaveImage(url, { imageType, <ownerId>, isPrimary, scraperId, reuseExisting })`.
 2. The owner id chooses a folder: `media/`, `collections/` or `people/` (person, showCredit and credit all share `people/`) (`imageService.ts:104-121`).
 3. With `reuseExisting` (every scrape apply path since 2026-09-03), the stored row for that owner and type is checked first: if its `sourceUrl` matches and its file is still on disk, nothing is fetched and the result comes back with `reused: true`, still routed through `saveImage` so the primary flag stays correct. This is what keeps a full scan from re-downloading artwork that has not changed.
-4. The URL is fetched with global `fetch` and fully buffered. Format is taken from `Content-Type` (`png`, `webp`, `gif`, `svg`), then from the URL extension, else `jpg` (`imageService.ts:133-149`). SVG was added in `056b695`; before that TMDB logos were written as `logo.jpg` and served as `image/jpeg`.
+4. The URL is fetched with global `fetch` under a 20 s `AbortSignal.timeout`, refusing a
+   non-`image/*` `Content-Type`, a declared or actual body over 25 MB, and an empty body: a
+   scraper URL is a third party that can hang, lie or answer with something else entirely.
+   The body is then fully buffered. Format is taken from `Content-Type` (`png`, `webp`, `gif`, `svg`), then from the URL extension, else `jpg` (`imageService.ts:133-149`). SVG was added in `056b695`; before that TMDB logos were written as `logo.jpg` and served as `image/jpeg`.
 5. The file is written synchronously to `<imagePath>/<folder>/<entityId>/<imagetype>.<format>`. There is no hashing, no dedup across entities, no resizing and no size cap; `sharp` is used only to read dimensions, and failure there is a warning.
 6. `saveImage` upserts: if `isPrimary`, every other image with the same owner and type is un-primaried; then the existing row for that owner+type is updated in place, otherwise created (`imageService.ts:216-278`). Because the filename is also keyed on type, an entity can never hold more than one image per type, so "primary" is effectively always true and the DB row and file are 1:1.
 
 `getImageStoragePath()` memoises the resolved root; an absolute `imagePath` is used verbatim, a relative one is resolved against the repo root, and the default is `backend/data/images` (`4dc330d` fixed it ignoring config when called without arguments).
+
+### Sizes
+
+`GET /api/images/:id/file?size=w200|w400|w780|w1280` serves a width-bounded copy. The variant is
+written next to the original as `<type>-<size>.<ext>` the first time it is asked for and reused
+after that, so an existing library needs no re-ingest. The original is served unchanged when the
+size is unknown, when the format is SVG, when the stored image is already narrower, or when
+sharp throws. The frontend asks for `w200` in list rows and cast grids, `w400` in poster grids
+and hero posters, `w780` for a logo and `w1280` for a backdrop.
+
+### Candidates and choosing
+
+`Image` has always had `isPrimary`, but a scrape wrote one row per entity and type and replaced
+it, so there was never a second candidate. An upload (`POST /api/images/upload`) and a manual
+fetch (`POST /api/images/download`) now pass `allowMultiple`, which gives the file a unique
+suffix and adds a row rather than replacing one; both are recorded with `scraperId: 'manual'`.
+`PUT /api/images/:id/primary` moves the flag within an entity and type, leaving the other rows
+alone so the choice is reversible, and `ImagesDialog` offers "Use this", an upload button and a
+delete for editors.
+
+The upload endpoint takes the raw bytes with the file's own `Content-Type` rather than a
+multipart form, so the server needs no multipart parser; the entity ids travel in the query
+string, which is why library access for it resolves through `entityInQuery`.
 
 ### Who triggers downloads
 
@@ -96,6 +122,8 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 ## History
 
+- 2026-09-03 — Download hardening (20 s timeout, 25 MB cap, `image/*` only); `?size=` serving with variants generated on first request; multiple candidates per type with `PUT /api/images/:id/primary`; `POST /api/images/upload` for user artwork and an editable `ImagesDialog`.
+
 - `41cf2f0` 2025-11-29 Scraper plugins introduced; metadata carries artwork URLs.
 - `b3fb3ee` 2025-11-29 `add_image_storage` migration, `ImageService`, `/api/images` routes, workers download artwork, frontend renders it.
 - `3404584` 2025-11-30 `ImagesDialog` gallery and refresh-metadata / refresh-images actions.
@@ -113,30 +141,29 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 ## Known Limitations
 
-- One image per entity per type: the model has `isPrimary` and the dialog highlights it, but there is never a second candidate to choose from, and no endpoint sets primary. `ImagesDialog` is display-only.
-- No resizing or thumbnail generation: TMDB `original` backdrops and logos are stored and served at full size to every grid tile; `sharp` is imported but only reads metadata.
+- Candidates only come from people: scrapers still supply one image per type, so a second candidate exists only where someone uploaded one or fetched one by URL. There is no gallery of provider alternatives to choose from.
+- Resizing happens on request, not on ingest: the first request for a given `?size=` writes the variant next to the original, so the very first viewer of a poster grid pays for it. Only four widths exist (`w200`, `w400`, `w780`, `w1280`) and the original is served for SVGs, for images already narrower than the request, and whenever sharp fails.
 - No dedup or hashing: the same person photo is downloaded once per entity directory. A scrape now skips the fetch when the source URL is unchanged, but any download that does happen overwrites in place, bumping `updatedAt` and `Last-Modified`; a provider that moves a URL without changing the bytes still re-downloads.
 - Orphaned files: a format change (`poster.jpg` then `poster.png`) and identify's `deleteMany` leave files behind; there is no sweep. (Library deletion, watcher-driven media deletion and scan reconciliation clean up through `ContentDeletionService` since 2026-09-03.)
 - No library-level authorisation on `/api/images/:id/file`; any valid token can fetch any image by UUID.
 - JWT in the query string of every image URL: it lands in server logs, browser history and any `Referer`, and the `public` cache directive makes the token-bearing URL cacheable by intermediaries. URLs also change whenever the token changes, defeating browser caching across logins.
-- Download has no timeout, size limit or MIME validation; a hostile or slow scraper URL can block a worker or write arbitrary bytes.
+- The download host is not checked against the scraper's image base, so a compromised provider could still point at any host it likes.
 - Images are served by a Node handler with a DB lookup per request rather than a static file server or reverse proxy.
-- No user upload of custom artwork.
+- An upload is always stored as a `Poster` from the dialog's button; the endpoint accepts any type, but nothing in the UI offers the choice.
 - `QueuePage` ignores the landscape preference for a media item's own images (`media.images[0]`), unlike `UserCollectionPage`.
 - OpenAPI docs list `[Poster, Backdrop, Banner, Thumb, Logo, Photo]` (`images.ts:127, 176, 269`), which does not match the enum.
 - `Still` and `ArtistImage` types, and `filmCreditId` ownership, are dead in practice.
-- No backend tests cover `imageService` or `images.ts`; only `mediaParser` and `authService` have tests. Frontend has `ImagesDialog.test.tsx` and a `getImageUrl` test.
+- `imageService` and the upload/set-primary routes are covered; the serving route's headers and `imageAuth` are not.
 
 ## Opportunities
 
-- **Candidate galleries and set-primary** (M): let scrapers return `posterUrls[]`, store multiple rows per type with unique filenames, add `PUT /api/images/:id/primary`, and make `ImagesDialog` selectable. The model already supports it; only the filename scheme and upsert block it.
-- **Resize on ingest** (M): use `sharp` to write a bounded-size variant (and a small grid thumbnail) next to the original; serve via a `?size=` parameter. Removes multi-megabyte `original` backdrops from list pages.
+- **Let scrapers return candidates** (M): `posterUrls[]` on the plugin interface would fill the gallery from the provider rather than only from uploads; the storage and the set-primary endpoint are already there.
+- **Choose the type when uploading** (S): the dialog always uploads a `Poster`, though the endpoint takes any type.
+- **Validate the download host** (S) against the scraper's known image base.
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
 - **Orphan cleanup** (S): make identify go through `ContentDeletionService.imagePathsFor`, and add an admin "prune images" job that diffs disk against `Image.path`.
 - **Cookie auth for image URLs** (M): a `SameSite` cookie would keep tokens out of URLs entirely; today they carry a short-lived media-scoped token. This would also let us drop `public` from a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.
-- **Download hardening** (S): `AbortSignal.timeout`, a max byte size, and rejecting non-image `Content-Type`; validate the URL host against the scraper's known image base.
 - **Static serving** (S/M): expose the image directory via `express.static` behind the same auth, or document a reverse-proxy `X-Accel-Redirect` path for production.
-- **User upload** (M): `POST /api/images/upload` (multipart) reusing `saveImage` with a `manual` scraperId, so curated art survives `refresh-images`.
 - **Fix `QueuePage` selection** (S) and delete the `Still` lookup on `MediaPage` or start producing `Still` images from the episode still URL.
 - **Regenerate the OpenAPI enums** from `ImageType` (S).
 - **Tests** (M): unit tests for format detection, upsert semantics, and file cleanup in `imageService`; supertest coverage for `imageAuth` and `Content-Type`/cache headers.

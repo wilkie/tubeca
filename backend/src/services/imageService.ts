@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import sharp from 'sharp';
 import { prisma } from '../config/database';
 import { getImageStoragePath } from '../config/appConfig';
@@ -21,6 +22,12 @@ export interface SaveImageInput {
    * artwork has changed since last time.
    */
   reuseExisting?: boolean
+  /**
+   * Keep this image alongside the existing ones of its type instead of
+   * replacing them. Set by an upload or a manually chosen URL, so a curated
+   * poster becomes a candidate rather than overwriting what the scraper found.
+   */
+  allowMultiple?: boolean
 }
 
 export interface DownloadImageResult {
@@ -33,6 +40,36 @@ export interface DownloadImageResult {
   error?: string
   /** The file on disk was still current, so nothing was downloaded. */
   reused?: boolean
+}
+
+/** A slow provider must not hold a scrape worker indefinitely. */
+const DOWNLOAD_TIMEOUT_MS = 20_000;
+/** Artwork this large is a mistake or an attack, not a poster. */
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+
+/**
+ * The widths a client may ask for, as `?size=`.
+ *
+ * A grid of posters used to be served the provider's `original` backdrops and
+ * logos at full size. These are generated from the stored file the first time
+ * one is requested and then cached next to it, so an existing library needs no
+ * re-ingest.
+ */
+export const IMAGE_SIZES: Record<string, number> = {
+  w200: 200,
+  w400: 400,
+  w780: 780,
+  w1280: 1280,
+};
+
+/** Which folder an image belongs in, from whichever owner id is set. */
+function resolveEntityFolder(input: SaveImageInput): { folder: string; id: string } | null {
+  if (input.mediaId) return { folder: 'media', id: input.mediaId };
+  if (input.collectionId) return { folder: 'collections', id: input.collectionId };
+  if (input.personId) return { folder: 'people', id: input.personId };
+  if (input.showCreditId) return { folder: 'people', id: input.showCreditId };
+  if (input.creditId) return { folder: 'people', id: input.creditId };
+  return null;
 }
 
 export class ImageService {
@@ -105,28 +142,11 @@ export class ImageService {
     input: SaveImageInput
   ): Promise<DownloadImageResult> {
     try {
-      // Determine the entity type and ID for folder structure
-      let entityFolder: string;
-      let entityId: string;
-
-      if (input.mediaId) {
-        entityFolder = 'media';
-        entityId = input.mediaId;
-      } else if (input.collectionId) {
-        entityFolder = 'collections';
-        entityId = input.collectionId;
-      } else if (input.personId) {
-        entityFolder = 'people';
-        entityId = input.personId;
-      } else if (input.showCreditId) {
-        entityFolder = 'people';
-        entityId = input.showCreditId;
-      } else if (input.creditId) {
-        entityFolder = 'people';
-        entityId = input.creditId;
-      } else {
+      const entity = resolveEntityFolder(input);
+      if (!entity) {
         return { success: false, error: 'No entity ID provided' };
       }
+      const { folder: entityFolder, id: entityId } = entity;
 
       // Nothing to do when the provider still points at the file we already
       // have. saveImage still runs so the row's primary flag stays correct.
@@ -137,15 +157,32 @@ export class ImageService {
         }
       }
 
-      // Fetch the image
-      const response = await fetch(url);
+      // Fetch the image. A scraper URL is a third party: it can hang, it can
+      // answer with a hundred megabytes, and it can answer with something that
+      // is not an image at all, so all three are bounded here.
+      const response = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
       if (!response.ok) {
         return { success: false, error: `Failed to fetch image: ${response.status}` };
       }
 
       const contentType = response.headers.get('content-type') || '';
+      if (contentType && !contentType.startsWith('image/')) {
+        return { success: false, error: `Not an image: ${contentType}` };
+      }
+
+      const declaredLength = Number(response.headers.get('content-length') ?? 0);
+      if (declaredLength > MAX_IMAGE_BYTES) {
+        return { success: false, error: `Image too large: ${declaredLength} bytes` };
+      }
+
       const buffer = Buffer.from(await response.arrayBuffer());
       const fileSize = buffer.length;
+      if (fileSize > MAX_IMAGE_BYTES) {
+        return { success: false, error: `Image too large: ${fileSize} bytes` };
+      }
+      if (fileSize === 0) {
+        return { success: false, error: 'Image was empty' };
+      }
 
       // Determine format from content type or URL
       let format = 'jpg';
@@ -174,8 +211,10 @@ export class ImageService {
         fs.mkdirSync(entityDir, { recursive: true });
       }
 
-      // Generate filename based on image type
-      const filename = `${input.imageType.toLowerCase()}.${format}`;
+      // One file per type is the scraped case; a candidate gets a suffix so it
+      // sits next to the others rather than overwriting one.
+      const suffix = input.allowMultiple ? `-${randomUUID().slice(0, 8)}` : '';
+      const filename = `${input.imageType.toLowerCase()}${suffix}.${format}`;
       const filePath = path.join(entityDir, filename);
 
       // Write the file
@@ -293,17 +332,20 @@ export class ImageService {
       });
     }
 
-    // Check if an image of this type already exists for this entity
-    const existing = await prisma.image.findFirst({
-      where: {
-        imageType: data.imageType,
-        mediaId: data.mediaId,
-        collectionId: data.collectionId,
-        personId: data.personId,
-        showCreditId: data.showCreditId,
-        creditId: data.creditId,
-      },
-    });
+    // Check if an image of this type already exists for this entity. A
+    // candidate is added rather than matched, so several can coexist.
+    const existing = data.allowMultiple
+      ? null
+      : await prisma.image.findFirst({
+          where: {
+            imageType: data.imageType,
+            mediaId: data.mediaId,
+            collectionId: data.collectionId,
+            personId: data.personId,
+            showCreditId: data.showCreditId,
+            creditId: data.creditId,
+          },
+        });
 
     if (existing) {
       // Update existing image
@@ -369,6 +411,121 @@ export class ImageService {
   getFullPath(image: { path: string }): string {
     const imageStoragePath = getImageStoragePath();
     return path.join(imageStoragePath, image.path);
+  }
+
+  /**
+   * Path to a width-bounded version of a stored image, generating it once.
+   *
+   * Returns the original when the size is unknown, when the format cannot be
+   * resized (SVG is already scalable), when the image is already narrower than
+   * the requested width, or when sharp fails: a served original is always
+   * better than a broken image.
+   */
+  async getSizedPath(image: { path: string; format: string | null; width: number | null }, size: string): Promise<string> {
+    const originalPath = this.getFullPath(image);
+    const targetWidth = IMAGE_SIZES[size];
+    if (!targetWidth) return originalPath;
+
+    const format = (image.format ?? path.extname(originalPath).slice(1)).toLowerCase();
+    if (format === 'svg') return originalPath;
+    if (image.width !== null && image.width <= targetWidth) return originalPath;
+
+    const extension = path.extname(originalPath);
+    const variantPath = `${originalPath.slice(0, -extension.length)}-${size}${extension}`;
+
+    try {
+      if (fs.existsSync(variantPath) && fs.statSync(variantPath).size > 0) {
+        return variantPath;
+      }
+      if (!fs.existsSync(originalPath)) return originalPath;
+
+      await sharp(originalPath)
+        .resize({ width: targetWidth, withoutEnlargement: true })
+        .toFile(variantPath);
+      return variantPath;
+    } catch (error) {
+      console.warn(`Failed to resize ${image.path} to ${size}:`, error);
+      return originalPath;
+    }
+  }
+
+  /**
+   * Make one image the primary of its type for its entity.
+   *
+   * Returns null when the id is unknown. The other candidates keep their rows;
+   * only the flag moves, so choosing a different poster is reversible.
+   */
+  async setPrimary(imageId: string) {
+    const image = await prisma.image.findUnique({ where: { id: imageId } });
+    if (!image) return null;
+
+    await prisma.image.updateMany({
+      where: {
+        imageType: image.imageType,
+        mediaId: image.mediaId,
+        collectionId: image.collectionId,
+        personId: image.personId,
+        showCreditId: image.showCreditId,
+        creditId: image.creditId,
+        NOT: { id: imageId },
+      },
+      data: { isPrimary: false },
+    });
+
+    return prisma.image.update({ where: { id: imageId }, data: { isPrimary: true } });
+  }
+
+  /**
+   * Store bytes a user uploaded, as a new candidate of its type.
+   *
+   * Goes through the same write path as a download so it gets its dimensions,
+   * its file size and a row; the `scraperId` of `manual` marks it as something
+   * a person chose, which a later refresh must not throw away.
+   */
+  async saveUploadedImage(
+    buffer: Buffer,
+    input: SaveImageInput & { format: string }
+  ): Promise<DownloadImageResult> {
+    const entity = resolveEntityFolder(input);
+    if (!entity) return { success: false, error: 'No entity ID provided' };
+    if (buffer.length === 0) return { success: false, error: 'Image was empty' };
+    if (buffer.length > MAX_IMAGE_BYTES) return { success: false, error: 'Image too large' };
+
+    const imageStoragePath = getImageStoragePath();
+    const entityDir = path.join(imageStoragePath, entity.folder, entity.id);
+    if (!fs.existsSync(entityDir)) {
+      fs.mkdirSync(entityDir, { recursive: true });
+    }
+
+    const filename = `${input.imageType.toLowerCase()}-${randomUUID().slice(0, 8)}.${input.format}`;
+    const filePath = path.join(entityDir, filename);
+    fs.writeFileSync(filePath, buffer);
+
+    let width: number | undefined;
+    let height: number | undefined;
+    try {
+      const metadata = await sharp(buffer).metadata();
+      width = metadata.width;
+      height = metadata.height;
+    } catch {
+      // A format sharp cannot read (an SVG variant, say) is still storable.
+    }
+
+    const relativePath = path.relative(imageStoragePath, filePath);
+    const saved = await this.saveImage({
+      ...input,
+      allowMultiple: true,
+      path: relativePath,
+      format: input.format,
+      width,
+      height,
+      fileSize: buffer.length,
+      scraperId: input.scraperId ?? 'manual',
+    });
+
+    if (input.isPrimary) await this.setPrimary(saved.id);
+
+    return { success: true, path: relativePath, width, height, format: input.format, fileSize: buffer.length };
   }
 
   /**

@@ -469,7 +469,7 @@ export function SearchPage() {
                       {photo ? (
                         <CardMedia
                           component="img"
-                          image={apiClient.getImageUrl(photo.id)}
+                          image={apiClient.getImageUrl(photo.id, 'w200')}
                           alt={person.name}
                           sx={{ aspectRatio: '2/3', objectFit: 'cover' }}
                         />
@@ -532,7 +532,7 @@ export function SearchPage() {
                         {hasImage ? (
                           <CardMedia
                             component="img"
-                            image={apiClient.getImageUrl(primaryImage.id)}
+                            image={apiClient.getImageUrl(primaryImage.id, 'w400')}
                             alt={collection.name}
                             sx={{
                               aspectRatio: '2/3',
@@ -663,7 +663,7 @@ export function SearchPage() {
                         {hasImage ? (
                           <CardMedia
                             component="img"
-                            image={apiClient.getImageUrl(primaryImage.id)}
+                            image={apiClient.getImageUrl(primaryImage.id, 'w400')}
                             alt={item.name}
                             sx={{
                               aspectRatio: '16/9',

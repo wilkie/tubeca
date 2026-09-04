@@ -432,6 +432,9 @@ export function CollectionPage() {
         onClose={() => setImagesDialogOpen(false)}
         images={collection.images || []}
         title={t('collection.imagesTitle', 'Collection Images')}
+        collectionId={collection.id}
+        canEdit={canEdit}
+        onChanged={() => void refetchCollection()}
       />
 
       <AddToCollectionDialog

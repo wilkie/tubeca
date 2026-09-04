@@ -97,7 +97,7 @@ export function ChildCollectionGrid({
                     <>
                       <CardMedia
                         component="img"
-                        image={apiClient.getImageUrl(primaryImage.id)}
+                        image={apiClient.getImageUrl(primaryImage.id, 'w400')}
                         alt={child.name}
                         sx={{
                           aspectRatio: '2/3',

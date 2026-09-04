@@ -238,6 +238,9 @@ export interface TranscodingSettingsInput {
   bitrate360p: number;
 }
 
+/** Widths the image endpoint will generate; anything else serves the original. */
+export type ImageSize = 'w200' | 'w400' | 'w780' | 'w1280'
+
 interface ApiResponse<T> {
   data?: T;
   error?: string;
@@ -764,9 +767,60 @@ class ApiClient {
   }
 
   // Get URL for an image (includes auth token)
-  getImageUrl(imageId: string): string {
+  /** Choose which candidate image is used for its entity and type. */
+  async setPrimaryImage(imageId: string): Promise<ApiResponse<{ image: Image }>> {
+    return this.request<{ image: Image }>(`/images/${imageId}/primary`, { method: 'PUT' });
+  }
+
+  async deleteImage(imageId: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/images/${imageId}`, { method: 'DELETE' });
+  }
+
+  /**
+   * Upload artwork for a collection or media item.
+   *
+   * The body is the file itself rather than a form, so the browser sends the
+   * bytes with the file's own content type and the server needs no multipart
+   * parser.
+   */
+  async uploadImage(
+    file: File,
+    target: { imageType: string; collectionId?: string; mediaId?: string; isPrimary?: boolean }
+  ): Promise<ApiResponse<{ message: string; path: string }>> {
+    const params = new URLSearchParams({ imageType: target.imageType });
+    if (target.collectionId) params.set('collectionId', target.collectionId);
+    if (target.mediaId) params.set('mediaId', target.mediaId);
+    if (target.isPrimary) params.set('isPrimary', 'true');
+
+    const token = this.getToken();
+    try {
+      const response = await fetch(`${API_BASE}/images/upload?${params.toString()}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: file,
+      });
+      const data = await response.json();
+      if (!response.ok) return { error: data.error || 'Upload failed' };
+      return { data };
+    } catch {
+      return { error: 'Network error' };
+    }
+  }
+
+  /**
+   * URL for an image, optionally at a bounded width.
+   *
+   * A grid of posters does not need the provider's original, which for a
+   * backdrop can be several megabytes. Pass a size and the server serves a
+   * copy it generates once.
+   */
+  getImageUrl(imageId: string, size?: ImageSize): string {
     const token = this.urlToken();
-    return `${API_BASE}/images/${imageId}/file?token=${token}`;
+    const sizeParam = size ? `&size=${size}` : '';
+    return `${API_BASE}/images/${imageId}/file?token=${token}${sizeParam}`;
   }
 
   // Person methods

@@ -63,7 +63,7 @@ export function ContinueWatchingRow({ items }: ContinueWatchingRowProps) {
                   {artwork && (
                     <CardMedia
                       component="img"
-                      image={apiClient.getImageUrl(artwork.id)}
+                      image={apiClient.getImageUrl(artwork.id, 'w400')}
                       alt=""
                       sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                     />

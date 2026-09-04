@@ -28,9 +28,14 @@ All notable changes to Tubeca are recorded here. The format follows
   its name, and ranks the closest match first.
 - Search results appear as you type, and the search page has a People section.
 - Admins can rebuild the search index from the API when it looks stale.
+- Editors can upload their own artwork and choose which image a title uses.
+- Poster grids and list rows are served images sized for them rather than the provider's
+  originals, which for a backdrop can be several megabytes.
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- Artwork downloads give up after twenty seconds, refuse anything that is not an image, and
+  refuse anything over 25 MB, so one bad URL can no longer stall a scrape.
 - Searching for an accented title works without the accents, and a partly typed word matches.
 - The search page's filter options now cover every library rather than whatever happened to be
   on the first page of results.

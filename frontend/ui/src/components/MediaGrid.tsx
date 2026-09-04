@@ -117,7 +117,7 @@ export function MediaGrid({
                     <>
                       <CardMedia
                         component="img"
-                        image={apiClient.getImageUrl(primaryImage.id)}
+                        image={apiClient.getImageUrl(primaryImage.id, 'w400')}
                         alt={item.name}
                         sx={{
                           aspectRatio: '16/9',

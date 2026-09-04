@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import express, { Router, Request, Response, NextFunction } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { authenticate, requireRole, isTokenCurrent } from '../middleware/auth';
@@ -8,6 +8,7 @@ import {
   mediaParam,
   collectionParam,
   entityInBody,
+  entityInQuery,
 } from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
 import { ImageService } from '../services/imageService';
@@ -17,6 +18,26 @@ const router = Router();
 const imageService = new ImageService();
 const authService = new AuthService();
 const imageAccess = requireLibraryAccess(imageParam('id'));
+
+/** Image types an upload may claim, and the formats we accept for one. */
+const IMAGE_TYPES: ImageType[] = [
+  'Poster',
+  'Backdrop',
+  'Logo',
+  'Thumbnail',
+  'Still',
+  'Photo',
+  'AlbumArt',
+  'ArtistImage',
+];
+const FORMAT_BY_CONTENT_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/svg+xml': 'svg',
+};
 
 // Custom auth middleware that also accepts token via query parameter
 // This is needed because <img> elements can't set Authorization headers
@@ -60,6 +81,16 @@ async function imageAuth(req: Request, res: Response, next: NextFunction) {
  *         schema:
  *           type: string
  *         description: JWT token (alternative to Authorization header)
+ *       - in: query
+ *         name: size
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [w200, w400, w780, w1280]
+ *         description: >
+ *           Serve a copy bounded to this width, generated on first request. The
+ *           original is served when the size is unknown, the image is already
+ *           smaller, or the format cannot be resized.
  *     responses:
  *       200:
  *         description: Image file
@@ -86,10 +117,13 @@ router.get('/:id/file', imageAuth, imageAccess, async (req, res) => {
       return res.status(404).json({ error: 'Image not found' });
     }
 
-    const fullPath = imageService.getFullPath(image);
-    if (!fs.existsSync(fullPath)) {
+    if (!fs.existsSync(imageService.getFullPath(image))) {
       return res.status(404).json({ error: 'Image file not found' });
     }
+
+    // `?size=` serves a width-bounded copy, generated once and cached on disk.
+    const size = typeof req.query.size === 'string' ? req.query.size : null;
+    const fullPath = size ? await imageService.getSizedPath(image, size) : imageService.getFullPath(image);
 
     // Set content type based on format from database (preferred) or file extension (fallback)
     const contentTypes: Record<string, string> = {
@@ -338,7 +372,9 @@ router.post('/download', requireRole('Editor'), requireLibraryAccess(entityInBod
       showCreditId,
       creditId,
       isPrimary,
-      scraperId,
+      scraperId: scraperId ?? 'manual',
+      // A person chose this one; keep whatever the scraper found as well.
+      allowMultiple: true,
     });
 
     if (!result.success) {
@@ -355,6 +391,141 @@ router.post('/download', requireRole('Editor'), requireLibraryAccess(entityInBod
     res.status(500).json({ error: 'Failed to download image' });
   }
 });
+
+/**
+ * @openapi
+ * /api/images/{id}/primary:
+ *   put:
+ *     tags:
+ *       - Images
+ *     summary: Choose which image of its type to use
+ *     description: >
+ *       Make this image the primary one for its entity and type (Editor or Admin only).
+ *       The other candidates keep their rows, so the choice is reversible.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: The image, now primary
+ *       403:
+ *         description: Forbidden - Editor role required
+ *       404:
+ *         description: Image not found
+ */
+router.put('/:id/primary', requireRole('Editor'), imageAccess, async (req, res) => {
+  try {
+    const image = await imageService.setPrimary(req.params.id);
+    if (!image) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    res.json({ image });
+  } catch {
+    res.status(500).json({ error: 'Failed to set the primary image' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/images/upload:
+ *   post:
+ *     tags:
+ *       - Images
+ *     summary: Upload artwork
+ *     description: >
+ *       Store an image the user supplies as a new candidate for an entity and type
+ *       (Editor or Admin only). The body is the raw image bytes and `Content-Type`
+ *       names the format. Uploaded images are recorded with scraperId `manual`.
+ *     parameters:
+ *       - in: query
+ *         name: imageType
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [Poster, Backdrop, Logo, Thumbnail, Still, Photo, AlbumArt, ArtistImage]
+ *       - in: query
+ *         name: collectionId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: mediaId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: personId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: isPrimary
+ *         schema:
+ *           type: boolean
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         image/png:
+ *           schema:
+ *             type: string
+ *             format: binary
+ *         image/jpeg:
+ *           schema:
+ *             type: string
+ *             format: binary
+ *     responses:
+ *       201:
+ *         description: Image stored
+ *       400:
+ *         description: Missing or unsupported input
+ *       403:
+ *         description: Forbidden - Editor role required
+ */
+router.post(
+  '/upload',
+  requireRole('Editor'),
+  requireLibraryAccess(entityInQuery),
+  express.raw({ type: ['image/*'], limit: '25mb' }),
+  async (req, res) => {
+    try {
+      const imageType = req.query.imageType as ImageType | undefined;
+      const { collectionId, mediaId, personId } = req.query as Record<string, string | undefined>;
+
+      if (!imageType || !IMAGE_TYPES.includes(imageType)) {
+        return res.status(400).json({ error: 'A valid imageType is required' });
+      }
+      if (!collectionId && !mediaId && !personId) {
+        return res.status(400).json({ error: 'Entity ID is required (collectionId, mediaId or personId)' });
+      }
+
+      const format = FORMAT_BY_CONTENT_TYPE[(req.headers['content-type'] ?? '').split(';')[0].trim()];
+      if (!format) {
+        return res.status(400).json({ error: 'Unsupported image type' });
+      }
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Image body is required' });
+      }
+
+      const result = await imageService.saveUploadedImage(req.body, {
+        imageType,
+        collectionId,
+        mediaId,
+        personId,
+        format,
+        isPrimary: req.query.isPrimary === 'true',
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.status(201).json({ message: 'Image uploaded', path: result.path, format: result.format });
+    } catch {
+      res.status(500).json({ error: 'Failed to upload image' });
+    }
+  }
+);
 
 /**
  * @openapi

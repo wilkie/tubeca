@@ -27,7 +27,7 @@ export function HeroSection({ backdropImageId, children }: HeroSectionProps) {
       {backdropImageId ? (
         <Box
           component="img"
-          src={apiClient.getImageUrl(backdropImageId)}
+          src={apiClient.getImageUrl(backdropImageId, 'w1280')}
           alt=""
           sx={{
             position: 'fixed',
@@ -101,7 +101,7 @@ export function HeroPoster({ imageId, alt }: HeroPosterProps) {
   return (
     <Box
       component="img"
-      src={apiClient.getImageUrl(imageId)}
+      src={apiClient.getImageUrl(imageId, 'w400')}
       alt={alt}
       sx={{
         width: { xs: 120, sm: 150, md: 200 },
@@ -124,7 +124,7 @@ export function HeroLogo({ imageId, alt }: HeroLogoProps) {
   return (
     <Box
       component="img"
-      src={apiClient.getImageUrl(imageId)}
+      src={apiClient.getImageUrl(imageId, 'w780')}
       alt={alt}
       sx={{
         maxWidth: { xs: 200, sm: 300, md: 400 },

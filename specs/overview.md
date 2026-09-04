@@ -291,9 +291,9 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 8. ~~**Search depth**~~ Done 2026-09-03: an FTS5 index over titles, alternative titles,
    descriptions, keywords and cast with `bm25` ranking, people results on the search page,
    filter options served from the server, and live search ([Search](search.md)).
-9. **Images** (M): resize on ingest with a size parameter, download hardening (timeouts, size
-   and content-type limits), candidate galleries with set-primary, user upload.
-   ([Images](images.md))
+9. ~~**Images**~~ Done 2026-09-03: bounded-width serving with variants generated on request,
+   download timeouts and size and content-type limits, several candidates per type with a
+   set-primary endpoint, and user upload from the images dialog ([Images](images.md)).
 10. **Operations** (S batch): health endpoint wired into the units, SQLite backup before
     upgrade migrations, `--enable-source-maps`, a single source for the unit files, install
     failing on migration errors, per-request caching of group ids. ([Deployment](deployment.md),

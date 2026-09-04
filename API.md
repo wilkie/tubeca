@@ -812,6 +812,9 @@ Serve an image file. Supports query parameter authentication for `<img>` element
 
 **Query Parameters:**
 - `token` - Auth token (alternative to Authorization header)
+- `size` - `w200`, `w400`, `w780` or `w1280` to serve a width-bounded copy, generated on first
+  request. The original is served for an unknown size, for an SVG, or when the image is already
+  narrower.
 
 ### GET /images/:id
 
@@ -837,13 +840,14 @@ Get all images for a person.
 
 ### POST /images/download
 
-Download and save an image from URL. **Requires Editor role.**
+Download and save an image from a URL, as an additional candidate. **Requires Editor role.**
+Recorded with `scraperId` `manual` unless one is given.
 
 **Request Body:**
 ```json
 {
   "url": "string",
-  "imageType": "Poster|Backdrop|Banner|Thumb|Logo|Photo",
+  "imageType": "Poster|Backdrop|Logo|Thumbnail|Still|Photo|AlbumArt|ArtistImage",
   "mediaId": "string",
   "collectionId": "string",
   "personId": "string",
@@ -851,6 +855,22 @@ Download and save an image from URL. **Requires Editor role.**
   "scraperId": "tmdb"
 }
 ```
+
+### POST /images/upload
+
+Upload artwork as an additional candidate. **Requires Editor role.** The body is the raw image
+bytes and `Content-Type` names the format (`image/png`, `image/jpeg`, `image/webp`, `image/gif`,
+`image/svg+xml`). Stored with `scraperId` `manual`, so a metadata refresh does not discard it.
+
+**Query Parameters:**
+- `imageType` (required)
+- `collectionId` / `mediaId` / `personId` - one is required
+- `isPrimary` - `true` to use it immediately
+
+### PUT /images/:id/primary
+
+Choose which image of its type an entity uses. **Requires Editor role.** The other candidates
+keep their rows, so the choice is reversible.
 
 ### DELETE /images/:id
 

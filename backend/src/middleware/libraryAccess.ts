@@ -100,6 +100,18 @@ export const entityInBody: LibraryResolver = async (req) => {
 };
 
 /**
+ * The entity named in the query string, for routes whose body is not JSON
+ * (an image upload sends raw bytes, so the ids travel in the query).
+ */
+export const entityInQuery: LibraryResolver = async (req) => {
+  const { collectionId, mediaId, libraryId } = req.query as Record<string, string | undefined>;
+  if (collectionId) return resolveCollectionLibrary(collectionId);
+  if (mediaId) return resolveMediaLibrary(mediaId);
+  if (libraryId) return resolveLibrary(libraryId);
+  return unscoped;
+};
+
+/**
  * Enforce group-based library access for the entity a route addresses.
  *
  * Must run after `authenticate` (or a query-token variant). Admins always pass.

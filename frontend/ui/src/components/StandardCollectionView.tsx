@@ -149,7 +149,7 @@ export function StandardCollectionView({
     posterImage ? (
       <Box
         component="img"
-        src={apiClient.getImageUrl(posterImage.id)}
+        src={apiClient.getImageUrl(posterImage.id, 'w400')}
         alt={collection.name}
         sx={{
           width: 150,

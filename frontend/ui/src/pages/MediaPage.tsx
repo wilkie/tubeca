@@ -82,6 +82,7 @@ export function MediaPage() {
     data: mediaData,
     isPending: isLoading,
     errorMessage: loadError,
+    refetch: refetchMedia,
   } = useApiQuery(queryKeys.media(mediaId ?? ''), () => apiClient.getMedia(mediaId!), {
     enabled: Boolean(mediaId),
   });
@@ -749,6 +750,9 @@ export function MediaPage() {
         onClose={handleImagesClose}
         images={media.images || []}
         title={t('media.imagesTitle', 'Media Images')}
+        mediaId={media.id}
+        canEdit={canEdit}
+        onChanged={() => void refetchMedia()}
       />
 
       {/* Add to Collection Dialog */}

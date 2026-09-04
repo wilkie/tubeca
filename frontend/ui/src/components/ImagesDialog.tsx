@@ -1,17 +1,21 @@
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  Grid,
+  Alert,
+  Box,
+  Button,
   Card,
-  CardMedia,
   CardContent,
+  CardMedia,
   Chip,
-  Typography,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Grid,
   IconButton,
+  Typography,
 } from '@mui/material';
-import { Close } from '@mui/icons-material';
+import { Check, Close, Delete, Upload } from '@mui/icons-material';
 import { apiClient, type Image } from '../api/client';
 
 interface ImagesDialogProps {
@@ -19,6 +23,13 @@ interface ImagesDialogProps {
   onClose: () => void;
   images: Image[];
   title?: string;
+  /** The entity these images belong to; enables uploading. */
+  collectionId?: string;
+  mediaId?: string;
+  /** Editors can choose, upload and remove artwork. */
+  canEdit?: boolean;
+  /** Called after a change, so the page can reload the entity. */
+  onChanged?: () => void;
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -33,35 +44,115 @@ function formatFileSize(bytes: number | null): string {
   return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
-export function ImagesDialog({ open, onClose, images, title }: ImagesDialogProps) {
+/**
+ * The artwork an entity has, and for an editor, which of it to use.
+ *
+ * Scrapers supply one image per type, but an uploaded or manually fetched one
+ * is kept alongside rather than replacing it, so there can be several
+ * candidates and one of them is the primary.
+ */
+export function ImagesDialog({
+  open,
+  onClose,
+  images,
+  title,
+  collectionId,
+  mediaId,
+  canEdit = false,
+  onChanged,
+}: ImagesDialogProps) {
   const { t } = useTranslation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canUpload = canEdit && Boolean(collectionId || mediaId);
+
+  const handleSetPrimary = async (image: Image) => {
+    setBusy(true);
+    setError(null);
+    const result = await apiClient.setPrimaryImage(image.id);
+    setBusy(false);
+    if (result.error) setError(result.error);
+    else onChanged?.();
+  };
+
+  const handleDelete = async (image: Image) => {
+    setBusy(true);
+    setError(null);
+    const result = await apiClient.deleteImage(image.id);
+    setBusy(false);
+    if (result.error) setError(result.error);
+    else onChanged?.();
+  };
+
+  const handleUpload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    // Uploaded artwork takes over as the poster; a backdrop or logo is added
+    // as a candidate, since the type is inferred from what the file replaces.
+    const result = await apiClient.uploadImage(file, {
+      imageType: 'Poster',
+      collectionId,
+      mediaId,
+      isPrimary: true,
+    });
+    setBusy(false);
+    if (result.error) setError(result.error);
+    else onChanged?.();
+  };
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth="md"
-      fullWidth
-      aria-labelledby="images-dialog-title"
-    >
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth aria-labelledby="images-dialog-title">
       <DialogTitle
         id="images-dialog-title"
         sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
       >
         {title || t('images.title', 'Images')}
-        <IconButton onClick={onClose} size="small">
-          <Close />
-        </IconButton>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {canUpload && (
+            <>
+              <Button
+                size="small"
+                startIcon={<Upload />}
+                disabled={busy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {t('images.upload', 'Upload poster')}
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  void handleUpload(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+            </>
+          )}
+          <IconButton onClick={onClose} size="small">
+            <Close />
+          </IconButton>
+        </Box>
       </DialogTitle>
       <DialogContent>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+
         {images && images.length > 0 ? (
           <Grid container spacing={2}>
             {images.map((image: Image) => (
               <Grid size={{ xs: 6, sm: 4, md: 3 }} key={image.id}>
-                <Card>
+                <Card sx={image.isPrimary ? { outline: '2px solid', outlineColor: 'primary.main' } : undefined}>
                   <CardMedia
                     component="img"
-                    image={apiClient.getImageUrl(image.id)}
+                    image={apiClient.getImageUrl(image.id, 'w400')}
                     alt={image.imageType}
                     sx={{
                       aspectRatio: image.imageType === 'Poster' ? '2/3' : '16/9',
@@ -81,6 +172,28 @@ export function ImagesDialog({ open, onClose, images, title }: ImagesDialogProps
                         {image.width && image.height && image.fileSize && ' • '}
                         {image.fileSize && formatFileSize(image.fileSize)}
                       </Typography>
+                    )}
+                    {canEdit && (
+                      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, mt: 0.5 }}>
+                        {!image.isPrimary && (
+                          <Button
+                            size="small"
+                            startIcon={<Check />}
+                            disabled={busy}
+                            onClick={() => handleSetPrimary(image)}
+                          >
+                            {t('images.useThis', 'Use this')}
+                          </Button>
+                        )}
+                        <IconButton
+                          size="small"
+                          aria-label={t('images.delete', 'Delete image')}
+                          disabled={busy}
+                          onClick={() => handleDelete(image)}
+                        >
+                          <Delete fontSize="small" />
+                        </IconButton>
+                      </Box>
                     )}
                   </CardContent>
                 </Card>

@@ -1,12 +1,15 @@
 import { render, screen } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { ImagesDialog } from '../ImagesDialog';
-import type { Image } from '../../api/client';
+import { apiClient, type Image } from '../../api/client';
 
 // Mock apiClient
 jest.mock('../../api/client', () => ({
   apiClient: {
     getImageUrl: jest.fn((id: string) => `http://localhost/api/images/${id}`),
+    setPrimaryImage: jest.fn(),
+    deleteImage: jest.fn(),
+    uploadImage: jest.fn(),
   },
 }));
 
@@ -268,6 +271,86 @@ describe('ImagesDialog', () => {
         await user.click(backdrop);
         expect(mockOnClose).toHaveBeenCalled();
       }
+    });
+  });
+
+  describe('editing', () => {
+    const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockApi.setPrimaryImage.mockResolvedValue({ data: undefined } as never);
+      mockApi.deleteImage.mockResolvedValue({ data: undefined } as never);
+      mockApi.uploadImage.mockResolvedValue({ data: { message: 'ok', path: 'p' } } as never);
+    });
+
+    it('offers nothing to change for a viewer', () => {
+      render(<ImagesDialog open={true} onClose={mockOnClose} images={mockImages} collectionId="col-1" />);
+
+      expect(screen.queryByRole('button', { name: /use this/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /upload/i })).not.toBeInTheDocument();
+    });
+
+    it('lets an editor choose a different candidate', async () => {
+      const user = userEvent.setup();
+      const onChanged = jest.fn();
+      render(
+        <ImagesDialog
+          open={true}
+          onClose={mockOnClose}
+          images={mockImages}
+          collectionId="col-1"
+          canEdit
+          onChanged={onChanged}
+        />
+      );
+
+      // The primary one offers no button; the others do.
+      const buttons = screen.getAllByRole('button', { name: /use this/i });
+      expect(buttons).toHaveLength(mockImages.length - 1);
+
+      await user.click(buttons[0]);
+
+      expect(mockApi.setPrimaryImage).toHaveBeenCalledWith('img-2');
+      expect(onChanged).toHaveBeenCalled();
+    });
+
+    it('uploads a chosen file as the poster', async () => {
+      const user = userEvent.setup();
+      const onChanged = jest.fn();
+      render(
+        <ImagesDialog
+          open={true}
+          onClose={mockOnClose}
+          images={mockImages}
+          collectionId="col-1"
+          canEdit
+          onChanged={onChanged}
+        />
+      );
+
+      const file = new File(['bytes'], 'poster.png', { type: 'image/png' });
+      // The dialog renders in a portal, so the input is not under `container`.
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      await user.upload(input, file);
+
+      expect(mockApi.uploadImage).toHaveBeenCalledWith(file, {
+        imageType: 'Poster',
+        collectionId: 'col-1',
+        mediaId: undefined,
+        isPrimary: true,
+      });
+      expect(onChanged).toHaveBeenCalled();
+    });
+
+    it('shows what went wrong when a change fails', async () => {
+      const user = userEvent.setup();
+      mockApi.setPrimaryImage.mockResolvedValue({ error: 'Nope' } as never);
+      render(<ImagesDialog open={true} onClose={mockOnClose} images={mockImages} collectionId="col-1" canEdit />);
+
+      await user.click(screen.getAllByRole('button', { name: /use this/i })[0]);
+
+      expect(await screen.findByText('Nope')).toBeInTheDocument();
     });
   });
 });

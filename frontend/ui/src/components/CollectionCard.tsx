@@ -141,7 +141,7 @@ export function CollectionPosterCard(props: CollectionCardProps) {
           {hasImage ? (
             <CardMedia
               component="img"
-              image={apiClient.getImageUrl(primaryImage!.id)}
+              image={apiClient.getImageUrl(primaryImage!.id, 'w400')}
               alt={collection.name}
               sx={{ aspectRatio: '2/3', objectFit: 'cover' }}
             />
@@ -206,7 +206,7 @@ export function CollectionListCard(props: CollectionCardProps & { onPlay: (colle
           {hasImage ? (
             <CardMedia
               component="img"
-              image={apiClient.getImageUrl(primaryImage!.id)}
+              image={apiClient.getImageUrl(primaryImage!.id, 'w200')}
               alt={collection.name}
               sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />

@@ -74,7 +74,7 @@ export function CastCrewGrid({
                   {creditImage ? (
                     <CardMedia
                       component="img"
-                      image={apiClient.getImageUrl(creditImage.id)}
+                      image={apiClient.getImageUrl(creditImage.id, 'w200')}
                       alt={credit.name}
                       sx={{
                         aspectRatio: '2/3',
