@@ -10,8 +10,13 @@ import type {
   CreditType,
   PersonMetadata,
 } from '@tubeca/scraper-types'
+import { createScraperAgent } from '@tubeca/scraper-http'
 
 const TVDB_API_URL = 'https://api4.thetvdb.com/v4'
+
+// Pooled connections and a DNS cache that stays off the libuv threadpool; see
+// @tubeca/scraper-http for why that matters here.
+const httpAgent = createScraperAgent('TVDB')
 
 interface TVDBAuthResponse {
   status: string
@@ -77,6 +82,27 @@ interface TVDBSeasonExtended extends TVDBSeasonSummary {
    */
   nameTranslations?: string[]
   overviewTranslations?: string[]
+}
+
+/** A film. Like a series it keeps its overview in translations, not on the record. */
+interface TVDBMovie {
+  id: number
+  name: string
+  year?: string
+  runtime?: number
+  status?: { name?: string }
+  image?: string
+  genres?: Array<{ name: string }>
+  contentRatings?: Array<{ name: string; country: string }>
+  artworks?: Array<{ image: string; type: number }>
+  characters?: TVDBCharacter[]
+  first_release?: { date?: string }
+  overviewTranslations?: string[]
+}
+
+interface TVDBMovieResponse {
+  status: string
+  data: TVDBMovie
 }
 
 interface TVDBSeasonResponse {
@@ -171,8 +197,16 @@ const ARTWORK_POSTER = 2
 const ARTWORK_BACKDROP = 3
 const ARTWORK_LOGO = 23
 
+/** And the same three kinds on a film, which numbers them differently. */
+const MOVIE_ARTWORK_POSTER = 14
+const MOVIE_ARTWORK_BACKDROP = 15
+const MOVIE_ARTWORK_LOGO = 25
+
 /** How many candidates of each kind to offer; a dialog cannot use more. */
 const CANDIDATE_LIMIT = 12
+
+/** How many credits to keep, matching the TMDB plugin. */
+const CREDIT_LIMIT = 20
 
 /**
  * The artwork the series carries, by kind.
@@ -182,7 +216,14 @@ const CANDIDATE_LIMIT = 12
  * series record also carries season artwork (types 6 and 7), which is why
  * these are selected by id rather than taken in order.
  */
-function pickArtwork(series: TVDBSeries): {
+function pickArtwork(
+  record: { artworks?: Array<{ image: string; type: number }> },
+  kinds: { poster: number; backdrop: number; logo: number } = {
+    poster: ARTWORK_POSTER,
+    backdrop: ARTWORK_BACKDROP,
+    logo: ARTWORK_LOGO,
+  }
+): {
   poster?: string
   backdrop?: string
   logo?: string
@@ -191,12 +232,12 @@ function pickArtwork(series: TVDBSeries): {
   logoUrls?: string[]
 } {
   const allOf = (type: number) => {
-    const images = (series.artworks ?? []).filter((a) => a.type === type).map((a) => a.image)
+    const images = (record.artworks ?? []).filter((a) => a.type === type).map((a) => a.image)
     return images.length > 0 ? images.slice(0, CANDIDATE_LIMIT) : undefined
   }
-  const posterUrls = allOf(ARTWORK_POSTER)
-  const backdropUrls = allOf(ARTWORK_BACKDROP)
-  const logoUrls = allOf(ARTWORK_LOGO)
+  const posterUrls = allOf(kinds.poster)
+  const backdropUrls = allOf(kinds.backdrop)
+  const logoUrls = allOf(kinds.logo)
   return {
     poster: posterUrls?.[0],
     backdrop: backdropUrls?.[0],
@@ -256,6 +297,8 @@ class TVDBScraper implements ScraperPlugin {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ apikey: this.apiKey }),
+      // @ts-expect-error - dispatcher is valid for Node's fetch but not in the types
+      dispatcher: httpAgent,
     })
 
     if (!response.ok) {
@@ -291,6 +334,8 @@ class TVDBScraper implements ScraperPlugin {
             Authorization: `Bearer ${this.token}`,
             'Accept-Language': this.language,
           },
+          // @ts-expect-error - dispatcher is valid for Node's fetch but not in the types
+          dispatcher: httpAgent,
         })
 
         if (!response.ok) {
@@ -313,7 +358,11 @@ class TVDBScraper implements ScraperPlugin {
   }
 
   async searchVideo(query: string, options?: VideoSearchOptions): Promise<SearchResult[]> {
-    const params = new URLSearchParams({ query, type: 'series' })
+    // TVDB searches one kind at a time, and its ids carry the kind, so what is
+    // asked for decides both. Anything that is not explicitly a film is a
+    // series: that is what a Show job and an episode lookup want.
+    const isMovie = options?.videoType === 'movie'
+    const params = new URLSearchParams({ query, type: isMovie ? 'movie' : 'series' })
     if (options?.year) {
       params.set('year', options.year.toString())
     }
@@ -326,7 +375,7 @@ class TVDBScraper implements ScraperPlugin {
       year: result.year ? parseInt(result.year, 10) : undefined,
       overview: result.overview,
       posterUrl: result.image_url,
-      videoType: 'tv_series' as const,
+      videoType: isMovie ? ('movie' as const) : ('tv_series' as const),
     }))
   }
 
@@ -335,6 +384,11 @@ class TVDBScraper implements ScraperPlugin {
   }
 
   async getVideoMetadata(externalId: string): Promise<VideoMetadata | null> {
+    // TVDB ids say what they are, and a film is a different record entirely.
+    if (externalId.startsWith('movie-')) {
+      return this.getMovieMetadata(externalId)
+    }
+
     try {
       // Extract numeric ID from "series-12345" format
       const seriesId = externalId.replace('series-', '')
@@ -366,6 +420,62 @@ class TVDBScraper implements ScraperPlugin {
       }
     } catch {
       return null
+    }
+  }
+
+  /** A film, which TVDB keeps apart from series in every respect. */
+  private async getMovieMetadata(externalId: string): Promise<VideoMetadata | null> {
+    try {
+      const id = externalId.replace('movie-', '')
+      const movie = (await this.request<TVDBMovieResponse>(`/movies/${id}/extended`)).data
+      const { poster, backdrop, logo, posterUrls, backdropUrls, logoUrls } = pickArtwork(movie, {
+        poster: MOVIE_ARTWORK_POSTER,
+        backdrop: MOVIE_ARTWORK_BACKDROP,
+        logo: MOVIE_ARTWORK_LOGO,
+      })
+
+      return {
+        externalId: `movie-${movie.id}`,
+        title: movie.name,
+        // Like a season, a film keeps its overview in translations.
+        description: await this.translatedOverview('movies', movie.id, movie.overviewTranslations),
+        releaseDate: movie.first_release?.date ? new Date(movie.first_release.date) : undefined,
+        rating: movie.contentRatings?.find((r) => r.country === 'usa')?.name,
+        runtime: movie.runtime,
+        genres: movie.genres?.map((g) => g.name),
+        posterUrl: poster ?? movie.image,
+        backdropUrl: backdrop,
+        logoUrl: logo,
+        posterUrls,
+        backdropUrls,
+        logoUrls,
+        credits: this.mapCharactersToCredits(movie.characters ?? []),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * A record's overview, which v4 keeps in translations rather than on it.
+   *
+   * The record lists which languages it has, so one with none in this language
+   * costs no request instead of a 404.
+   */
+  private async translatedOverview(
+    kind: 'movies' | 'seasons',
+    id: number,
+    languages: string[] | undefined
+  ): Promise<string | undefined> {
+    const listed = (languages ?? []).flatMap((entry) => entry.split(',')).map((code) => code.trim())
+    if (!listed.includes(this.language)) return undefined
+    try {
+      const translation = await this.request<TVDBTranslationResponse>(
+        `/${kind}/${id}/translations/${this.language}`
+      )
+      return translation.data.overview || undefined
+    } catch {
+      return undefined
     }
   }
 
@@ -554,6 +664,9 @@ class TVDBScraper implements ScraperPlugin {
 
   private mapCharactersToCredits(characters: TVDBCharacter[]): CreditInfo[] {
     return characters
+      // A film can list sixty characters, and each one becomes a person row, a
+      // lookup and a photo download. TMDB keeps its top twenty; so does this.
+      .slice(0, CREDIT_LIMIT)
       .map((char) => {
         let type: CreditType
         switch (char.type) {

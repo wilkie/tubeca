@@ -95,11 +95,11 @@ describe('signing in', () => {
 });
 
 describe('searching', () => {
-  it('only ever searches for series', async () => {
+  it('searches series unless a film was asked for', async () => {
     routes['/v4/search'] = { data: [] };
     const plugin = await scraper();
 
-    await plugin.searchVideo!('Heat', { videoType: 'movie' });
+    await plugin.searchVideo!('Breaking Bad', { videoType: 'tv_series' });
 
     expect(requests[1].path).toContain('type=series');
   });
@@ -667,5 +667,149 @@ describe('when TVDB misbehaves', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('a film', () => {
+  const movieRecord = {
+    id: 1305,
+    name: 'Heat',
+    year: '1995',
+    runtime: 170,
+    status: { name: 'Released' },
+    image: 'https://artworks.thetvdb.com/movies/fallback.jpg',
+    genres: [{ name: 'Crime' }, { name: 'Drama' }],
+    contentRatings: [
+      { country: 'bra', name: '14' },
+      { country: 'usa', name: 'R' },
+    ],
+    first_release: { date: '1995-12-15' },
+    overviewTranslations: ['eng', 'fra'],
+    artworks: [
+      { type: 14, image: 'https://artworks.thetvdb.com/movies/poster-1.jpg' },
+      { type: 14, image: 'https://artworks.thetvdb.com/movies/poster-2.jpg' },
+      { type: 15, image: 'https://artworks.thetvdb.com/movies/background.jpg' },
+      { type: 25, image: 'https://artworks.thetvdb.com/movies/logo.png' },
+      // A series poster id, which a film record does not use.
+      { type: 2, image: 'https://artworks.thetvdb.com/series-poster.jpg' },
+    ],
+    characters: [
+      { id: 1, name: 'Lt. Vincent Hanna', personName: 'Al Pacino', type: 3, sort: 1, peopleId: 10 },
+    ],
+  };
+
+  beforeEach(() => {
+    routes['/v4/movies/1305/extended'] = { data: movieRecord };
+    routes['/v4/movies/1305/translations/eng'] = {
+      data: { name: 'Heat', overview: 'A crew of thieves and the detective chasing them.' },
+    };
+  });
+
+  it('searches the films when it is asked for one', async () => {
+    routes['/v4/search'] = { data: [] };
+    const plugin = await scraper();
+
+    await plugin.searchVideo!('Heat', { year: 1995, videoType: 'movie' });
+
+    expect(requests[1].path).toContain('type=movie');
+    expect(requests[1].path).toContain('year=1995');
+  });
+
+  it('says a film result is a film', async () => {
+    routes['/v4/search'] = {
+      data: [{ objectID: 'movie-1305', name: 'Heat', year: '1995', image_url: 'p.jpg' }],
+    };
+    const plugin = await scraper();
+
+    expect(await plugin.searchVideo!('Heat', { videoType: 'movie' })).toEqual([
+      {
+        externalId: 'movie-1305',
+        title: 'Heat',
+        year: 1995,
+        overview: undefined,
+        posterUrl: 'p.jpg',
+        videoType: 'movie',
+      },
+    ]);
+  });
+
+  it('still searches series for everything else', async () => {
+    routes['/v4/search'] = { data: [] };
+    const plugin = await scraper();
+
+    await plugin.searchVideo!('Breaking Bad');
+
+    expect(requests[1].path).toContain('type=series');
+  });
+
+  it('maps the film record, taking its artwork ids rather than a series own', async () => {
+    const plugin = await scraper();
+
+    expect(await plugin.getVideoMetadata!('movie-1305')).toMatchObject({
+      externalId: 'movie-1305',
+      title: 'Heat',
+      description: 'A crew of thieves and the detective chasing them.',
+      releaseDate: new Date('1995-12-15'),
+      runtime: 170,
+      rating: 'R',
+      genres: ['Crime', 'Drama'],
+      posterUrl: 'https://artworks.thetvdb.com/movies/poster-1.jpg',
+      backdropUrl: 'https://artworks.thetvdb.com/movies/background.jpg',
+      logoUrl: 'https://artworks.thetvdb.com/movies/logo.png',
+      posterUrls: [
+        'https://artworks.thetvdb.com/movies/poster-1.jpg',
+        'https://artworks.thetvdb.com/movies/poster-2.jpg',
+      ],
+    });
+  });
+
+  it('asks the movie endpoint, not the series one', async () => {
+    const plugin = await scraper();
+
+    await plugin.getVideoMetadata!('movie-1305');
+
+    expect(requests.map((r) => r.path)).toContain('/v4/movies/1305/extended');
+    expect(requests.map((r) => r.path)).not.toContain('/v4/series/1305/extended');
+  });
+
+  it('asks for no translation for a film that has none in this language', async () => {
+    (routes['/v4/movies/1305/extended'] as { data: Record<string, unknown> }).data
+      .overviewTranslations = ['fra'];
+    const plugin = await scraper();
+
+    const film = await plugin.getVideoMetadata!('movie-1305');
+
+    expect(film!.description).toBeUndefined();
+    expect(requests.map((r) => r.path)).not.toContain('/v4/movies/1305/translations/eng');
+  });
+
+  it('falls back to the record image when the film has no poster artwork', async () => {
+    (routes['/v4/movies/1305/extended'] as { data: Record<string, unknown> }).data.artworks = [];
+    const plugin = await scraper();
+
+    expect((await plugin.getVideoMetadata!('movie-1305'))!.posterUrl).toBe(
+      'https://artworks.thetvdb.com/movies/fallback.jpg'
+    );
+  });
+
+  it('says nothing for a film that is not there', async () => {
+    const plugin = await scraper();
+
+    expect(await plugin.getVideoMetadata!('movie-999')).toBeNull();
+  });
+
+  it('keeps only the top twenty of a long cast, as TMDB does', async () => {
+    (routes['/v4/movies/1305/extended'] as { data: Record<string, unknown> }).data.characters =
+      Array.from({ length: 57 }, (_, i) => ({
+        id: i,
+        name: `Character ${i}`,
+        personName: `Actor ${i}`,
+        type: 3,
+        sort: i,
+        peopleId: i,
+      }));
+    const plugin = await scraper();
+
+    expect((await plugin.getVideoMetadata!('movie-1305'))!.credits).toHaveLength(20);
   });
 });

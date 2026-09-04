@@ -1,7 +1,7 @@
 {
-  "name": "@tubeca/scraper-tmdb",
+  "name": "@tubeca/scraper-http",
   "version": "1.0.0",
-  "description": "TMDB metadata scraper plugin for Tubeca",
+  "description": "Shared HTTP dispatcher for Tubeca scraper plugins: pooled connections and a DNS cache off the libuv threadpool",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -12,18 +12,15 @@
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest"
   },
   "dependencies": {
-    "@tubeca/scraper-http": "workspace:*",
-    "@tubeca/scraper-types": "workspace:*"
+    "undici": "^7.16.0"
   },
   "devDependencies": {
     "@jest/globals": "^30.5.1",
     "@types/jest": "^30.0.0",
+    "@types/node": "^24.7.2",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.5",
     "typescript": "^5.9.3"
-  },
-  "peerDependencies": {
-    "@tubeca/scraper-types": "^1.0.0"
   },
   "files": [
     "dist"
@@ -33,8 +30,5 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
-  },
-  "tubeca": {
-    "pluginType": "scraper"
   }
 }

@@ -11,88 +11,17 @@ import type {
   SeasonMetadata,
   PersonMetadata,
 } from '@tubeca/scraper-types'
-import dns from 'node:dns'
-import { Agent } from 'undici'
+import { createScraperAgent } from '@tubeca/scraper-http'
 
 const TMDB_API_URL = 'https://api.themoviedb.org/3'
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
 
-// Custom DNS resolver that stays off the libuv threadpool.
-//
-// The default `dns.lookup` (getaddrinfo) runs on libuv's threadpool. Under WSL2
-// the backend's file watcher polls the SMB-mounted libraries, which blocks the
-// threadpool with slow CIFS `stat` calls — measured blocking getaddrinfo for
-// 30-60s, well past the request timeout (TMDB API calls abort while pooled,
-// no-timeout image downloads keep succeeding). `dns.resolve4` uses c-ares, which
-// runs on the event loop instead, so DNS is immune to that starvation. A short
-// TTL cache avoids re-querying on every reconnect.
-//
-// IPv4 only: WSL2 NAT typically has no working IPv6 route.
-type LookupCallback = (
-  err: NodeJS.ErrnoException | null,
-  address: string | dns.LookupAddress[],
-  family?: number
-) => void
-
 /** How many candidates of each kind to offer; a dialog cannot use more. */
 const CANDIDATE_LIMIT = 12
 
-const DNS_TTL_MS = 5 * 60_000
-const dnsCache = new Map<string, { address: string; expires: number }>()
-
-function cachedLookup(
-  hostname: string,
-  options: dns.LookupOptions,
-  callback: LookupCallback
-): void {
-  const respond = (address: string) =>
-    options.all ? callback(null, [{ address, family: 4 }]) : callback(null, address, 4)
-
-  const cached = dnsCache.get(hostname)
-  if (cached && cached.expires > Date.now()) {
-    respond(cached.address)
-    return
-  }
-
-  const start = performance.now()
-  dns.resolve4(hostname, (err, addresses) => {
-    const ms = performance.now() - start
-    if (ms > 1000) {
-      // Diagnostic: c-ares shouldn't be slow; if this fires, DNS itself is the issue.
-      console.warn(`⚠️  TMDB DNS resolve for ${hostname} took ${Math.round(ms)}ms`)
-    }
-    if (err || !addresses || addresses.length === 0) {
-      // Fall back to getaddrinfo (e.g. for /etc/hosts entries c-ares can't see).
-      dns.lookup(hostname, { family: 4 }, (lErr, address) => {
-        if (lErr) {
-          callback(lErr, '', 0)
-          return
-        }
-        dnsCache.set(hostname, { address, expires: Date.now() + DNS_TTL_MS })
-        respond(address)
-      })
-      return
-    }
-    dnsCache.set(hostname, { address: addresses[0], expires: Date.now() + DNS_TTL_MS })
-    respond(addresses[0])
-  })
-}
-
-// Shared, connection-pooling HTTP dispatcher for TMDB API requests. A single
-// pooled agent keeps connections warm so TCP/TLS setup happens rarely; the cached
-// lookup above ensures that even when the pool does reconnect, DNS stays off the
-// threadpool hot path. (The backend also raises UV_THREADPOOL_SIZE; see the
-// backend package scripts.)
-const httpAgent = new Agent({
-  connect: {
-    timeout: 10000, // 10s connect timeout
-    lookup: cachedLookup,
-  },
-  bodyTimeout: 15000,
-  headersTimeout: 15000,
-  keepAliveTimeout: 10000, // keep connections warm to avoid re-resolving DNS
-  keepAliveMaxTimeout: 30000,
-})
+// Pooled connections and a DNS cache that stays off the libuv threadpool; see
+// @tubeca/scraper-http for why that matters here.
+const httpAgent = createScraperAgent('TMDB')
 
 // TMDB API response types
 interface TMDBSearchResult {

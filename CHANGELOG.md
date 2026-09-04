@@ -6,6 +6,8 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- TVDB can now match films, not only shows: a film search asks for films, and a film's own record
+  supplies its description, runtime, certificate, cast and artwork.
 - The images dialog now shows the other artwork the provider has for a title — usually a dozen
   posters, backdrops and logos rather than the one a scrape picked — and downloads one only when
   you choose it.
@@ -104,6 +106,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- Both scrapers share one pooled connection and DNS cache, so TVDB gets the treatment TMDB had for
+  network mounts where name lookups are slow. TVDB also keeps the top twenty credits of a title
+  rather than all sixty, as TMDB does.
 - The database now lives in `/var/lib/tubeca/tubeca.db` rather than inside the installed program
   files, where a package upgrade could replace it. An upgrade moves an existing one across,
   write-ahead log included, after taking a copy of it.

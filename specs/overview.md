@@ -66,11 +66,11 @@ backlog; `overview.md` (this file) rolls them up into themes.
 | `backend/` | Express API, Prisma schema, BullMQ workers, FFmpeg integration | ~14.8k lines, 45 files |
 | `frontend/ui/` | React SPA (Vite build) | ~17.8k lines, 68 files |
 | `packages/shared-types/` | TypeScript types shared by API and UI (types only, no runtime code) | ~800 lines |
-| `packages/scraper-types/` | Plugin contract for metadata scrapers | ~430 lines |
-| `scrapers/tmdb/`, `scrapers/tvdb/` | Scraper plugin implementations | ~740 / ~350 lines |
+| `packages/scraper-types/` | Plugin contract for metadata scrapers | ~450 lines |
+| `packages/scraper-http/` | Pooled HTTP agent and DNS cache both plugins dispatch through | ~90 lines |
+| `scrapers/tmdb/`, `scrapers/tvdb/` | Scraper plugin implementations | ~715 / ~735 lines |
 
-Tests: 42 frontend test files (pages, components, contexts, API client) and 2 backend test
-files (auth service, media parser). The backend is effectively untested.
+Tests: 1,940 cases across the five packages that have them; see the coverage section below.
 
 ### Runtime processes
 
@@ -145,8 +145,8 @@ remains git-ignored; see [Metadata Scraping](metadata-scraping.md) and
 
 The backend runs on a real-SQLite scaffolding (`backend/src/test/`: a migrated template database
 per run, one copy per Jest worker, factories, and supertest for routes). As of 2026-09-04 the
-workspace has 1,848 cases across four packages — 631 backend in 52 files, 1,157 frontend in 75,
-and 60 across the two scraper plugins, which gained Jest that day. Every backend service, route, middleware, worker and
+workspace has 1,940 cases across five packages — 647 backend, 1,189 frontend, 96 across the two
+scraper plugins, and 8 in the shared HTTP package. Every backend service, route, middleware, worker and
 plugin has tests, and so does every frontend component, page, context and hook; what is left is
 what needs a real binary or a real Redis to say anything (`ffprobe`, the BullMQ producers) and
 three frontend files that are pure wiring (`App.tsx`, `main.tsx`, `theme.ts`).
@@ -339,10 +339,8 @@ Ranked 2026-09-03 from what the third round left behind; all four landed on 2026
 
 In rough order of what it costs a user:
 
-- **Scraping**: TVDB can complete a Show or Season job as of 2026-09-04, but the new paths are
-  written against the documented v4 shapes rather than verified — the key in the local config is
-  rejected — and its search is still series-only, so it can never match a film
-  ([Metadata Scraping](metadata-scraping.md)).
+- **Scraping**: nothing outstanding from this round. TVDB does shows, seasons, films, episodes
+  and people, all verified against the live API ([Metadata Scraping](metadata-scraping.md)).
 - **Streaming**: prefetch cancellation is by position rather than by viewer, so two people
   watching the same file interfere with each other's prefetches
   ([Streaming](streaming-and-transcoding.md)).
