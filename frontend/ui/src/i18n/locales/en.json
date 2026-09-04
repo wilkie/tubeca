@@ -127,7 +127,11 @@
     "searchPlaceholder": "Search by title...",
     "yearPlaceholder": "Year",
     "noResults": "No results found",
-    "identifying": "Identifying..."
+    "identifying": "Identifying...",
+    "typeShow": "Show",
+    "typeSeason": "Season",
+    "typeArtist": "Artist",
+    "typeAlbum": "Album"
   },
   "media": {
     "notFound": "Media not found",

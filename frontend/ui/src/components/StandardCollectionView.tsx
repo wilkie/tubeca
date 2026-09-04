@@ -59,16 +59,17 @@ interface StandardCollectionViewProps {
   onWatchedChange?: (mediaId: string, watched: boolean) => Promise<boolean> | boolean | void;
 }
 
-function getCollectionLabel(collectionType?: CollectionType): string | null {
+/** The translation key for the chip beside the title, or null for no chip. */
+function getCollectionLabelKey(collectionType?: CollectionType): string | null {
   switch (collectionType) {
     case 'Show':
-      return 'Show';
+      return 'collection.typeShow';
     case 'Season':
-      return 'Season';
+      return 'collection.typeSeason';
     case 'Artist':
-      return 'Artist';
+      return 'collection.typeArtist';
     case 'Album':
-      return 'Album';
+      return 'collection.typeAlbum';
     default:
       return null;
   }
@@ -139,7 +140,8 @@ export function StandardCollectionView({
     handleAddMenuClose();
   };
 
-  const label = getCollectionLabel(collection.collectionType);
+  const labelKey = getCollectionLabelKey(collection.collectionType);
+  const label = labelKey ? t(labelKey) : null;
   const posterImage = collection.images?.find((img) => img.imageType === 'Poster' && img.isPrimary);
   const isSeason = collection.collectionType === 'Season';
   const hasSeasonDescription = collection.seasonDetails?.description || collection.seasonDetails?.releaseDate;

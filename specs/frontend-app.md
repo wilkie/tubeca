@@ -290,6 +290,8 @@ proxies `/api` and `/api/stream/` to `:3000`). See [Deployment](deployment.md).
 `StandardCollectionView`, `StickyHeroBreadcrumbs`, `UpNextPopup`, `ViewModeMenu`, `QueuePage`,
 `ScrollRestorationContext`, both hooks. The husky pre-commit hook runs `pnpm lint && pnpm
 typecheck && pnpm test` (tests added 2026-09-03; the frontend suite takes about a minute).
+`jest.setup.ts` fails a test on any `console.error` and stands in for the parts of the browser
+jsdom leaves out (`window.scrollTo`, `ResizeObserver`).
 The shared `test-utils.tsx` wrapper mirrors `main.tsx` providers including
 `ScrollRestorationProvider`; forgetting to add a new provider there is what silently broke 29
 cases between December 2025 and September 2026.
@@ -359,6 +361,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-03 `ApiClient` signs the app out centrally on a 401 (clears the token, fires `tubeca:unauthorized`, which `AuthContext` listens for).
 - 2026-09-03 Coverage push: `SelectionActionBar`, `IdentifyDialog`, `LibraryToolbar`, `DirectoryPickerDialog`, `useQuickSearch` and `useDebouncedValue` tested; `aria-label`s added to the filter and identify-search buttons; the collection-name field in `SelectionActionBar` now stops its keystrokes reaching MUI's `MenuList` type-ahead, which had been eating them.
 - 2026-09-03 Second coverage push: `CollectionCard`, `MediaListItem`, `ContinueWatchingRow`, `FilterChips`, `SortControls`, `FavoriteButton` and `QuickSearchOverlay` tested; the play button on a list row labelled; the quick-search counter and the play tooltip moved to `t()` (`library.quickSearchMatches`, `common.play`).
+- 2026-09-03 Third coverage push: `ScrollRestorationContext`, `StandardCollectionView`, `StickyHeroBreadcrumbs`, `NavigationLoadingOverlay`, `SortableMediaListItem` and the playlist drag-reorder handler tested; the collection-type chip moved to `t()`; `jest.setup.ts` stubs `ResizeObserver`, which jsdom does not implement.
 
 ## Known Limitations
 
@@ -412,8 +415,6 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - **Second locale + i18n lint**: add a `pseudo` or real locale and a test asserting every
   `t()` key exists in `en.json`, since inline defaults currently hide missing keys — `common.play`
   was referenced by `QueuePage` for weeks without existing in `en.json`. (S)
-- **Tests for the untested browsing pieces**: `ScrollRestorationContext`, `StandardCollectionView`,
-  `StickyHeroBreadcrumbs` and `NavigationLoadingOverlay`. (M)
 - **Self-host the "Praise" font** in `public/` to drop the Google Fonts dependency. (S)
 - **Make `serve` mode self-sufficient** by adding `VITE_API_BASE` or an `serve.json` rewrite,
   or drop the frontend service in favour of the backend serving `dist/` (see

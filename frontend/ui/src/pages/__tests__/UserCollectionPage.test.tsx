@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '../../test-utils';
+import { act, render, screen, waitFor } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { UserCollectionPage } from '../UserCollectionPage';
 import { apiClient } from '../../api/client';
@@ -10,6 +10,7 @@ jest.mock('../../api/client', () => ({
     getUserCollection: jest.fn(),
     updateUserCollection: jest.fn(),
     removeUserCollectionItem: jest.fn(),
+    reorderUserCollectionItems: jest.fn(),
     checkFavorites: jest.fn(),
     toggleFavorite: jest.fn(),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
@@ -24,6 +25,21 @@ jest.mock('react-router-dom', () => ({
   useParams: () => ({ collectionId: mockCollectionId }),
   useNavigate: () => mockNavigate,
 }));
+
+// Keep the real drag context, but hold on to its drag-end handler so a drop can
+// be replayed without a pointer.
+let dragEnd: ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
+jest.mock('@dnd-kit/core', () => {
+  const actual = jest.requireActual('@dnd-kit/core');
+  return {
+    ...actual,
+    DndContext: (props: Record<string, unknown>) => {
+      dragEnd = props.onDragEnd as typeof dragEnd;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return require('react').createElement(actual.DndContext, props);
+    },
+  };
+});
 
 // Mock useAuth
 jest.mock('../../context/AuthContext', () => ({
@@ -469,6 +485,94 @@ describe('UserCollectionPage', () => {
       await user.click(screen.getByRole('button', { name: /favorites/i }));
 
       expect(mockApiClient.toggleFavorite).toHaveBeenCalledWith({ userCollectionId: 'col-1' });
+    });
+  });
+
+  describe('reordering', () => {
+    // Only a Playlist is reorderable; a Set renders as a grid with no drag context.
+    const playlist: UserCollection = { ...mockUserCollection, collectionType: 'Playlist' };
+    const reordered: UserCollection = {
+      ...playlist,
+      items: [mockMediaItem, mockCollectionItem],
+    };
+
+    async function loaded() {
+      mockApiClient.getUserCollection.mockResolvedValue({ data: { userCollection: playlist } });
+      render(<UserCollectionPage />);
+      await screen.findByText('The Matrix');
+    }
+
+    it('saves the new order after a drop', async () => {
+      mockApiClient.reorderUserCollectionItems.mockResolvedValue({
+        data: { userCollection: reordered },
+      });
+      await loaded();
+
+      await act(async () => {
+        dragEnd!({ active: { id: 'item-1' }, over: { id: 'item-2' } });
+      });
+
+      expect(mockApiClient.reorderUserCollectionItems).toHaveBeenCalledWith('col-1', [
+        'item-2',
+        'item-1',
+      ]);
+    });
+
+    it('moves the row before the server answers', async () => {
+      let settle: (value: { data: { userCollection: UserCollection } }) => void;
+      mockApiClient.reorderUserCollectionItems.mockImplementation(
+        () => new Promise((resolve) => { settle = resolve; })
+      );
+      await loaded();
+      expect(screen.getAllByText(/#\d/).map((el) => el.textContent)).toEqual(['#1', '#2']);
+      expect(screen.getAllByRole('heading', { level: 6 })[0]).toHaveTextContent('The Matrix');
+
+      await act(async () => {
+        dragEnd!({ active: { id: 'item-1' }, over: { id: 'item-2' } });
+      });
+
+      await waitFor(() =>
+        expect(screen.getAllByRole('heading', { level: 6 })[0]).toHaveTextContent('Pilot')
+      );
+      expect(screen.getAllByText(/#\d/).map((el) => el.textContent)).toEqual(['#1', '#2']);
+
+      await act(async () => {
+        settle!({ data: { userCollection: reordered } });
+      });
+    });
+
+    it('does nothing when an item is dropped where it started', async () => {
+      await loaded();
+
+      await act(async () => {
+        dragEnd!({ active: { id: 'item-1' }, over: { id: 'item-1' } });
+      });
+
+      expect(mockApiClient.reorderUserCollectionItems).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when an item is dropped outside the list', async () => {
+      await loaded();
+
+      await act(async () => {
+        dragEnd!({ active: { id: 'item-1' }, over: null });
+      });
+
+      expect(mockApiClient.reorderUserCollectionItems).not.toHaveBeenCalled();
+    });
+
+    it('keeps the optimistic order when the save fails', async () => {
+      mockApiClient.reorderUserCollectionItems.mockResolvedValue({ error: 'Nope' });
+      await loaded();
+
+      await act(async () => {
+        dragEnd!({ active: { id: 'item-1' }, over: { id: 'item-2' } });
+      });
+
+      // The page has no rollback yet; the list keeps the order the drop implied.
+      await waitFor(() =>
+        expect(screen.getAllByRole('heading', { level: 6 })[0]).toHaveTextContent('Pilot')
+      );
     });
   });
 

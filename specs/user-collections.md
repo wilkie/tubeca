@@ -236,6 +236,7 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 - `78d94c1` 2025-12-14 — Multi-select and Select All on SearchPage.
 - 2026-09-03 Items outside the viewer's accessible libraries are dropped from collection detail, favorites, watch-later and queue responses.
 - 2026-09-03 `SelectionActionBar` tested; typing a collection name into its menu no longer loses letters to MUI's list type-ahead.
+- 2026-09-03 `SortableMediaListItem` tested, and the playlist reorder handler with it: the real `DndContext` is rendered but its `onDragEnd` is held so a drop can be replayed without a pointer. The optimistic move is not rolled back when the save fails; the test records that.
 
 ## Known Limitations
 
@@ -265,9 +266,9 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `FavoriteButton`/`WatchLaterButton` are the same component with icons swapped; the
   image/name/subtitle/icon/type helpers are copy-pasted across `UserCollectionPage`,
   `FavoritesPage`, `WatchLaterPage` and `QueuePage`; the sort/filter block is duplicated three times.
-- **Tests**: `userCollectionService`, `QueuePage`, `CardQuickActions` and `SelectionActionBar`
-  are covered; still untested are `FavoriteButton`, `SortableMediaListItem`, the DnD reorder
-  paths, and the queue logic in `PlayerContext` (its test file has no queue cases).
+- **Tests**: `userCollectionService`, `QueuePage`, `CardQuickActions`, `SelectionActionBar`,
+  `FavoriteButton`, `SortableMediaListItem` and the drag-reorder handler are covered; the queue
+  logic in `PlayerContext` is not (its test file has no queue cases).
 
 ## Opportunities
 
@@ -287,6 +288,5 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `WatchProgress` rows would reuse the list page pattern. (M)
 - **Nested collections properly**: let `AddToCollectionDialog` add a user collection to a `Set`,
   render `itemUserCollection` in `UserCollectionPage`, and add cycle detection. (M)
-- **Frontend tests** for the drag-reorder handler itself (mock `@dnd-kit` `onDragEnd`) and
-  `PlayerContext` next/previous/auto-advance. `QueuePage`, `CardQuickActions` and
-  `SelectionActionBar` are covered. (M)
+- **Frontend tests** for `PlayerContext` next/previous/auto-advance; the rest of this part is
+  covered. (M)

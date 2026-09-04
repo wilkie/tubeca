@@ -39,7 +39,8 @@ All notable changes to Tubeca are recorded here. The format follows
 - Screen readers can now name the favourite, watch later and add buttons on a card, the play
   button on a queue row or a list row, and the filter and identify-search buttons; they were
   unlabelled icons.
-- The quick-search counter and the play tooltip are translated rather than hard-coded English.
+- The quick-search counter, the play tooltip and the collection-type chip are translated rather
+  than hard-coded English.
 - Typing a new collection name in the multi-select bar no longer loses letters: the menu around
   the field was treating them as type-ahead and jumping to a collection instead.
 - Reordering a collection can no longer move items that belong to somebody else's, and a
