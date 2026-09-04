@@ -235,6 +235,7 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 - `5e379a5` 2025-12-13 — `SelectionActionBar`; multi-select on LibraryPage; landscape images in list rows.
 - `78d94c1` 2025-12-14 — Multi-select and Select All on SearchPage.
 - 2026-09-03 Items outside the viewer's accessible libraries are dropped from collection detail, favorites, watch-later and queue responses.
+- 2026-09-03 `SelectionActionBar` tested; typing a collection name into its menu no longer loses letters to MUI's list type-ahead.
 
 ## Known Limitations
 
@@ -264,11 +265,9 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `FavoriteButton`/`WatchLaterButton` are the same component with icons swapped; the
   image/name/subtitle/icon/type helpers are copy-pasted across `UserCollectionPage`,
   `FavoritesPage`, `WatchLaterPage` and `QueuePage`; the sort/filter block is duplicated three times.
-- **Tests**: no backend tests for `userCollectionService` or the routes (backend `__tests__`
-  covers only `authService` and `mediaParser`). Frontend has page tests for the four collection
-  pages and dialog tests, but none for `QueuePage`, `FavoriteButton`, `CardQuickActions`,
-  `SelectionActionBar`, `SortableMediaListItem`, the DnD reorder paths, or the queue logic in
-  `PlayerContext` (its test file has no queue cases).
+- **Tests**: `userCollectionService`, `QueuePage`, `CardQuickActions` and `SelectionActionBar`
+  are covered; still untested are `FavoriteButton`, `SortableMediaListItem`, the DnD reorder
+  paths, and the queue logic in `PlayerContext` (its test file has no queue cases).
 
 ## Opportunities
 
@@ -288,6 +287,6 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `WatchProgress` rows would reuse the list page pattern. (M)
 - **Nested collections properly**: let `AddToCollectionDialog` add a user collection to a `Set`,
   render `itemUserCollection` in `UserCollectionPage`, and add cycle detection. (M)
-- **Frontend tests** for `SelectionActionBar`, the drag-reorder handler itself (mock `@dnd-kit`
-  `onDragEnd`), and `PlayerContext` next/previous/auto-advance. `QueuePage` and
-  `CardQuickActions` are covered. (M)
+- **Frontend tests** for the drag-reorder handler itself (mock `@dnd-kit` `onDragEnd`) and
+  `PlayerContext` next/previous/auto-advance. `QueuePage`, `CardQuickActions` and
+  `SelectionActionBar` are covered. (M)

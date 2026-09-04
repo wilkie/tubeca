@@ -26,65 +26,6 @@ export interface UpdateCollectionInput {
 }
 
 export class CollectionService {
-  async getCollectionsByLibrary(libraryId: string) {
-    return prisma.collection.findMany({
-      where: { libraryId },
-      include: {
-        children: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        parent: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        images: {
-          where: { isPrimary: true, imageType: 'Poster' },
-          take: 1,
-        },
-        _count: {
-          select: {
-            media: true,
-            children: true,
-          },
-        },
-        // Include sortable metadata fields
-        showDetails: {
-          select: {
-            releaseDate: true,
-            rating: true,
-            description: true,
-          },
-        },
-        filmDetails: {
-          select: {
-            releaseDate: true,
-            rating: true,
-            runtime: true,
-            contentRating: true,
-            description: true,
-          },
-        },
-        albumDetails: {
-          select: {
-            releaseDate: true,
-          },
-        },
-        keywords: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: { name: 'asc' },
-    });
-  }
-
   async getKeywordsByLibrary(libraryId: string) {
     // Get all unique keywords used by collections in this library
     const keywords = await prisma.keyword.findMany({

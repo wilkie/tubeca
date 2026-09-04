@@ -310,6 +310,7 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - 2026-09-03 `ScrapeStatus` enum and `scrapeStatus`/`scrapeMessage`/`scrapedAt` columns on `Collection` and `Media`.
 - 2026-09-03 `Media.fileSize` and `fileMtimeMs` added for rename detection.
 - 2026-09-03 `Collection.sortReleaseDate` / `sortRating` / `sortRuntime` denormalised for SQL ordering (migration `20260903170000_collection_sort_fields`, which backfills from the details tables).
+- 2026-09-03 Tests for `personService` (id precedence, backfill, search, filmography), `syncCollectionSortFields` and `mediaService`; the unused service methods (`createVideo`, `createAudio`, `getAllVideos`, `getAllAudio`, `getAllMedia`, `updateMedia`, `searchMedia`, `processMedia`, `getCollectionsByLibrary`, `getPersonByExternalId`) deleted rather than pinned by tests.
 
 ## Known Limitations
 
@@ -360,16 +361,12 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   partial unique index would let the database enforce `(libraryId, parentId, name)`. (S)
 - **Move person auto-fetch off the request path**: enqueue a person-scrape job on first view and
   return the stub immediately, or fetch persons at credit-link time in the workers. (M)
-- **Extract the duplicated `deleteImageFile` helper** (`collectionService.ts:596-610`,
-  `mediaService.ts:166-180`) into `imageService`, and share it with Identify. (S)
 - **Single source for API types**: have `personService` and `collectionService` import
   `PersonWithFilmography`, `CreateCollectionInput`, `UpdateCollectionInput` from
   `@tubeca/shared-types`; add `filmCreditId` to `Image`; widen `Collection.media` to what the
   detail query returns. (S)
 - **More route/service tests** on the real-SQLite scaffolding in `backend/src/test/`: cycle
-  detection, delete file cleanup, Identify upsert, person id-merge priority, and supertest
-  coverage of the three routers. (M)
+  detection, delete file cleanup and Identify upsert. Person id-merge priority and supertest
+  coverage of the collection, media and group routers are in place. (M)
 - **Populate music details** or drop the unwritten tables/types to reduce surface area. (L to
   implement a MusicBrainz scraper; S to prune.)
-- **Delete dead service methods** (`searchMedia`, `processMedia`, `updateMedia`,
-  `getCollectionsByLibrary`, `getPersonByExternalId`). (S)

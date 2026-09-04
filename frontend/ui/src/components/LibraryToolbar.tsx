@@ -72,7 +72,12 @@ export function LibraryToolbar(props: LibraryToolbarProps) {
                 },
               }}
             >
-              <IconButton size="small" onClick={props.onToggleFilters} color={props.filtersOpen ? 'primary' : 'default'}>
+              <IconButton
+                size="small"
+                onClick={props.onToggleFilters}
+                color={props.filtersOpen ? 'primary' : 'default'}
+                aria-label={t('library.filter.toggle', 'Toggle filters')}
+              >
                 <FilterList />
               </IconButton>
             </Badge>

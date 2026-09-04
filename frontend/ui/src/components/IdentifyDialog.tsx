@@ -155,6 +155,7 @@ function IdentifyDialogContent({
                     disabled={searching || identifying || !query.trim()}
                     edge="end"
                     size="small"
+                    aria-label={t('common.search', 'Search')}
                   >
                     {searching ? <CircularProgress size={20} /> : <Search />}
                   </IconButton>

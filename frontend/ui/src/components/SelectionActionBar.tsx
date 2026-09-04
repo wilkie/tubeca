@@ -198,6 +198,13 @@ export function SelectionActionBar({
               size="small"
               sx={{ mb: 1 }}
               onKeyDown={(e) => {
+                // The field sits inside a MUI Menu, whose list treats any
+                // single character as type-ahead: it moves focus to a matching
+                // item and calls preventDefault, so letters that begin one of
+                // the collection names never reach this input. Keep the keys
+                // to ourselves.
+                e.stopPropagation();
+
                 if (e.key === 'Enter') {
                   handleCreateNew();
                 } else if (e.key === 'Escape') {

@@ -361,26 +361,6 @@ export class PersonService {
   }
 
   /**
-   * Get a person by external ID
-   */
-  async getPersonByExternalId(
-    tmdbId?: number,
-    tvdbId?: number,
-    imdbId?: string
-  ): Promise<Person | null> {
-    if (imdbId) {
-      return prisma.person.findUnique({ where: { imdbId } });
-    }
-    if (tmdbId) {
-      return prisma.person.findUnique({ where: { tmdbId } });
-    }
-    if (tvdbId) {
-      return prisma.person.findUnique({ where: { tvdbId } });
-    }
-    return null;
-  }
-
-  /**
    * Update a person's metadata from scraper data
    */
   async updatePersonMetadata(

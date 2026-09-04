@@ -357,6 +357,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-03 `HomePage` added at `/` (library cards, empty state, tests); replaces the empty `<Box />`.
 - 2026-09-03 Suite repaired (860 cases green): `ScrollRestorationProvider` added to `test-utils.tsx`, stale expectations for full-scan options, settings tabs and season-card fallbacks updated; `pnpm test` added to the pre-commit hook.
 - 2026-09-03 `ApiClient` signs the app out centrally on a 401 (clears the token, fires `tubeca:unauthorized`, which `AuthContext` listens for).
+- 2026-09-03 Coverage push: `SelectionActionBar`, `IdentifyDialog`, `LibraryToolbar`, `DirectoryPickerDialog`, `useQuickSearch` and `useDebouncedValue` tested; `aria-label`s added to the filter and identify-search buttons; the collection-name field in `SelectionActionBar` now stops its keystrokes reaching MUI's `MenuList` type-ahead, which had been eating them.
 
 ## Known Limitations
 
@@ -386,7 +387,8 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   anywhere outside inputs) are not keyboard- or screen-reader-friendly. Icon buttons wrapped in a
   `Tooltip` need their own `aria-label`, because the tooltip names the `<span>` MUI puts around a
   possibly-disabled button rather than the button: the favourite and watch-later controls on every
-  card had no accessible name until 2026-09-03 for exactly that reason.
+  card, the library filter button (its tooltip names the `Badge` around it) and the identify
+  dialog's search button had no accessible name until 2026-09-03 for exactly that reason.
 - **External font dependency.** `index.html` loads Google Fonts; on an air-gapped LAN the
   wordmark falls back to `cursive`.
 - **Standalone `serve` mode cannot reach the API** without nginx, because `API_BASE` is relative
@@ -407,9 +409,9 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   height, and make `MediaListItem` stack on `xs`. (M)
 - **Second locale + i18n lint**: add a `pseudo` or real locale and a test asserting every
   `t()` key exists in `en.json`, since inline defaults currently hide missing keys. (S)
-- **Tests for the untested browsing pieces**: `ScrollRestorationContext`, `useQuickSearch`,
-  `CardQuickActions`, `SelectionActionBar`, `StandardCollectionView`, `StickyHeroBreadcrumbs`,
-  `NavigationLoadingOverlay`. (M)
+- **Tests for the untested browsing pieces**: `ScrollRestorationContext`, `StandardCollectionView`,
+  `StickyHeroBreadcrumbs`, `NavigationLoadingOverlay`, `CollectionCard`, `FilterChips`,
+  `ContinueWatchingRow`, `QuickSearchOverlay`, `MediaListItem`. (M)
 - **Self-host the "Praise" font** in `public/` to drop the Google Fonts dependency. (S)
 - **Make `serve` mode self-sufficient** by adding `VITE_API_BASE` or an `serve.json` rewrite,
   or drop the frontend service in favour of the backend serving `dist/` (see
