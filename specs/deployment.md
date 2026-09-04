@@ -66,7 +66,9 @@
 | `tubeca.install` | pacman hooks `post_install`, `post_upgrade`, `pre_remove`, `post_remove`. |
 | `build-package.sh` | Wrapper: checks for `makepkg`/`pnpm`, cleans `src/ pkg/ *.pkg.tar.*`, runs `makepkg -sf`. |
 | `systemd/tubeca-backend.service`, `tubeca-worker.service` | The units, and the only copy of them: `Type=notify`, `WatchdogSec=30`, `node --enable-source-maps`, `.env` and data under `/opt/tubeca`. `package()` in the PKGBUILD rewrites the two paths for the Arch layout with `sed`. |
-| `systemd/backup-database.sh` | Timestamped SQLite copy (`sqlite3 .backup`, falling back to `cp`) keeping the last five; run before any migration by `tubeca.install`, `systemd/install.sh` and the Docker entrypoint. |
+| `systemd/backup-database.sh` | Timestamped SQLite copy (`sqlite3 .backup`, falling back to `cp`) keeping the last five; run before any migration by `tubeca.install`, `systemd/install.sh` and the Docker entrypoint, and daily by `tubeca-backup.timer`. |
+| `systemd/move-database.sh` | Moves a database (and its `-wal`/`-shm`) out of the install tree into `/var/lib/tubeca`; a no-op when there is nothing to move or the destination exists. |
+| `systemd/tubeca-backup.{service,timer}` | Daily `OnCalendar=daily` backup, `Persistent=true`, keeping seven copies. |
 | `backend/src/runtime/systemd.ts` | `sd_notify` over `NOTIFY_SOCKET` with no dependency: readiness, `STOPPING=1`, and a watchdog ping driven by the same health check `/api/health` uses. |
 | `systemd/install.sh`, `uninstall.sh` | Root-run scripts for other distros: copy tree to `/opt/tubeca`, `pnpm install && pnpm build`, write `.env` with a random JWT secret, `prisma migrate deploy`, install units into `/etc/systemd/system`. |
 | `systemd/nginx.conf.example` | Reverse-proxy example: proxies everything to port 3000 (the backend serves the SPA), disables buffering for `/api/stream/`. |
@@ -149,7 +151,8 @@ chmod, runs `prisma generate` + `migrate deploy`, and restarts whichever service
 | `/opt/tubeca` | Full workspace incl. `node_modules`, owned by `tubeca` |
 | `/etc/tubeca/tubeca.env` | `EnvironmentFile` for the backend (`PORT`, `DATABASE_URL`, `REDIS_*`, `JWT_SECRET`, `FILE_WATCHER_ENABLED`) |
 | `/etc/tubeca/tubeca.config.json` | App config, pointed to by `Environment=TUBECA_CONFIG_PATH=...` in the unit (4500646); resolved first by `backend/src/config/appConfig.ts:74` |
-| `/opt/tubeca/backend/prisma/tubeca.db` | SQLite database (inside `/opt`, allowed via `ReadWritePaths=/opt/tubeca/backend/prisma`) |
+| `/var/lib/tubeca/tubeca.db` | SQLite database (2026-09-04; it was `/opt/tubeca/backend/prisma/tubeca.db`, which a package upgrade replaces) |
+| `/var/lib/tubeca/backups` | Database copies, from upgrades and from the daily timer (0750, tmpfiles.d) |
 | `/var/lib/tubeca/images`, `/var/lib/tubeca/hls-cache` | Image store and HLS segment cache (0750, tmpfiles.d) |
 
 ### The two services and the role switch
@@ -191,11 +194,11 @@ come from the environment; the backend refuses to start without it in production
 ### Other-distro path
 
 `systemd/install.sh` copies the source tree to `/opt/tubeca`, runs `pnpm install` and `pnpm build`
-as root, writes `backend/.env` (`DATABASE_URL=file:./prisma/prod.db`, random `JWT_SECRET`,
-`DATA_DIR=/opt/tubeca/data`), backs up an existing database, runs `prisma migrate deploy` and
-stops if it fails, chowns to `tubeca`,
-and installs `systemd/tubeca-backend.service` and `tubeca-worker.service`, which use
-`/usr/bin/node dist/index.js` with `.env` and data under `/opt/tubeca`. `DATA_DIR` is not read
+as root, writes `backend/.env` (`DATABASE_URL=file:/var/lib/tubeca/tubeca.db`, random
+`JWT_SECRET`, `DATA_DIR=/opt/tubeca/data`), moves a database left in the install tree by an
+earlier version and rewrites the `DATABASE_URL` of an `.env` that still points there, backs up
+the database, runs `prisma migrate deploy` and stops if it fails, chowns to `tubeca`,
+and installs `systemd/tubeca-backend.service`, `tubeca-worker.service` and the backup timer. `DATA_DIR` is not read
 anywhere in `backend/src`. This path has no `TUBECA_CONFIG_PATH`; config is found via
 `getRepoRoot()` (the parent of the backend package), which works from the bundle.
 
@@ -214,12 +217,24 @@ restarting the site for that would be worse. A failing check simply stops the pi
 systemd apply the unit's restart policy, so a check that recovers within the deadline is never
 noticed.
 
+### Where the database lives
+
+Until 2026-09-04 it sat in `/opt/tubeca/backend/prisma`, which is program files: a package
+upgrade or a re-run of `install.sh` replaces that tree, and the two installers disagreed about
+the file's name (`tubeca.db` on Arch, `prod.db` generic), so the generic installer's
+back-up-before-migrating step looked for a file that was never there. Both now use
+`/var/lib/tubeca/tubeca.db`, and `systemd/move-database.sh` moves an older one across —
+sidecars included, since a database that was not closed cleanly keeps its most recent writes in
+the `-wal` file — after taking a copy and before any migration runs.
+
 ### Upgrades and the database
 
 Every path that migrates backs the database up first, through `systemd/backup-database.sh`:
 `sqlite3 .backup` when the CLI is present, a plain copy otherwise, timestamped into
-`/var/lib/tubeca/backups` (Arch), `$DATA_DIR/backups` (generic) or `/data/backups` (Docker),
-keeping the last five. SQLite has no undo, and a failed migration on a library nobody has a copy
+`/var/lib/tubeca/backups` (Arch and generic since 2026-09-04) or `/data/backups` (Docker),
+keeping the last five. `tubeca-backup.timer` runs the same script daily, keeping seven, with
+`Persistent=true` so a machine that was off catches up; the generic installer enables it, the
+package ships it disabled and `post_install` says how to turn it on. SQLite has no undo, and a failed migration on a library nobody has a copy
 of is the worst thing an upgrade can do.
 
 A migration failure is no longer swallowed: `post_install` and `post_upgrade` print what failed
@@ -285,6 +300,7 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 - 2026-09-03 — Backend bundled with esbuild (`node dist/index.js` works, `tsx` dev-only); `TUBECA_ROLE` splits API and worker processes; API serves the SPA (`serve`/port 8080 removed); units, PKGBUILD, install scripts and docs updated; `Dockerfile`, `docker-compose.yml`, entrypoint and CI workflow added; `video-processing` queue and worker deleted.
 - 2026-09-03 — Releases: `v1.0.0` tagged, `CHANGELOG.md` added, CI publishes `ghcr.io/wilkie/tubeca` (`edge` from `main`, semver + `latest` from tags); compose defaults to the published image.
 - 2026-09-03 — Backend ships as a `pnpm deploy --prod` tree (dist, prisma, `openapi.json`, prod deps) in both the Docker image and the Arch package; `openapi.json` generated by `pnpm build` and served in production instead of scanning sources.
+- 2026-09-04 — The database moved to `/var/lib/tubeca/tubeca.db` from inside the install tree, with `systemd/move-database.sh` carrying an existing one across on upgrade; both installers now agree on the path and the name, which also fixes the generic installer's back-up-before-migrating step looking for a file it never wrote. `tubeca-backup.timer` added for a daily copy between upgrades.
 
 ## Known Limitations
 
@@ -314,8 +330,6 @@ the initial commit) is therefore already ignored and is simply leftover output; 
 
 ## Opportunities
 
-- **Move the SQLite file to `/var/lib/tubeca`** (S): it still lives under `/opt/tubeca/backend/prisma`, which is program data rather than state; the backups already go to `/var/lib/tubeca`.
-- **Scheduled backups** (S): a timer unit running `backup-database.sh` would cover the ordinary case, not just upgrades.
 - **Trim further**: `sharp` and `@libsql/client` ship native binaries for the build platform
   only; a multi-arch image (arm64 for small home servers) needs `docker buildx` with
   `--platform`, and the `prisma` CLI could be swapped for a lighter migration runner. (M)

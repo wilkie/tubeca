@@ -6,6 +6,9 @@ set -e
 
 INSTALL_DIR="/opt/tubeca"
 DATA_DIR="/opt/tubeca/data"
+# State, as opposed to program files: the database and its backups.
+STATE_DIR="/var/lib/tubeca"
+DB_FILE="$STATE_DIR/tubeca.db"
 SERVICE_USER="tubeca"
 SERVICE_GROUP="tubeca"
 
@@ -101,8 +104,8 @@ if [ ! -f "$INSTALL_DIR/backend/.env" ]; then
 PORT=3000
 NODE_ENV=production
 
-# Database (SQLite - path relative to backend/)
-DATABASE_URL="file:./prisma/prod.db"
+# Database (SQLite)
+DATABASE_URL="file:$DB_FILE"
 
 # Redis (required for job queue)
 REDIS_HOST=localhost
@@ -121,12 +124,32 @@ EOF
     log_warn "Generated new JWT_SECRET. Edit $INSTALL_DIR/backend/.env to configure."
 fi
 
-# Back up an existing database before touching it. SQLite has no undo, and a
-# reinstall over a working library is exactly when that matters.
+# The database used to live under $INSTALL_DIR/backend/prisma, which is
+# program files rather than state: an install that replaces the tree can take
+# the library with it. Move an older one across before anything else looks for
+# it, taking the -wal and -shm files so a database that was not cleanly closed
+# is still complete.
+mkdir -p "$STATE_DIR" "$STATE_DIR/backups"
+for old_db in "$INSTALL_DIR/backend/prisma/tubeca.db" "$INSTALL_DIR/backend/prisma/prod.db"; do
+    if [ -f "$old_db" ] && [ ! -f "$DB_FILE" ]; then
+        log_info "Moving the database out of the install tree..."
+        "$SCRIPT_DIR/backup-database.sh" "$old_db" "$STATE_DIR/backups"
+        "$SCRIPT_DIR/move-database.sh" "$old_db" "$DB_FILE"
+    fi
+done
+
+# An .env from an earlier install still points at the old location.
+if grep -q '^DATABASE_URL=.*prisma/' "$INSTALL_DIR/backend/.env" 2>/dev/null; then
+    log_info "Updating DATABASE_URL to $DB_FILE..."
+    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=\"file:$DB_FILE\"|" "$INSTALL_DIR/backend/.env"
+fi
+
+# Back up before migrating. SQLite has no undo, and a reinstall over a working
+# library is exactly when that matters.
 cd "$INSTALL_DIR/backend"
-if [ -f "$INSTALL_DIR/backend/prisma/tubeca.db" ]; then
+if [ -f "$DB_FILE" ]; then
     log_info "Backing up the existing database..."
-    "$SCRIPT_DIR/backup-database.sh" "$INSTALL_DIR/backend/prisma/tubeca.db" "$DATA_DIR/backups"
+    "$SCRIPT_DIR/backup-database.sh" "$DB_FILE" "$STATE_DIR/backups"
 fi
 
 # Run database migrations
@@ -141,13 +164,18 @@ fi
 log_info "Setting file permissions..."
 chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
 chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DATA_DIR"
+chown -R "$SERVICE_USER:$SERVICE_GROUP" "$STATE_DIR"
+chmod 750 "$STATE_DIR"
 chmod 600 "$INSTALL_DIR/backend/.env"
 
 # Install systemd service files
 log_info "Installing systemd service files..."
 cp "$SCRIPT_DIR/tubeca-backend.service" /etc/systemd/system/
 cp "$SCRIPT_DIR/tubeca-worker.service" /etc/systemd/system/
+cp "$SCRIPT_DIR/tubeca-backup.service" /etc/systemd/system/
+cp "$SCRIPT_DIR/tubeca-backup.timer" /etc/systemd/system/
 install -Dm755 "$SCRIPT_DIR/backup-database.sh" "$INSTALL_DIR/backend/backup-database.sh"
+install -Dm755 "$SCRIPT_DIR/move-database.sh" "$INSTALL_DIR/backend/move-database.sh"
 
 # Reload systemd
 systemctl daemon-reload
@@ -156,6 +184,8 @@ systemctl daemon-reload
 log_info "Enabling services..."
 systemctl enable tubeca-backend.service
 systemctl enable tubeca-worker.service
+# The daily backup covers the days between upgrades, which is most of them.
+systemctl enable --now tubeca-backup.timer
 
 log_info ""
 log_info "Installation complete!"

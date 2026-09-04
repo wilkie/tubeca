@@ -27,7 +27,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/tubeca/backend/prisma
+# The database and its backups live in /var/lib/tubeca, which is state rather
+# than program files; /opt/tubeca/data is the older location for media
+# references and is kept writable for installs that still use it.
+ReadWritePaths=/var/lib/tubeca
 ReadWritePaths=/opt/tubeca/data
 
 # Environment

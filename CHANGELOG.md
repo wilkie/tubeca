@@ -6,6 +6,8 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- A daily database backup, `tubeca-backup.timer`, keeping the last seven copies and catching up
+  if the machine was off; upgrades already made one, this covers the days in between.
 - `REDIS_DB` selects which Redis database the queues use, so a second server on the same machine
   no longer takes jobs meant for the first.
 - TVDB can now identify and scrape a show and its seasons, not only episodes; its requests time
@@ -43,6 +45,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- The installer for distributions without a package backed up a database file it had never
+  written — it looked for `tubeca.db` while writing `prod.db` — so an upgrade migrated without a
+  copy to fall back on.
 - Screen readers can now name the favourite, watch later and add buttons on a card, the play
   button on a queue row or a list row, and the filter and identify-search buttons; they were
   unlabelled icons.
@@ -90,6 +95,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- The database now lives in `/var/lib/tubeca/tubeca.db` rather than inside the installed program
+  files, where a package upgrade could replace it. An upgrade moves an existing one across,
+  write-ahead log included, after taking a copy of it.
 - Video starts sooner. A segment that has to be encoded is now sent as it is produced instead of
   after it finishes, which on a machine without hardware encoding is the difference between
   waiting a fraction of a second and waiting for six seconds of video to encode.

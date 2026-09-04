@@ -95,7 +95,15 @@ sudo pacman -U tubeca-*.pkg.tar.zst
 ```
 
 The package copies the database to `/var/lib/tubeca/backups` before running migrations, keeping
-the last five copies. If a migration fails it says so and tells you what to run; the services are
+the last five copies. For the days in between, enable the daily backup:
+
+```bash
+sudo systemctl enable --now tubeca-backup.timer
+```
+
+It keeps the last seven copies and runs when the machine next comes up if it was off at the time.
+An upgrade from before 2026-09-04 also moves the database out of `/opt/tubeca/backend/prisma`,
+where a package upgrade could take it, into `/var/lib/tubeca`. If a migration fails it says so and tells you what to run; the services are
 restarted either way, so check the logs after an upgrade that reported a problem.
 
 To go back to the copy taken before an upgrade:
@@ -103,7 +111,7 @@ To go back to the copy taken before an upgrade:
 ```bash
 sudo systemctl stop tubeca-backend tubeca-worker
 ls -1t /var/lib/tubeca/backups/
-sudo -u tubeca cp /var/lib/tubeca/backups/tubeca.db.<timestamp> /opt/tubeca/backend/prisma/tubeca.db
+sudo -u tubeca cp /var/lib/tubeca/backups/tubeca.db.<timestamp> /var/lib/tubeca/tubeca.db
 sudo systemctl start tubeca-backend tubeca-worker
 ```
 
@@ -127,7 +135,8 @@ sudo userdel tubeca
 | `/opt/tubeca` | Application files |
 | `/etc/tubeca/tubeca.env` | Environment configuration |
 | `/etc/tubeca/tubeca.config.json` | Application configuration |
-| `/opt/tubeca/backend/prisma/tubeca.db` | SQLite database |
+| `/var/lib/tubeca/tubeca.db` | SQLite database |
+| `/var/lib/tubeca/backups` | Database copies, from upgrades and the daily timer |
 | `/var/lib/tubeca` | Data directory |
 | `/usr/lib/systemd/system/tubeca-*.service` | systemd service files |
 | `/usr/share/doc/tubeca/` | Documentation |

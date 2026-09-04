@@ -29,9 +29,10 @@ post_install() {
         echo ":: Generated new JWT_SECRET"
     fi
 
-    # Update environment for production
+    # Update environment for production. The database lives in /var/lib, not in
+    # the install tree: a package upgrade replaces /opt/tubeca wholesale.
     sed -i 's/NODE_ENV=development/NODE_ENV=production/' /etc/tubeca/tubeca.env
-    sed -i 's|DATABASE_URL="file:./prisma/dev.db"|DATABASE_URL="file:./prisma/tubeca.db"|' /etc/tubeca/tubeca.env
+    sed -i 's|DATABASE_URL=.*|DATABASE_URL="file:/var/lib/tubeca/tubeca.db"|' /etc/tubeca/tubeca.env
 
     # Run database migrations. This must happen after DATABASE_URL has been
     # rewritten above, otherwise the schema lands in dev.db and the service
@@ -59,6 +60,9 @@ post_install() {
     echo "    3. Start Tubeca services:"
     echo "       sudo systemctl enable --now tubeca-backend tubeca-worker"
     echo ""
+    echo "    3b. Optional, recommended: a daily database backup"
+    echo "       sudo systemctl enable --now tubeca-backup.timer"
+    echo ""
     echo "    4. Access the application:"
     echo "       http://localhost:3000  (web UI, API and /api-docs on one port)"
     echo ""
@@ -78,10 +82,22 @@ post_upgrade() {
 
     cd /opt/tubeca/backend
 
+    # Installs from before 2026-09-04 keep the database inside the install
+    # tree, which a package upgrade replaces. Move it out before anything looks
+    # for it, then point the environment at its new home.
+    if [ -f /opt/tubeca/backend/prisma/tubeca.db ]; then
+        echo ":: Moving the database out of the install tree..."
+        sudo -u tubeca /opt/tubeca/backend/backup-database.sh \
+            /opt/tubeca/backend/prisma/tubeca.db /var/lib/tubeca/backups || true
+        sudo -u tubeca /opt/tubeca/backend/move-database.sh \
+            /opt/tubeca/backend/prisma/tubeca.db /var/lib/tubeca/tubeca.db
+        sed -i 's|DATABASE_URL=.*|DATABASE_URL="file:/var/lib/tubeca/tubeca.db"|' /etc/tubeca/tubeca.env
+    fi
+
     # Back up the database before migrating it: SQLite has no undo, and a
     # failed migration on a library nobody has a copy of is the worst outcome
     # an upgrade can have.
-    DB_PATH=$(grep -oP 'DATABASE_URL="file:\K[^"]+' /etc/tubeca/tubeca.env 2>/dev/null || echo "./prisma/tubeca.db")
+    DB_PATH=$(grep -oP 'DATABASE_URL="file:\K[^"]+' /etc/tubeca/tubeca.env 2>/dev/null || echo "/var/lib/tubeca/tubeca.db")
     echo ":: Backing up the database..."
     if ! sudo -u tubeca /opt/tubeca/backend/backup-database.sh "$DB_PATH" /var/lib/tubeca/backups; then
         echo "!! Could not back up the database; skipping migrations."
@@ -132,7 +148,7 @@ post_remove() {
     echo ""
     echo "==> The following were preserved:"
     echo "    - Configuration: /etc/tubeca/"
-    echo "    - Database: /opt/tubeca/backend/prisma/tubeca.db"
+    echo "    - Database: /var/lib/tubeca/tubeca.db"
     echo "    - Database backups: /var/lib/tubeca/backups/"
     echo "    - Data: /var/lib/tubeca/"
     echo "    - User: tubeca"

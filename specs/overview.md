@@ -210,8 +210,8 @@ reading, a music scraper and an audio player; see [Libraries](libraries-and-scan
 Since 2026-09-03 the backend is bundled so plain `node` runs it, the API process serves the
 SPA, systemd runs an api and a worker unit, a Dockerfile, compose file and CI workflow exist,
 CI publishes an image to GHCR on a tag, and an upgrade copies the database first (keeping the
-last five). What remains: the SQLite file still lives under `/opt/tubeca/backend/prisma` rather
-than `/var/lib/tubeca`, backups happen on upgrade only rather than on a timer, and dev
+last five). Since 2026-09-04 the database lives in `/var/lib/tubeca` rather than inside the
+install tree, and `tubeca-backup.timer` takes a daily copy between upgrades. What remains: dev
 dependencies still ship in the package and image. See [Deployment](deployment.md).
 
 ## Suggested Direction
@@ -343,8 +343,6 @@ In rough order of what it costs a user:
   written against the documented v4 shapes rather than verified — the key in the local config is
   rejected — and its search is still series-only, so it can never match a film
   ([Metadata Scraping](metadata-scraping.md)).
-- **Operations**: backups happen on upgrade only rather than on a timer, and the database still
-  lives under `/opt/tubeca/backend/prisma` rather than `/var/lib/tubeca` ([Deployment](deployment.md)).
 - **Streaming**: prefetch cancellation is by position rather than by viewer, so two people
   watching the same file interfere with each other's prefetches
   ([Streaming](streaming-and-transcoding.md)).

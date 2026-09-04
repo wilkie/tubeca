@@ -111,14 +111,20 @@ CONFIGEOF
     # repository stay the single source of truth.
     for unit in tubeca-backend tubeca-worker; do
         sed -e 's|EnvironmentFile=/opt/tubeca/backend/.env|EnvironmentFile=/etc/tubeca/tubeca.env|' \
-            -e 's|ReadWritePaths=/opt/tubeca/data|ReadWritePaths=/var/lib/tubeca|' \
+            -e '/ReadWritePaths=\/opt\/tubeca\/data/d' \
             -e '/^Environment=UV_THREADPOOL_SIZE/a Environment=TUBECA_CONFIG_PATH=/etc/tubeca/tubeca.config.json' \
             "systemd/${unit}.service" > "${srcdir}/${unit}.service"
         install -Dm644 "${srcdir}/${unit}.service" "${pkgdir}/usr/lib/systemd/system/${unit}.service"
     done
 
-    # The pre-upgrade database backup, used by tubeca.install
+    # The daily database backup. Not enabled by default; tubeca.install says how.
+    install -Dm644 systemd/tubeca-backup.service "${pkgdir}/usr/lib/systemd/system/tubeca-backup.service"
+    install -Dm644 systemd/tubeca-backup.timer "${pkgdir}/usr/lib/systemd/system/tubeca-backup.timer"
+
+    # The pre-upgrade database backup, used by tubeca.install and the timer
     install -Dm755 systemd/backup-database.sh "${pkgdir}/opt/tubeca/backend/backup-database.sh"
+    # Moves a database left in the install tree by an older version
+    install -Dm755 systemd/move-database.sh "${pkgdir}/opt/tubeca/backend/move-database.sh"
 
     # Install sysusers.d configuration
     install -Dm644 /dev/stdin "${pkgdir}/usr/lib/sysusers.d/tubeca.conf" << 'EOF'
@@ -130,6 +136,7 @@ EOF
 d /var/lib/tubeca 0750 tubeca tubeca -
 d /var/lib/tubeca/images 0750 tubeca tubeca -
 d /var/lib/tubeca/hls-cache 0750 tubeca tubeca -
+d /var/lib/tubeca/backups 0750 tubeca tubeca -
 EOF
 
     # Install license

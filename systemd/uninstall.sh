@@ -46,16 +46,20 @@ fi
 log_info "Stopping services..."
 systemctl stop tubeca-backend.service 2>/dev/null || true
 systemctl stop tubeca-worker.service 2>/dev/null || true
+systemctl stop tubeca-backup.timer 2>/dev/null || true
 
 # Disable services
 log_info "Disabling services..."
 systemctl disable tubeca-backend.service 2>/dev/null || true
 systemctl disable tubeca-worker.service 2>/dev/null || true
+systemctl disable tubeca-backup.timer 2>/dev/null || true
 
 # Remove service files
 log_info "Removing service files..."
 rm -f /etc/systemd/system/tubeca-backend.service
 rm -f /etc/systemd/system/tubeca-worker.service
+rm -f /etc/systemd/system/tubeca-backup.service
+rm -f /etc/systemd/system/tubeca-backup.timer
 
 # Reload systemd
 systemctl daemon-reload
@@ -72,6 +76,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
     log_info "Application files preserved at $INSTALL_DIR"
 fi
+
+# The database is deliberately not touched: it is the library, it lives outside
+# the install tree, and an uninstall is not a reason to lose it.
+log_info ""
+log_info "The database and its backups were left in /var/lib/tubeca."
+log_info "Remove them by hand if you mean to: rm -rf /var/lib/tubeca" 
 
 # Ask about removing service user
 echo ""

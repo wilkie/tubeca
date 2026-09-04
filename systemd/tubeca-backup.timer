@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily Tubeca database backup
+Documentation=https://github.com/wilkie/tubeca
+
+[Timer]
+# Upgrades already back up before migrating; this covers the ordinary days in
+# between, when the risk is a disk or a mistake rather than a migration.
+OnCalendar=daily
+# Run after a machine that was off overnight comes back, rather than skipping.
+Persistent=true
+# Nothing depends on the exact minute, and a fixed one is a thundering herd of
+# one on a machine that also runs other daily timers.
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

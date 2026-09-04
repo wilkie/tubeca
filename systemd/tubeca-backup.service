@@ -1,0 +1,19 @@
+[Unit]
+Description=Tubeca database backup
+Documentation=https://github.com/wilkie/tubeca
+# Nothing else needs to stop: sqlite3 .backup is safe against a running writer.
+
+[Service]
+Type=oneshot
+User=tubeca
+Group=tubeca
+# Arguments: the database, where to keep copies, and how many to keep.
+ExecStart=/opt/tubeca/backend/backup-database.sh /var/lib/tubeca/tubeca.db /var/lib/tubeca/backups 7
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tubeca
