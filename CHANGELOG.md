@@ -6,6 +6,9 @@ All notable changes to Tubeca are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- The images dialog now shows the other artwork the provider has for a title — usually a dozen
+  posters, backdrops and logos rather than the one a scrape picked — and downloads one only when
+  you choose it.
 - A search box in the header, so searching no longer means going to the search page first.
 - A library remembers which content ratings you hid and which keywords you filtered by, the way
   it already remembered posters-or-list and the sort.

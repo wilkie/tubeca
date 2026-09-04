@@ -93,6 +93,14 @@ import type {
   ScrapeStatus,
 } from '@tubeca/shared-types';
 
+/** One piece of artwork a provider offers for an entity. */
+export interface ArtworkCandidate {
+  url: string
+  imageType: string
+  /** Already downloaded and saved for this entity. */
+  saved: boolean
+}
+
 // Re-export types for convenience
 export type {
   User,
@@ -774,6 +782,29 @@ class ApiClient {
 
   async deleteImage(imageId: string): Promise<ApiResponse<void>> {
     return this.request<void>(`/images/${imageId}`, { method: 'DELETE' });
+  }
+
+  /** The artwork the provider has for a collection, beyond the one it chose. */
+  async getArtworkCandidates(
+    collectionId: string
+  ): Promise<ApiResponse<{ candidates: ArtworkCandidate[] }>> {
+    return this.request<{ candidates: ArtworkCandidate[] }>(
+      `/images/candidates/collection/${collectionId}`
+    );
+  }
+
+  /** Save one of those candidates, and use it. */
+  async saveArtworkFromUrl(target: {
+    url: string;
+    imageType: string;
+    collectionId?: string;
+    mediaId?: string;
+    isPrimary?: boolean;
+  }): Promise<ApiResponse<{ message: string; path: string }>> {
+    return this.request<{ message: string; path: string }>('/images/download', {
+      method: 'POST',
+      body: JSON.stringify(target),
+    });
   }
 
   /**

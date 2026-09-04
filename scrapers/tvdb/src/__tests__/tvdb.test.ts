@@ -366,6 +366,33 @@ describe('a show', () => {
     });
   });
 
+  it('offers every poster it has as a candidate, the first one being the one it uses', async () => {
+    routes['/v4/series/328724/extended'] = {
+      data: {
+        id: 328724,
+        name: 'Dark',
+        artworks: [
+          { type: 2, image: 'https://artworks.thetvdb.com/poster-1.jpg' },
+          { type: 7, image: 'https://artworks.thetvdb.com/season-poster.jpg' },
+          { type: 2, image: 'https://artworks.thetvdb.com/poster-2.jpg' },
+          { type: 3, image: 'https://artworks.thetvdb.com/backdrop.jpg' },
+        ],
+      },
+    };
+    const plugin = await scraper();
+
+    const metadata = await plugin.getSeriesMetadata!('series-328724');
+
+    expect(metadata!.posterUrl).toBe('https://artworks.thetvdb.com/poster-1.jpg');
+    // The season poster in the middle belongs to a season, not to the show.
+    expect(metadata!.posterUrls).toEqual([
+      'https://artworks.thetvdb.com/poster-1.jpg',
+      'https://artworks.thetvdb.com/poster-2.jpg',
+    ]);
+    expect(metadata!.backdropUrls).toEqual(['https://artworks.thetvdb.com/backdrop.jpg']);
+    expect(metadata!.logoUrls).toBeUndefined();
+  });
+
   it('offers no rating, since TVDB scores in the millions rather than out of ten', async () => {
     const plugin = await scraper();
 

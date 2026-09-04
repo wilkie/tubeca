@@ -384,7 +384,9 @@
     "noImages": "No images available.",
     "title": "Images",
     "upload": "Upload poster",
-    "useThis": "Use this"
+    "useThis": "Use this",
+    "fromProvider": "More artwork from the provider",
+    "alreadySaved": "Already saved"
   },
   "person": {
     "age": "age",

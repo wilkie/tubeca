@@ -34,6 +34,9 @@ type LookupCallback = (
   family?: number
 ) => void
 
+/** How many candidates of each kind to offer; a dialog cannot use more. */
+const CANDIDATE_LIMIT = 12
+
 const DNS_TTL_MS = 5 * 60_000
 const dnsCache = new Map<string, { address: string; expires: number }>()
 
@@ -382,7 +385,14 @@ class TMDBScraper implements ScraperPlugin {
     type: 'movie' | 'tv',
     id: number,
     fallbackPath: string | null
-  ): Promise<{ backdropUrl?: string; thumbnailUrl?: string; logoUrl?: string }> {
+  ): Promise<{
+    backdropUrl?: string
+    thumbnailUrl?: string
+    logoUrl?: string
+    posterUrls?: string[]
+    backdropUrls?: string[]
+    logoUrls?: string[]
+  }> {
     try {
       const images = await this.request<TMDBImagesResponse>(
         `/${type}/${id}/images`,
@@ -421,12 +431,30 @@ class TMDBScraper implements ScraperPlugin {
           : this.getImageUrl(sortedLogos[0].file_path, 'original')
       }
 
-      return { backdropUrl, thumbnailUrl, logoUrl }
+      return {
+        backdropUrl,
+        thumbnailUrl,
+        logoUrl,
+        // The rest of what the provider has, for someone to choose from. None
+        // of these is downloaded until a person picks one.
+        posterUrls: this.artworkCandidates(images.posters),
+        backdropUrls: this.artworkCandidates(images.backdrops),
+        logoUrls: this.artworkCandidates(images.logos),
+      }
     } catch {
       // If images endpoint fails, fall back to backdrop_path
       const fallbackUrl = this.getImageUrl(fallbackPath, 'original')
       return { backdropUrl: fallbackUrl, thumbnailUrl: fallbackUrl, logoUrl: undefined }
     }
+  }
+
+  /** The best-rated few of one kind of artwork, at full size. */
+  private artworkCandidates(images: TMDBImage[] | undefined): string[] | undefined {
+    if (!images || images.length === 0) return undefined
+    return [...images]
+      .sort((a, b) => b.vote_average - a.vote_average)
+      .slice(0, CANDIDATE_LIMIT)
+      .map((image) => `${TMDB_IMAGE_BASE}/original${image.file_path}`)
   }
 
   async searchVideo(query: string, options?: VideoSearchOptions): Promise<SearchResult[]> {
@@ -500,8 +528,9 @@ class TMDBScraper implements ScraperPlugin {
 
     const credits = this.mapCredits(movie.credits?.cast ?? [], movie.credits?.crew ?? [])
 
-    // Get images (backdrop, thumbnail, logo)
-    const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('movie', movieId, movie.backdrop_path)
+    // Get images (backdrop, thumbnail, logo) and the candidates behind them
+    const { backdropUrl, thumbnailUrl, logoUrl, posterUrls, backdropUrls, logoUrls } =
+      await this.getImageUrls('movie', movieId, movie.backdrop_path)
 
     // Extract keywords
     const keywords = movie.keywords?.keywords?.map((k) => k.name)
@@ -521,6 +550,9 @@ class TMDBScraper implements ScraperPlugin {
       backdropUrl,
       thumbnailUrl,
       logoUrl,
+      posterUrls,
+      backdropUrls,
+      logoUrls,
       credits,
     }
   }
@@ -536,8 +568,9 @@ class TMDBScraper implements ScraperPlugin {
 
     const credits = this.mapCredits(tv.credits?.cast ?? [], tv.credits?.crew ?? [])
 
-    // Get images (backdrop, thumbnail, logo)
-    const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('tv', tvId, tv.backdrop_path)
+    // Get images (backdrop, thumbnail, logo) and the candidates behind them
+    const { backdropUrl, thumbnailUrl, logoUrl, posterUrls, backdropUrls, logoUrls } =
+      await this.getImageUrls('tv', tvId, tv.backdrop_path)
 
     return {
       externalId: `tv-${tv.id}`,
@@ -552,6 +585,9 @@ class TMDBScraper implements ScraperPlugin {
       backdropUrl,
       thumbnailUrl,
       logoUrl,
+      posterUrls,
+      backdropUrls,
+      logoUrls,
       showName: tv.name,
       credits,
     }
@@ -612,8 +648,9 @@ class TMDBScraper implements ScraperPlugin {
 
       const credits = this.mapCredits(tv.credits?.cast ?? [], tv.credits?.crew ?? [])
 
-      // Get images (backdrop, thumbnail, logo)
-      const { backdropUrl, thumbnailUrl, logoUrl } = await this.getImageUrls('tv', tvId, tv.backdrop_path)
+      // Get images (backdrop, thumbnail, logo) and the candidates behind them
+      const { backdropUrl, thumbnailUrl, logoUrl, posterUrls, backdropUrls, logoUrls } =
+        await this.getImageUrls('tv', tvId, tv.backdrop_path)
 
       // Extract keywords (TV uses 'results' instead of 'keywords')
       const keywords = tv.keywords?.results?.map((k) => k.name)
@@ -633,6 +670,9 @@ class TMDBScraper implements ScraperPlugin {
         backdropUrl,
         thumbnailUrl,
         logoUrl,
+        posterUrls,
+        backdropUrls,
+        logoUrls,
         seasonCount: tv.number_of_seasons,
         credits,
       }

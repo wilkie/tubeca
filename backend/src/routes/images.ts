@@ -11,6 +11,8 @@ import {
   entityInQuery,
 } from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
+import { getArtworkCandidatesCached } from '../services/artworkCandidates';
+import { errorResponse } from '../services/errors';
 import { ImageService } from '../services/imageService';
 import type { ImageType } from '@prisma/client';
 
@@ -287,6 +289,50 @@ router.get('/:id', imageAccess, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch image' });
   }
 });
+
+/**
+ * @openapi
+ * /api/images/candidates/collection/{collectionId}:
+ *   get:
+ *     tags:
+ *       - Images
+ *     summary: Artwork the provider offers for a collection
+ *     description: >
+ *       The posters, backdrops and logos the scraper that identified this
+ *       collection has for it, as URLs, each flagged with whether it has
+ *       already been saved. Nothing is downloaded until one is chosen through
+ *       POST /api/images/download (Editor or Admin only).
+ *     parameters:
+ *       - in: path
+ *         name: collectionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Candidate artwork
+ *       400:
+ *         description: The collection has not been identified, or its scraper is not configured
+ *       403:
+ *         description: Forbidden - Editor role required
+ *       404:
+ *         description: Collection not found
+ */
+router.get(
+  '/candidates/collection/:collectionId',
+  requireRole('Editor'),
+  requireLibraryAccess(collectionParam('collectionId')),
+  async (req, res) => {
+    try {
+      res.json({ candidates: await getArtworkCandidatesCached(req.params.collectionId) });
+    } catch (error) {
+      const { status, error: message } = errorResponse(error, 'Failed to fetch artwork candidates');
+      if (status === 500) console.error('Artwork candidates error:', error);
+      res.status(status).json({ error: message });
+    }
+  }
+);
 
 /**
  * @openapi

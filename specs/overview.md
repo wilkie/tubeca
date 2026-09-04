@@ -346,9 +346,6 @@ In rough order of what it costs a user:
 - **Streaming**: prefetch cancellation is by position rather than by viewer, so two people
   watching the same file interfere with each other's prefetches
   ([Streaming](streaming-and-transcoding.md)).
-- **Scraping, again**: there is no gallery of provider artwork to choose from even though the
-  storage and the upload path now support one; it needs `posterUrls[]` on the plugin interface
-  ([Metadata Scraping](metadata-scraping.md), [Images](images.md)).
 - **Music**: hidden since 2026-09-03 rather than removed. Reviving it means tag reading, a
   music scraper and an audio player; the alternative is pruning the schema
   ([Libraries](libraries-and-scanning.md)).

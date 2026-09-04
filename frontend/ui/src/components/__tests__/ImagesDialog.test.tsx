@@ -1,4 +1,4 @@
-import { render, screen } from '../../test-utils';
+import { render, screen, waitFor } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { ImagesDialog } from '../ImagesDialog';
 import { apiClient, type Image } from '../../api/client';
@@ -10,6 +10,8 @@ jest.mock('../../api/client', () => ({
     setPrimaryImage: jest.fn(),
     deleteImage: jest.fn(),
     uploadImage: jest.fn(),
+    getArtworkCandidates: jest.fn(),
+    saveArtworkFromUrl: jest.fn(),
   },
 }));
 
@@ -74,11 +76,15 @@ const mockImages: Image[] = [
   },
 ];
 
+const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+
 describe('ImagesDialog', () => {
   const mockOnClose = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockApi.getArtworkCandidates.mockResolvedValue({ data: { candidates: [] } } as never);
+    mockApi.saveArtworkFromUrl.mockResolvedValue({ data: {} } as never);
   });
 
   describe('rendering', () => {
@@ -275,10 +281,11 @@ describe('ImagesDialog', () => {
   });
 
   describe('editing', () => {
-    const mockApi = apiClient as jest.Mocked<typeof apiClient>;
 
     beforeEach(() => {
       jest.clearAllMocks();
+      mockApi.getArtworkCandidates.mockResolvedValue({ data: { candidates: [] } } as never);
+      mockApi.saveArtworkFromUrl.mockResolvedValue({ data: {} } as never);
       mockApi.setPrimaryImage.mockResolvedValue({ data: undefined } as never);
       mockApi.deleteImage.mockResolvedValue({ data: undefined } as never);
       mockApi.uploadImage.mockResolvedValue({ data: { message: 'ok', path: 'p' } } as never);
@@ -352,5 +359,121 @@ describe('ImagesDialog', () => {
 
       expect(await screen.findByText('Nope')).toBeInTheDocument();
     });
+  });
+});
+
+describe('artwork the provider offers', () => {
+  const mockOnClose = jest.fn();
+  const candidates = [
+    { url: 'https://images/poster-1.jpg', imageType: 'Poster', saved: false },
+    { url: 'https://images/backdrop-1.jpg', imageType: 'Backdrop', saved: true },
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockApi.getArtworkCandidates.mockResolvedValue({ data: { candidates } } as never);
+    mockApi.saveArtworkFromUrl.mockResolvedValue({ data: {} } as never);
+  });
+
+  function open(props: Partial<Parameters<typeof ImagesDialog>[0]> = {}) {
+    return render(
+      <ImagesDialog
+        open
+        onClose={mockOnClose}
+        images={mockImages}
+        collectionId="col-1"
+        canEdit
+        {...props}
+      />
+    );
+  }
+
+  it('asks the provider what else it has when the dialog opens', async () => {
+    open();
+
+    await waitFor(() => expect(mockApi.getArtworkCandidates).toHaveBeenCalledWith('col-1'));
+    expect(await screen.findByText(/more artwork from the provider/i)).toBeInTheDocument();
+  });
+
+  it('asks nothing while the dialog is shut', () => {
+    open({ open: false });
+
+    expect(mockApi.getArtworkCandidates).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing of a viewer, who could not save one anyway', () => {
+    open({ canEdit: false });
+
+    expect(mockApi.getArtworkCandidates).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing for a media item, which has no provider identity', () => {
+    open({ collectionId: undefined, mediaId: 'media-1' });
+
+    expect(mockApi.getArtworkCandidates).not.toHaveBeenCalled();
+  });
+
+  it('saves the one that was chosen, and uses it', async () => {
+    const user = userEvent.setup();
+    open();
+    await screen.findByText(/already saved/i);
+
+    await user.click(screen.getAllByRole('button', { name: /use this/i }).at(-1)!);
+
+    expect(mockApi.saveArtworkFromUrl).toHaveBeenCalledWith({
+      url: 'https://images/poster-1.jpg',
+      imageType: 'Poster',
+      collectionId: 'col-1',
+      mediaId: undefined,
+      isPrimary: true,
+    });
+  });
+
+  it('does not offer to save one it already has', async () => {
+    open();
+
+    expect(await screen.findByText(/already saved/i)).toBeInTheDocument();
+  });
+
+  it('tells the page to reload once one is saved', async () => {
+    const user = userEvent.setup();
+    const onChanged = jest.fn();
+    open({ onChanged });
+    await screen.findByText(/already saved/i);
+
+    await user.click(screen.getAllByRole('button', { name: /use this/i }).at(-1)!);
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('says what went wrong when saving one fails', async () => {
+    const user = userEvent.setup();
+    mockApi.saveArtworkFromUrl.mockResolvedValue({ error: 'That image is too large' } as never);
+    open();
+    await screen.findByText(/already saved/i);
+
+    await user.click(screen.getAllByRole('button', { name: /use this/i }).at(-1)!);
+
+    expect(await screen.findByText('That image is too large')).toBeInTheDocument();
+  });
+
+  it('explains itself quietly when the collection has never been identified', async () => {
+    mockApi.getArtworkCandidates.mockResolvedValue({
+      error: 'This collection has not been identified with a scraper yet',
+    } as never);
+    open();
+
+    expect(await screen.findByText(/has not been identified/i)).toBeInTheDocument();
+    // Not an alert: there is nothing wrong, there is simply nothing to show.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows nothing at all when the provider has nothing more', async () => {
+    mockApi.getArtworkCandidates.mockResolvedValue({ data: { candidates: [] } } as never);
+    open();
+
+    await waitFor(() =>
+      expect(screen.queryByText(/more artwork from the provider/i)).not.toBeInTheDocument()
+    );
   });
 });

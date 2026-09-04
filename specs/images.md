@@ -26,6 +26,7 @@
 |------|------|
 | `backend/prisma/schema.prisma:260-269, 577-620` | `ImageType` enum and `Image` model (polymorphic FKs, `isPrimary`, `path`, `format`, `sourceUrl`, `scraperId`). |
 | `backend/src/services/imageService.ts` | Download, format detection, disk layout, upsert-per-type, delete, `getFullPath`. |
+| `backend/src/services/artworkCandidates.ts` | Reads a collection's scraper identity, asks that plugin what artwork it has, and marks the URLs already saved. |
 | `backend/src/routes/images.ts` | `imageAuth` (query token), file serving, list/metadata, `POST /download`, `DELETE /:id`. |
 | `backend/src/config/appConfig.ts:133-164` | `getImageStoragePath()`: resolves `imagePath` from `tubeca.config.json`, defaults to `backend/data/images`, creates the directory. |
 | `backend/src/workers/collectionScrapeWorker.ts:304-312, 385-522` | Downloads Poster/Backdrop/Thumbnail/Logo for shows and films, Poster for seasons, Photo for credits. |
@@ -81,6 +82,22 @@ The upload endpoint takes the raw bytes with the file's own `Content-Type` rathe
 multipart form, so the server needs no multipart parser; the entity ids travel in the query
 string, which is why library access for it resolves through `entityInQuery`.
 
+#### What the provider still has
+
+A scrape saves one image of each kind; a provider usually has a dozen. Since 2026-09-04 the
+plugins return the rest as `posterUrls`/`backdropUrls`/`logoUrls` (best rated first, capped at
+twelve of each), and `GET /api/images/candidates/collection/:id` hands them to the images dialog
+with a `saved` flag for the ones already downloaded. Nothing is fetched until someone picks one,
+which then goes through the existing `POST /api/images/download` — validation, size limits and
+all. Downloading every candidate for every title would multiply a library's artwork by ten for
+images almost none of which anyone will choose.
+
+The endpoint is Editor-only, because it makes the provider work, and the answer goes through the
+same ten-minute cache the scrape workers use, so opening the dialog twice asks once. TMDB draws
+from `/movie|tv/{id}/images`, which it already fetched to pick the backdrop and logo, so the
+candidates cost no extra request; TVDB draws from the `artworks` array on the series record,
+filtered by artwork type.
+
 ### Who triggers downloads
 
 - **Collection scrape** (`collectionScrapeWorker.ts`): shows and films download Poster, Backdrop, Thumbnail and Logo concurrently with `Promise.all`; seasons download only a Poster; each credit's person gets a `Photo` only if it has none. TMDB supplies one URL per slot: poster at the configured `imageSize` (default `w500`), backdrop and logo as the top-voted `original`, thumbnail as the top-voted English backdrop (`scrapers/tmdb/src/index.ts:379-423`). TVDB picks artwork by type code (2/3/6).
@@ -123,6 +140,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 ## History
 
 - 2026-09-03 — Download hardening (20 s timeout, 25 MB cap, `image/*` only); `?size=` serving with variants generated on first request; multiple candidates per type with `PUT /api/images/:id/primary`; `POST /api/images/upload` for user artwork and an editable `ImagesDialog`.
+- 2026-09-04 — Plugins return the artwork they did not choose (`posterUrls`, `backdropUrls`, `logoUrls`), `GET /api/images/candidates/collection/:id` serves them to the images dialog with a `saved` flag, and nothing is fetched until an editor picks one.
 
 - `41cf2f0` 2025-11-29 Scraper plugins introduced; metadata carries artwork URLs.
 - `b3fb3ee` 2025-11-29 `add_image_storage` migration, `ImageService`, `/api/images` routes, workers download artwork, frontend renders it.
@@ -157,8 +175,8 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 ## Opportunities
 
-- **Let scrapers return candidates** (M): `posterUrls[]` on the plugin interface would fill the gallery from the provider rather than only from uploads; the storage and the set-primary endpoint are already there.
-- **Choose the type when uploading** (S): the dialog always uploads a `Poster`, though the endpoint takes any type.
+- **Choose the type when uploading** (S): the dialog always uploads a `Poster`, though the endpoint takes any type. Artwork chosen from the provider does carry its own type.
+- **Candidates are collection-only** (S): a media item has no provider identity of its own (`VideoDetails` has no `scraperId`/`externalId`), so an episode still has nothing to choose from. The episode-level identity opportunity in [Metadata Scraping](metadata-scraping.md) would settle it.
 - **Validate the download host** (S) against the scraper's known image base.
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
 - **Orphan cleanup** (S): make identify go through `ContentDeletionService.imagePathsFor`, and add an admin "prune images" job that diffs disk against `Image.path`.

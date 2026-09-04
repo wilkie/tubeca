@@ -316,6 +316,49 @@ describe('artwork selection', () => {
     expect(metadata!.logoUrl).toBe('https://image.tmdb.org/t/p/original/logo-en.png');
   });
 
+  it('offers the rest of the artwork as candidates, best rated first', async () => {
+    routes['/3/movie/949/images'] = {
+      posters: [
+        { file_path: '/poster-ok.jpg', vote_average: 4, iso_639_1: 'en' },
+        { file_path: '/poster-best.jpg', vote_average: 9, iso_639_1: 'en' },
+      ],
+      backdrops: [{ file_path: '/backdrop.jpg', vote_average: 5, iso_639_1: 'en' }],
+      logos: [{ file_path: '/logo.png', vote_average: 5, iso_639_1: 'en' }],
+    };
+
+    const metadata = await (await scraper()).getVideoMetadata!('movie-949');
+
+    expect(metadata!.posterUrls).toEqual([
+      'https://image.tmdb.org/t/p/original/poster-best.jpg',
+      'https://image.tmdb.org/t/p/original/poster-ok.jpg',
+    ]);
+    expect(metadata!.backdropUrls).toEqual(['https://image.tmdb.org/t/p/original/backdrop.jpg']);
+    expect(metadata!.logoUrls).toEqual(['https://image.tmdb.org/t/p/original/logo.png']);
+  });
+
+  it('offers no more candidates than a dialog can use', async () => {
+    routes['/3/movie/949/images'] = {
+      posters: Array.from({ length: 40 }, (_, i) => ({
+        file_path: `/poster-${i}.jpg`,
+        vote_average: i,
+        iso_639_1: 'en',
+      })),
+      backdrops: [],
+      logos: [],
+    };
+
+    const metadata = await (await scraper()).getVideoMetadata!('movie-949');
+
+    expect(metadata!.posterUrls).toHaveLength(12);
+    expect(metadata!.posterUrls![0]).toContain('poster-39');
+  });
+
+  it('offers no candidates rather than an empty list when there are none', async () => {
+    const metadata = await (await scraper()).getVideoMetadata!('movie-949');
+
+    expect(metadata!.posterUrls).toBeUndefined();
+  });
+
   it('falls back to the backdrop on the record when the images call is empty', async () => {
     routes['/3/movie/949/images'] = { backdrops: [], logos: [] };
 

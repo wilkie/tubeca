@@ -38,6 +38,9 @@ jest.mock('../../api/client', () => ({
   apiClient: {
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
     getWatchProgressBatch: jest.fn().mockReturnValue(new Promise(() => {})),
+    // The images dialog asks the provider what other artwork it has.
+    getArtworkCandidates: jest.fn().mockResolvedValue({ data: { candidates: [] } }),
+    saveArtworkFromUrl: jest.fn().mockResolvedValue({ data: {} }),
     getCollectionWatchSummaries: jest.fn().mockReturnValue(new Promise(() => {})),
     markWatched: jest.fn().mockResolvedValue({ data: { progress: { completed: true } } }),
     clearWatchProgress: jest.fn().mockResolvedValue({ data: undefined }),

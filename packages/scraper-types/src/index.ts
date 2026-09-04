@@ -59,6 +59,15 @@ export interface VideoMetadata {
   keywords?: string[]
   /** URL to poster image */
   posterUrl?: string
+  /**
+   * Other artwork the provider offers, best first, for a person to choose
+   * from. These are not downloaded by a scrape: only the single `posterUrl`,
+   * `backdropUrl` and `logoUrl` above are, and one of these becomes that only
+   * when someone picks it.
+   */
+  posterUrls?: string[]
+  backdropUrls?: string[]
+  logoUrls?: string[]
   /** URL to backdrop/fanart image (highest rated overall) */
   backdropUrl?: string
   /** URL to thumbnail image (highest rated English backdrop) */
@@ -164,6 +173,15 @@ export interface SeriesMetadata {
   keywords?: string[]
   /** URL to poster image */
   posterUrl?: string
+  /**
+   * Other artwork the provider offers, best first, for a person to choose
+   * from. These are not downloaded by a scrape: only the single `posterUrl`,
+   * `backdropUrl` and `logoUrl` above are, and one of these becomes that only
+   * when someone picks it.
+   */
+  posterUrls?: string[]
+  backdropUrls?: string[]
+  logoUrls?: string[]
   /** URL to backdrop/fanart image (highest rated overall) */
   backdropUrl?: string
   /** URL to thumbnail image (highest rated English backdrop) */
@@ -189,6 +207,8 @@ export interface SeasonMetadata {
   airDate?: Date
   /** URL to poster image */
   posterUrl?: string
+  /** Other posters the provider offers, best first, for a person to choose from. */
+  posterUrls?: string[]
   /** Episode count */
   episodeCount?: number
 }

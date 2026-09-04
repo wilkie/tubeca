@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
@@ -15,8 +15,8 @@ import {
   IconButton,
   Typography,
 } from '@mui/material';
-import { Check, Close, Delete, Upload } from '@mui/icons-material';
-import { apiClient, type Image } from '../api/client';
+import { Check, Close, Delete, Download, Upload } from '@mui/icons-material';
+import { apiClient, type ArtworkCandidate, type Image } from '../api/client';
 
 interface ImagesDialogProps {
   open: boolean;
@@ -47,9 +47,9 @@ function formatFileSize(bytes: number | null): string {
 /**
  * The artwork an entity has, and for an editor, which of it to use.
  *
- * Scrapers supply one image per type, but an uploaded or manually fetched one
- * is kept alongside rather than replacing it, so there can be several
- * candidates and one of them is the primary.
+ * A scrape saves one image per type, but a provider usually has a dozen. Those
+ * others are listed underneath as URLs and fetched only when one is chosen, so
+ * a library does not carry ten posters per title that nobody asked for.
  */
 export function ImagesDialog({
   open,
@@ -67,6 +67,38 @@ export function ImagesDialog({
   const [error, setError] = useState<string | null>(null);
 
   const canUpload = canEdit && Boolean(collectionId || mediaId);
+  // Only a collection has a provider identity to ask about.
+  const canBrowseProvider = canEdit && Boolean(collectionId);
+
+  const [candidates, setCandidates] = useState<ArtworkCandidate[]>([]);
+  const [candidatesError, setCandidatesError] = useState<string | null>(null);
+
+  const loadCandidates = useCallback(async () => {
+    if (!collectionId) return;
+    const result = await apiClient.getArtworkCandidates(collectionId);
+    // A collection nobody has identified has nothing to offer, which is a
+    // normal state rather than a failure worth an alert.
+    setCandidatesError(result.error ?? null);
+    setCandidates(result.data?.candidates ?? []);
+  }, [collectionId]);
+
+  // Asked for when the dialog opens, not when the page renders: it makes the
+  // provider work. Nothing is set until the answer arrives, so a dialog closed
+  // in the meantime leaves no state behind.
+  useEffect(() => {
+    if (!open || !canBrowseProvider) return;
+    let cancelled = false;
+
+    void apiClient.getArtworkCandidates(collectionId!).then((result) => {
+      if (cancelled) return;
+      setCandidatesError(result.error ?? null);
+      setCandidates(result.data?.candidates ?? []);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, canBrowseProvider, collectionId]);
 
   const handleSetPrimary = async (image: Image) => {
     setBusy(true);
@@ -84,6 +116,25 @@ export function ImagesDialog({
     setBusy(false);
     if (result.error) setError(result.error);
     else onChanged?.();
+  };
+
+  const handleUseCandidate = async (candidate: ArtworkCandidate) => {
+    setBusy(true);
+    setError(null);
+    const result = await apiClient.saveArtworkFromUrl({
+      url: candidate.url,
+      imageType: candidate.imageType,
+      collectionId,
+      mediaId,
+      isPrimary: true,
+    });
+    setBusy(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    await loadCandidates();
+    onChanged?.();
   };
 
   const handleUpload = async (file: File | undefined) => {
@@ -204,6 +255,57 @@ export function ImagesDialog({
           <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
             {t('images.noImages', 'No images available.')}
           </Typography>
+        )}
+
+        {canBrowseProvider && (candidates.length > 0 || candidatesError) && (
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              {t('images.fromProvider', 'More artwork from the provider')}
+            </Typography>
+
+            {candidatesError ? (
+              <Typography variant="body2" color="text.secondary">
+                {candidatesError}
+              </Typography>
+            ) : (
+              <Grid container spacing={2}>
+                {candidates.map((candidate) => (
+                  <Grid size={{ xs: 6, sm: 4, md: 3 }} key={candidate.url}>
+                    <Card sx={candidate.saved ? { opacity: 0.5 } : undefined}>
+                      <CardMedia
+                        component="img"
+                        image={candidate.url}
+                        alt={candidate.imageType}
+                        sx={{
+                          aspectRatio: candidate.imageType === 'Poster' ? '2/3' : '16/9',
+                          objectFit: 'cover',
+                        }}
+                      />
+                      <CardContent sx={{ py: 1, textAlign: 'center' }}>
+                        <Chip label={candidate.imageType} size="small" variant="outlined" />
+                        <Box sx={{ mt: 0.5 }}>
+                          {candidate.saved ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {t('images.alreadySaved', 'Already saved')}
+                            </Typography>
+                          ) : (
+                            <Button
+                              size="small"
+                              startIcon={<Download />}
+                              disabled={busy}
+                              onClick={() => handleUseCandidate(candidate)}
+                            >
+                              {t('images.useThis', 'Use this')}
+                            </Button>
+                          )}
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Box>
         )}
       </DialogContent>
     </Dialog>

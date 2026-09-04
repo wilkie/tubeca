@@ -171,14 +171,40 @@ const ARTWORK_POSTER = 2
 const ARTWORK_BACKDROP = 3
 const ARTWORK_LOGO = 23
 
-/** The first artwork of each kind the series carries. */
+/** How many candidates of each kind to offer; a dialog cannot use more. */
+const CANDIDATE_LIMIT = 12
+
+/**
+ * The artwork the series carries, by kind.
+ *
+ * The first of each kind is what a scrape downloads; the rest are candidates
+ * for a person to choose from, and are not fetched until one is picked. A
+ * series record also carries season artwork (types 6 and 7), which is why
+ * these are selected by id rather than taken in order.
+ */
 function pickArtwork(series: TVDBSeries): {
   poster?: string
   backdrop?: string
   logo?: string
+  posterUrls?: string[]
+  backdropUrls?: string[]
+  logoUrls?: string[]
 } {
-  const of = (type: number) => series.artworks?.find((a) => a.type === type)?.image
-  return { poster: of(ARTWORK_POSTER), backdrop: of(ARTWORK_BACKDROP), logo: of(ARTWORK_LOGO) }
+  const allOf = (type: number) => {
+    const images = (series.artworks ?? []).filter((a) => a.type === type).map((a) => a.image)
+    return images.length > 0 ? images.slice(0, CANDIDATE_LIMIT) : undefined
+  }
+  const posterUrls = allOf(ARTWORK_POSTER)
+  const backdropUrls = allOf(ARTWORK_BACKDROP)
+  const logoUrls = allOf(ARTWORK_LOGO)
+  return {
+    poster: posterUrls?.[0],
+    backdrop: backdropUrls?.[0],
+    logo: logoUrls?.[0],
+    posterUrls,
+    backdropUrls,
+    logoUrls,
+  }
 }
 
 /**
@@ -320,7 +346,7 @@ class TVDBScraper implements ScraperPlugin {
       const series = response.data
       const credits = this.mapCharactersToCredits(series.characters ?? [])
 
-      const { poster, backdrop, logo } = pickArtwork(series)
+      const { poster, backdrop, logo, posterUrls, backdropUrls, logoUrls } = pickArtwork(series)
 
       return {
         externalId,
@@ -333,6 +359,9 @@ class TVDBScraper implements ScraperPlugin {
         posterUrl: poster ?? series.image,
         backdropUrl: backdrop,
         logoUrl: logo,
+        posterUrls,
+        backdropUrls,
+        logoUrls,
         credits,
       }
     } catch {
@@ -354,7 +383,7 @@ class TVDBScraper implements ScraperPlugin {
         `/series/${id}/extended?meta=translations`
       )
       const series = response.data
-      const { poster, backdrop, logo } = pickArtwork(series)
+      const { poster, backdrop, logo, posterUrls, backdropUrls, logoUrls } = pickArtwork(series)
 
       return {
         externalId: `series-${series.id}`,
@@ -374,6 +403,9 @@ class TVDBScraper implements ScraperPlugin {
         posterUrl: poster ?? series.image,
         backdropUrl: backdrop,
         logoUrl: logo,
+        posterUrls,
+        backdropUrls,
+        logoUrls,
         // Specials and alternative orderings are seasons too; only the aired
         // order counts towards the number a viewer would recognise.
         seasonCount: officialSeasons(series).filter((s) => s.number > 0).length,
