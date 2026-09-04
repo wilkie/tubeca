@@ -159,7 +159,9 @@ Rows are written where the text is written: `ImportService` indexes a media item
 as it is created or moved, the scrape workers re-index after applying metadata, and
 `ContentDeletionService` removes rows it deletes. Nothing reads the index as a source of truth,
 so a stale one is repaired by `POST /api/search/reindex` rather than being a data problem. The
-API process builds the index once on boot when it is empty, in the background.
+API process builds the index once on boot when it is empty, in the background. A rebuild reads
+and writes in pages rather than a query per row: on a library of 3,685 collections and 30,014
+media items it takes about 35 seconds.
 
 `toMatchQuery` turns what someone typed into an FTS5 query: the text is split on anything that
 is not a letter or digit, each token is quoted as a literal (so a title containing `NOT`, `-`
@@ -227,6 +229,8 @@ the index holds keyword names rather than ids.
   "matrix reloded" still finds nothing; FTS5 has no built-in edit distance.
 - **File paths are still not searched**, and the quick-search filters on list pages remain
   `LIKE` on `name` rather than going through the index.
+- **A rebuild is all-or-nothing.** `POST /api/search/reindex` empties the table first, so
+  search falls back to substring matching for the half-minute or so it runs.
 - **The index is only as fresh as its writers.** A row edited by a path that does not
   re-index it, or a restore from a database backup, leaves it stale until a reindex; nothing
   detects that automatically.

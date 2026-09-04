@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 
 /**
@@ -73,6 +74,82 @@ function joinNames(values: Array<string | null | undefined>): string {
   return Array.from(new Set(values.filter((v): v is string => Boolean(v && v.trim())))).join(' ');
 }
 
+/** What `indexCollection` and the rebuild both need to load. */
+const COLLECTION_INCLUDE = {
+  keywords: { select: { name: true } },
+  showDetails: { select: { description: true, credits: { select: { name: true }, take: 30 } } },
+  filmDetails: {
+    select: {
+      description: true,
+      originalTitle: true,
+      contentRating: true,
+      credits: { select: { name: true }, take: 30 },
+    },
+  },
+  seasonDetails: { select: { description: true } },
+  albumDetails: { select: { description: true } },
+  artistDetails: { select: { biography: true } },
+} as const;
+
+const MEDIA_INCLUDE = {
+  collection: { select: { libraryId: true, name: true, parent: { select: { name: true } } } },
+  videoDetails: {
+    select: { description: true, showName: true, credits: { select: { name: true }, take: 30 } },
+  },
+  audioDetails: { select: { artist: true, album: true, albumArtist: true } },
+} as const;
+
+type CollectionWithText = Prisma.CollectionGetPayload<{ include: typeof COLLECTION_INCLUDE }>
+type MediaWithText = Prisma.MediaGetPayload<{ include: typeof MEDIA_INCLUDE }>
+
+function collectionRow(collection: CollectionWithText): SearchIndexRow {
+  return {
+    entityId: collection.id,
+    entityType: 'collection',
+    libraryId: collection.libraryId,
+    contentRating: collection.filmDetails?.contentRating ?? null,
+    name: collection.name,
+    altNames: joinNames([collection.filmDetails?.originalTitle]),
+    description: joinNames([
+      collection.showDetails?.description,
+      collection.filmDetails?.description,
+      collection.seasonDetails?.description,
+      collection.albumDetails?.description,
+      collection.artistDetails?.biography,
+    ]),
+    keywords: joinNames(collection.keywords.map((k) => k.name)),
+    people: joinNames([
+      ...(collection.showDetails?.credits.map((c) => c.name) ?? []),
+      ...(collection.filmDetails?.credits.map((c) => c.name) ?? []),
+    ]),
+  };
+}
+
+function mediaRow(media: MediaWithText): SearchIndexRow {
+  return {
+    entityId: media.id,
+    entityType: 'media',
+    libraryId: media.collection?.libraryId ?? null,
+    contentRating: null,
+    name: media.name,
+    // The show and season an episode sits under, so "betty season 2" works.
+    altNames: joinNames([
+      media.videoDetails?.showName,
+      media.collection?.name,
+      media.collection?.parent?.name,
+      media.audioDetails?.artist,
+      media.audioDetails?.album,
+      media.audioDetails?.albumArtist,
+    ]),
+    description: joinNames([media.videoDetails?.description]),
+    keywords: '',
+    people: joinNames(media.videoDetails?.credits.map((c) => c.name) ?? []),
+  };
+}
+
+/** Rows per INSERT during a rebuild; nine parameters each, well under SQLite's limit. */
+const INSERT_CHUNK = 50;
+
 export class SearchIndexService {
   /** Replace the index row for one entity. */
   private async write(row: SearchIndexRow): Promise<void> {
@@ -101,79 +178,17 @@ export class SearchIndexService {
   async indexCollection(collectionId: string): Promise<void> {
     const collection = await prisma.collection.findUnique({
       where: { id: collectionId },
-      include: {
-        keywords: { select: { name: true } },
-        showDetails: { select: { description: true, credits: { select: { name: true }, take: 30 } } },
-        filmDetails: {
-          select: {
-            description: true,
-            originalTitle: true,
-            contentRating: true,
-            credits: { select: { name: true }, take: 30 },
-          },
-        },
-        seasonDetails: { select: { description: true } },
-        albumDetails: { select: { description: true } },
-        artistDetails: { select: { biography: true } },
-      },
+      include: COLLECTION_INCLUDE,
     });
     if (!collection) return;
-
-    await this.write({
-      entityId: collection.id,
-      entityType: 'collection',
-      libraryId: collection.libraryId,
-      contentRating: collection.filmDetails?.contentRating ?? null,
-      name: collection.name,
-      altNames: joinNames([collection.filmDetails?.originalTitle]),
-      description: joinNames([
-        collection.showDetails?.description,
-        collection.filmDetails?.description,
-        collection.seasonDetails?.description,
-        collection.albumDetails?.description,
-        collection.artistDetails?.biography,
-      ]),
-      keywords: joinNames(collection.keywords.map((k) => k.name)),
-      people: joinNames([
-        ...(collection.showDetails?.credits.map((c) => c.name) ?? []),
-        ...(collection.filmDetails?.credits.map((c) => c.name) ?? []),
-      ]),
-    });
+    await this.write(collectionRow(collection));
   }
 
   /** Index one media item: its own name plus the show and episode it belongs to. */
   async indexMedia(mediaId: string): Promise<void> {
-    const media = await prisma.media.findUnique({
-      where: { id: mediaId },
-      include: {
-        collection: { select: { libraryId: true, name: true, parent: { select: { name: true } } } },
-        videoDetails: {
-          select: { description: true, showName: true, credits: { select: { name: true }, take: 30 } },
-        },
-        audioDetails: { select: { artist: true, album: true, albumArtist: true } },
-      },
-    });
+    const media = await prisma.media.findUnique({ where: { id: mediaId }, include: MEDIA_INCLUDE });
     if (!media) return;
-
-    await this.write({
-      entityId: media.id,
-      entityType: 'media',
-      libraryId: media.collection?.libraryId ?? null,
-      contentRating: null,
-      name: media.name,
-      // The show and season an episode sits under, so "betty season 2" works.
-      altNames: joinNames([
-        media.videoDetails?.showName,
-        media.collection?.name,
-        media.collection?.parent?.name,
-        media.audioDetails?.artist,
-        media.audioDetails?.album,
-        media.audioDetails?.albumArtist,
-      ]),
-      description: joinNames([media.videoDetails?.description]),
-      keywords: '',
-      people: joinNames(media.videoDetails?.credits.map((c) => c.name) ?? []),
-    });
+    await this.write(mediaRow(media));
   }
 
   /** How many rows the index holds; zero means it has never been built. */
@@ -191,22 +206,63 @@ export class SearchIndexService {
   async rebuild(onProgress?: (done: number, total: number) => void): Promise<{ collections: number; media: number }> {
     await prisma.$executeRawUnsafe(`DELETE FROM search_index`);
 
-    const collectionIds = await prisma.collection.findMany({ select: { id: true } });
-    const mediaIds = await prisma.media.findMany({ select: { id: true } });
-    const total = collectionIds.length + mediaIds.length;
+    const [collectionCount, mediaCount] = await Promise.all([prisma.collection.count(), prisma.media.count()]);
+    const total = collectionCount + mediaCount;
     let done = 0;
 
-    for (const { id } of collectionIds) {
-      await this.indexCollection(id);
-      if (++done % 200 === 0) onProgress?.(done, total);
-    }
-    for (const { id } of mediaIds) {
-      await this.indexMedia(id);
-      if (++done % 200 === 0) onProgress?.(done, total);
-    }
-    onProgress?.(done, total);
+    // Read and write in batches: a library of a few thousand titles would
+    // otherwise be one query and one insert per row, which takes minutes.
+    const PAGE = 500;
 
-    return { collections: collectionIds.length, media: mediaIds.length };
+    for (let skip = 0; skip < collectionCount; skip += PAGE) {
+      const page = await prisma.collection.findMany({
+        include: COLLECTION_INCLUDE,
+        orderBy: { id: 'asc' },
+        skip,
+        take: PAGE,
+      });
+      await this.insertMany(page.map(collectionRow));
+      done += page.length;
+      onProgress?.(done, total);
+    }
+
+    for (let skip = 0; skip < mediaCount; skip += PAGE) {
+      const page = await prisma.media.findMany({
+        include: MEDIA_INCLUDE,
+        orderBy: { id: 'asc' },
+        skip,
+        take: PAGE,
+      });
+      await this.insertMany(page.map(mediaRow));
+      done += page.length;
+      onProgress?.(done, total);
+    }
+
+    return { collections: collectionCount, media: mediaCount };
+  }
+
+  /** Insert rows in chunks, without deleting first: only a rebuild uses this. */
+  private async insertMany(rows: SearchIndexRow[]): Promise<void> {
+    for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+      const chunk = rows.slice(i, i + INSERT_CHUNK);
+      const values = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const params = chunk.flatMap((row) => [
+        row.entityId,
+        row.entityType,
+        row.libraryId,
+        row.contentRating,
+        row.name,
+        row.altNames,
+        row.description,
+        row.keywords,
+        row.people,
+      ]);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO search_index (entityId, entityType, libraryId, contentRating, name, altNames, description, keywords, people)
+         VALUES ${values}`,
+        ...params
+      );
+    }
   }
 
   /**
