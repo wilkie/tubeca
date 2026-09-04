@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { authenticate } from '../middleware/auth';
 import { accessibleLibraryIdsFor } from '../middleware/libraryAccess';
+import { errorResponse } from '../services/errors';
 import { UserCollectionService, filterItemsByLibraryAccess } from '../services/userCollectionService';
 
 const router = Router();
@@ -219,11 +220,8 @@ router.post('/favorites/toggle', async (req: Request, res) => {
     );
     res.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to toggle favorite';
-    if (message.includes('Exactly one')) {
-      return res.status(400).json({ error: message });
-    }
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to toggle favorite');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -361,11 +359,8 @@ router.post('/watch-later/toggle', async (req: Request, res) => {
     );
     res.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to toggle watch later';
-    if (message.includes('Exactly one')) {
-      return res.status(400).json({ error: message });
-    }
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to toggle watch later');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -459,8 +454,8 @@ router.put('/queue', async (req: Request, res) => {
     );
     res.json({ userCollection });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to set playback queue';
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to set playback queue');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -507,11 +502,8 @@ router.post('/queue/add', async (req: Request, res) => {
     );
     res.json({ userCollection });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to add to playback queue';
-    if (message.includes('Exactly one')) {
-      return res.status(400).json({ error: message });
-    }
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to add to playback queue');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -638,8 +630,8 @@ router.post('/', async (req: Request, res) => {
 
     res.status(201).json({ userCollection });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to create collection';
-    res.status(400).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to create collection');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -697,11 +689,8 @@ router.patch('/:id', async (req: Request, res) => {
 
     res.json({ userCollection });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to update collection';
-    if (message.includes('not found') || message.includes('access denied')) {
-      return res.status(404).json({ error: message });
-    }
-    res.status(400).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to update collection');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -733,11 +722,8 @@ router.delete('/:id', async (req: Request, res) => {
     await userCollectionService.deleteCollection(req.params.id, req.user!.userId);
     res.status(204).send();
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to delete collection';
-    if (message.includes('not found') || message.includes('access denied')) {
-      return res.status(404).json({ error: message });
-    }
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to delete collection');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -804,14 +790,8 @@ router.post('/:id/items', async (req: Request, res) => {
 
     res.status(201).json({ item });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to add item';
-    if (message.includes('not found') || message.includes('access denied')) {
-      return res.status(404).json({ error: message });
-    }
-    if (message.includes('already exists') || message.includes('Exactly one') || message.includes('Cannot add')) {
-      return res.status(400).json({ error: message });
-    }
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to add item');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -853,11 +833,8 @@ router.delete('/:id/items/:itemId', async (req: Request, res) => {
     );
     res.status(204).send();
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to remove item';
-    if (message.includes('not found') || message.includes('access denied')) {
-      return res.status(404).json({ error: message });
-    }
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to remove item');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -923,11 +900,8 @@ router.patch('/:id/items/reorder', async (req: Request, res) => {
 
     res.json({ userCollection });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to reorder items';
-    if (message.includes('not found') || message.includes('access denied')) {
-      return res.status(404).json({ error: message });
-    }
-    res.status(500).json({ error: message });
+    const { status, error: message } = errorResponse(error, 'Failed to reorder items');
+    res.status(status).json({ error: message });
   }
 });
 

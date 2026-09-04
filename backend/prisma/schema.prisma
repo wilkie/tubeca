@@ -747,6 +747,10 @@ model UserCollection {
   @@index([userId])
   @@index([isPublic])
   @@index([isSystem, systemType])
+  // One Favorites, one Watch Later, one queue per user. Two requests arriving
+  // together used to be able to create a second one. NULL systemType (an
+  // ordinary collection) is exempt, since SQLite treats NULLs as distinct.
+  @@unique([userId, systemType])
 }
 
 // Items within a user collection (references library content or other user collections)

@@ -64,4 +64,25 @@ describe('collections routes enforce library access', () => {
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('Collection not found');
   });
+
+  it('deleting a collection that is not there is a 404, not a server error', async () => {
+    const admin = await createUser({ role: 'Admin' });
+
+    const res = await request(app).delete('/api/collections/nope').set('Authorization', admin.authHeader);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Collection not found');
+  });
+
+  it('deletes a collection that is there', async () => {
+    const library = await createLibrary({});
+    const collection = await createCollection({ libraryId: library.id, name: 'Heat' });
+    const admin = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .delete(`/api/collections/${collection.id}`)
+      .set('Authorization', admin.authHeader);
+
+    expect(res.status).toBe(204);
+  });
 });

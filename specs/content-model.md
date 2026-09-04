@@ -162,7 +162,7 @@ order depends on filenames sorting correctly.
 - `DELETE /api/collections/:id` (Editor): loads the collection's own media (with images and credit
   images) and the collection with its detail/credit images, unlinks each file under the image
   storage path (removing the directory if now empty), then `media.deleteMany({ collectionId })`
-  and `collection.delete()`. Returns 204; every failure, including not-found, is a 500.
+  and `collection.delete()`. Returns 204, 404 when there is no such collection, 500 otherwise.
 - `POST /:id/refresh-metadata` and `POST /:id/refresh-images` (Editor): read the stored
   `scraperId`/`externalId` from whichever details row exists and enqueue a collection scrape job
   with `skipImages` or `imagesOnly` respectively (202 with `jobId`).
@@ -262,6 +262,8 @@ with `DateTime` -> `string`. Differences worth knowing:
 
 ## History
 
+- 2026-09-03 — Correctness sweep: deletes of a missing collection or media answer 404 rather than 500, Identify removes the artwork files it orphans, and a collection's media come back in season and episode order rather than alphabetically.
+
 Commits touching the schema, migrations, the three services/routes and shared types:
 
 - `4946f1d` 2025-11-28 Initial commit: `User` only (`20251128023525_init`).
@@ -317,8 +319,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 - **The sort columns are denormalised**, so a direct write to a `*Details` row that bypasses
   `syncCollectionSortFields` leaves them stale until the next scrape. Only the scrape workers
   and Identify write those rows today.
-- **Identify leaks image files.** `/:id/identify` deletes `Image` rows with `deleteMany` but never
-  unlinks the files; the rows' `path`s are lost.
 - **Identify does not clear keywords or stale details.** `saveKeywords` only connects; a film
   re-identified as a different film keeps the old film's keywords. Detail fields not returned by
   the new scrape keep their previous values (upsert with partial data).
@@ -339,8 +339,9 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   not filterable; only keywords got a join table.
 - **Music detail tables are unwritten.** `ArtistDetails`/`AlbumDetails`/`AlbumCredit`/`ArtistMember`
   exist in the schema and shared types but no scraper or service populates them.
-- **Media names are the sort key for episodes** (`orderBy: { name }` in the detail query), not
-  `videoDetails.season/episode`, so "Episode 10" sorts before "Episode 2" unless zero-padded.
+- **Media without a scrape fall back to name order.** The detail query orders by season and
+  episode (then disc and track for audio) and only uses the name for what has neither, so an
+  unscraped folder still sorts "Episode 10" before "Episode 2".
 - **Backend tests are thin.** `collectionService.test.ts` covers root pagination, name and
   keyword filtering, rating exclusion and single-page sorting (and documents the cross-page sort
   bug with `it.failing`); `mediaService`, `personService`, and the collections/media/persons
@@ -353,15 +354,10 @@ Commits touching the schema, migrations, the three services/routes and shared ty
 
 ## Opportunities
 
-- **Route not-found deletes to 404 instead of 500** in `collections.ts`/`media.ts`. (S)
-- **Unlink files in Identify** by calling the existing image-deletion helper before
-  `image.deleteMany`, and `set: []` on keywords so re-identification starts clean. (S)
 - **Batch credit and keyword writes**: resolve persons first (one `findMany` on the id set), then
   `createMany` credits and a single `collection.update({ keywords: { connect: [...] } })`. (M)
 - **Uniqueness for root collections**: a generated column (`parentId` coalesced to `''`) or a
   partial unique index would let the database enforce `(libraryId, parentId, name)`. (S)
-- **Order episodes by `videoDetails.season, episode`** in `getCollectionById` and fall back to
-  name; the data is already loaded. (S)
 - **Move person auto-fetch off the request path**: enqueue a person-scrape job on first view and
   return the stub immediately, or fetch persons at credit-link time in the workers. (M)
 - **Extract the duplicated `deleteImageFile` helper** (`collectionService.ts:596-610`,

@@ -36,6 +36,17 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- Reordering a collection can no longer move items that belong to somebody else's, and a
+  reorder that only covers part of a list no longer leaves items sharing a position.
+- The playback queue only accepts media items, and checks they exist, instead of accepting
+  anything and silently dropping it on the next reorder.
+- Favourites, Watch Later and the queue cannot be renamed, deleted or added to through the
+  generic collection routes, and two requests at once can no longer create two of them.
+- Deleting a collection or a media item that is not there answers "not found" rather than
+  reporting a server error.
+- Identifying a title removes the old artwork files, instead of leaving them on disk.
+- A season's episodes are listed in episode order rather than alphabetically, so episode 10
+  no longer sorts before episode 2.
 - Artwork downloads give up after twenty seconds, refuse anything that is not an image, and
   refuse anything over 25 MB, so one bad URL can no longer stall a scrape.
 - Searching for an accented title works without the accents, and a partly typed word matches.

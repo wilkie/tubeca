@@ -137,12 +137,15 @@ substring-matching the thrown `Error.message` (`'not found'`, `'already exists'`
 
 ### Reorder integrity
 
-`reorderItems` (line 369) checks that the caller owns the collection but does **not** check that
-each `itemId` belongs to it, that the list is complete, or that ids are unique. A partial list
-leaves the omitted items at their old positions (possible duplicates until the next full
-reorder), and an id from someone else's collection would have its position rewritten. The
-frontend always sends the full id list after `arrayMove`, and updates state optimistically before
-awaiting the response (`UserCollectionPage.tsx` `handleDragEnd`); a failed request leaves the
+`reorderItems` checks that the caller owns the collection, that every `itemId` belongs to it, and
+that none is listed twice. An id from another collection is rejected: without that check the
+update was by item id alone, so a caller could renumber someone else's items. A list shorter than
+the collection is accepted rather than rejected, because a viewer who cannot see one of the
+libraries involved is shown a filtered list; the listed items take the front, and the rest keep
+their relative order behind them, so nothing ends up sharing a position.
+
+The frontend sends the id list after `arrayMove` and updates state optimistically before awaiting
+the response (`UserCollectionPage.tsx` `handleDragEnd`); a failed request still leaves the
 optimistic order on screen.
 
 ### Favorites and Watch Later in the UI
@@ -214,6 +217,8 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 
 ## History
 
+- 2026-09-03 — Correctness sweep: reorder checks membership and duplicates and renumbers what a partial list leaves out; the playback queue takes media only, checks that it exists and rejects repeats; system collections are protected from the generic edit routes and made unique per user and type (migration `20260904010000_unique_system_collections`); the service raises typed errors that the routes map to statuses, replacing message matching; first tests for `UserCollectionService`.
+
 - `a801620` 2025-12-03 — Initial `UserCollection`/`UserCollectionItem` tables (media + collection refs), service, routes, `AddToCollectionDialog`, `CreateCollectionDialog`, list/detail pages, quick-add on film hero.
 - `d98b923` 2025-12-04 — Favorites: first as an `isFavorites` boolean, replaced the same day by `isSystem`/`systemType`; `FavoriteButton`, `FavoritesPage`, `/favorites*` routes.
 - `775a6e9` 2025-12-04 — Watch Later as a second system type; generic `checkSystemCollectionItems`/`toggleSystemCollectionItem` helpers; `WatchLaterButton`, `WatchLaterPage`.
@@ -243,14 +248,10 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   to the `WatchProgress` rows that playback now writes (see [Playback](playback.md)).
 - **Set vs Playlist is UI-only.** The backend never reads `collectionType`; a `Set` still has
   positions and can be reordered via the API, and `PATCH` can flip the type silently.
-- **Reorder trusts the client** (see *Reorder integrity*): no membership/completeness check on
-  `itemIds`, and the optimistic UI is not rolled back on failure.
-- **Queue reorder/remove drop non-media entries**, and `PUT /queue` performs no validation
-  (missing "exactly one" check, no existence check) so a malformed body yields a 500 mid-transaction.
-- **System collections are not protected**: their ids are returned by `GET /favorites` etc. and
-  the generic `PATCH`/`DELETE`/`POST /:id/items` routes accept them. `systemType` is a free-text
-  string without a unique `(userId, systemType)` index, so a race on first access can create two
-  Favorites rows for one user.
+- **Reorder still trusts the client's order**, though not its ids, and the optimistic UI is not
+  rolled back on failure.
+- **`systemType` is a free-text string.** The unique index stops a second Favorites row, but
+  nothing stops a future caller inventing a fourth system type; there is no enum.
 - **Nested user collections are second-class**: only the Favorites toggle can add them, only
   `FavoritesPage` renders them, `UserCollectionPage` would show them as "Unknown" and the
   self-reference check does not detect cycles deeper than one level.
@@ -271,17 +272,8 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
 
 ## Opportunities
 
-- **Backend unit/integration tests for `UserCollectionService`** (ownership, exactly-one
-  validation, toggle idempotency, reorder, system-collection get-or-create). Highest-value gap;
-  the service is 780 lines with zero coverage. (M)
-- **Harden `reorderItems`**: verify all `itemIds` belong to the collection, are unique, and cover
-  the full set (or renumber the remainder); roll back optimistic state on error in the UI. (S)
-- **Add `@@unique([userId, systemType])`** plus a `SystemCollectionType` enum, and reject
-  `PATCH`/`DELETE`/`POST /:id/items` on `isSystem` rows (or route them through the toggle
-  helpers). (S)
-- **Validate `PUT /queue` items** the same way `addItem` does, and decide whether the queue may
-  hold collections at all; if not, reject `collectionId` there and in `/queue/add` so
-  `QueuePage`'s media-only filter stops being lossy. (S)
+- **A `SystemCollectionType` enum** (S) so `systemType` cannot hold anything the app does not know.
+- **Roll back the optimistic reorder** in `UserCollectionPage` when the request fails (S).
 - **Extract a `SystemCollectionPage`** parameterised by system type, and a single
   `ToggleIconButton` for Favorite/WatchLater; move `getItemImage/Name/Subtitle/Icon/Type` into
   `utils/userCollectionItem.ts` and reuse across the four pages and the row component. (M)
@@ -296,7 +288,5 @@ otherwise silently keeps the menu open (no error surfaced). Same pattern in
   `WatchProgress` rows would reuse the list page pattern. (M)
 - **Nested collections properly**: let `AddToCollectionDialog` add a user collection to a `Set`,
   render `itemUserCollection` in `UserCollectionPage`, and add cycle detection. (M)
-- **Typed error classes** in the service (`NotFoundError`, `ValidationError`) instead of message
-  substring matching in the router. (S)
 - **Frontend tests** for `QueuePage`, `CardQuickActions`, `SelectionActionBar`, DnD reorder
   (mock `@dnd-kit` `onDragEnd`), and `PlayerContext` next/previous/auto-advance. (M)

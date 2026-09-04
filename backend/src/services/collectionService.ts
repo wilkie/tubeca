@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { NotFoundError } from './errors';
 import { prisma } from '../config/database';
 import { contentDeletionService } from './contentDeletionService';
 
@@ -316,7 +317,16 @@ export class CollectionService {
               take: 1,
             },
           },
-          orderBy: { name: 'asc' },
+          // Episode order, not alphabetical order: "Episode 10" sorts before
+          // "Episode 2" by name, and a season's episodes are what this list
+          // almost always holds. Anything unscraped falls back to the name.
+          orderBy: [
+            { videoDetails: { season: 'asc' } },
+            { videoDetails: { episode: 'asc' } },
+            { audioDetails: { disc: 'asc' } },
+            { audioDetails: { track: 'asc' } },
+            { name: 'asc' },
+          ],
         },
         // Include collection metadata based on type
         showDetails: {
@@ -488,7 +498,7 @@ export class CollectionService {
   async deleteCollection(id: string) {
     const removed = await contentDeletionService.deleteCollectionTree(id);
     if (!removed) {
-      throw new Error('Collection not found');
+      throw new NotFoundError('Collection not found');
     }
     return removed;
   }

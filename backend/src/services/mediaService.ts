@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import { NotFoundError } from './errors';
 import { Media, MediaType } from '@prisma/client';
 import { Video, Audio, CreateVideoInput, CreateAudioInput, isVideo, isAudio } from '../types/media';
 import { contentDeletionService } from './contentDeletionService';
@@ -138,7 +139,7 @@ export class MediaService {
   async deleteMedia(id: string): Promise<void> {
     const deleted = await contentDeletionService.deleteMedia(id);
     if (!deleted) {
-      throw new Error('Media not found');
+      throw new NotFoundError('Media not found');
     }
   }
 

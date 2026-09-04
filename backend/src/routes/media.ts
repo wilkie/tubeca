@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { errorResponse } from '../services/errors';
 import { authenticate, requireRole } from '../middleware/auth';
 import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { MediaService } from '../services/mediaService';
@@ -84,10 +85,8 @@ router.delete('/:id', requireRole('Editor'), mediaAccess, async (req, res) => {
     await mediaService.deleteMedia(req.params.id);
     res.status(204).send();
   } catch (error) {
-    if (error instanceof Error && error.message === 'Media not found') {
-      return res.status(404).json({ error: error.message });
-    }
-    res.status(500).json({ error: 'Failed to delete media' });
+    const { status, error: message } = errorResponse(error, 'Failed to delete media');
+    res.status(status).json({ error: message });
   }
 });
 

@@ -1,5 +1,6 @@
 import { prisma } from '../config/database';
-import { ImageType, UserCollectionType } from '@prisma/client';
+import { ConflictError, NotFoundError, ValidationError } from './errors';
+import { ImageType, Prisma, UserCollectionType } from '@prisma/client';
 
 export interface CreateUserCollectionInput {
   name: string
@@ -255,7 +256,14 @@ export class UserCollectionService {
     });
 
     if (!existing || existing.userId !== userId) {
-      throw new Error('Collection not found or access denied');
+      throw new NotFoundError('Collection not found or access denied');
+    }
+
+    // Favorites, Watch Later and the queue are addressed by their type, not
+    // their name, and the app creates them. Renaming or publishing one would
+    // leave the UI looking for a collection that no longer matches.
+    if (existing.isSystem) {
+      throw new ValidationError(`${existing.systemType ?? 'This'} is managed by Tubeca and cannot be edited`);
     }
 
     return prisma.userCollection.update({
@@ -279,7 +287,11 @@ export class UserCollectionService {
     });
 
     if (!existing || existing.userId !== userId) {
-      throw new Error('Collection not found or access denied');
+      throw new NotFoundError('Collection not found or access denied');
+    }
+
+    if (existing.isSystem) {
+      throw new ValidationError(`${existing.systemType ?? 'This'} is managed by Tubeca and cannot be deleted`);
     }
 
     return prisma.userCollection.delete({
@@ -296,7 +308,7 @@ export class UserCollectionService {
     // Validate that exactly one reference is provided
     const refCount = [contentCollectionId, mediaId, itemUserCollectionId].filter(Boolean).length;
     if (refCount !== 1) {
-      throw new Error('Exactly one of collectionId, mediaId, or userCollectionId must be provided');
+      throw new ValidationError('Exactly one of collectionId, mediaId, or userCollectionId must be provided');
     }
 
     // Verify ownership of the user collection
@@ -305,12 +317,21 @@ export class UserCollectionService {
     });
 
     if (!userCollection || userCollection.userId !== userId) {
-      throw new Error('Collection not found or access denied');
+      throw new NotFoundError('Collection not found or access denied');
+    }
+
+    // A system collection has its own way in: the favourite and watch-later
+    // toggles, and the queue endpoints. Adding through the generic route
+    // would skip the checks those make.
+    if (userCollection.isSystem) {
+      throw new ValidationError(
+        `Add to ${userCollection.systemType ?? 'this collection'} through its own endpoint`
+      );
     }
 
     // Prevent adding a collection to itself
     if (itemUserCollectionId === collectionId) {
-      throw new Error('Cannot add a collection to itself');
+      throw new ValidationError('Cannot add a collection to itself');
     }
 
     // Check if item already exists in collection
@@ -324,7 +345,7 @@ export class UserCollectionService {
     });
 
     if (existingItem) {
-      throw new Error('Item already exists in collection');
+      throw new ConflictError('Item already exists in collection');
     }
 
     // Get the next position
@@ -366,7 +387,7 @@ export class UserCollectionService {
     });
 
     if (!userCollection || userCollection.userId !== userId) {
-      throw new Error('Collection not found or access denied');
+      throw new NotFoundError('Collection not found or access denied');
     }
 
     // Verify the item belongs to this collection
@@ -375,7 +396,7 @@ export class UserCollectionService {
     });
 
     if (!item || item.userCollectionId !== collectionId) {
-      throw new Error('Item not found in collection');
+      throw new NotFoundError('Item not found in collection');
     }
 
     // Delete item and update collection's updatedAt in a transaction
@@ -402,12 +423,39 @@ export class UserCollectionService {
     });
 
     if (!userCollection || userCollection.userId !== userId) {
-      throw new Error('Collection not found or access denied');
+      throw new NotFoundError('Collection not found or access denied');
     }
+
+    // The ids decide which rows get written, so they have to be this
+    // collection's own, each once, and all of them. Without the check a
+    // caller could renumber items in someone else's collection by id, and a
+    // partial list would leave the rest sharing positions with the new order.
+    const unique = new Set(itemIds);
+    if (unique.size !== itemIds.length) {
+      throw new ValidationError('Reorder listed the same item more than once');
+    }
+
+    const members = await prisma.userCollectionItem.findMany({
+      where: { userCollectionId: collectionId },
+      select: { id: true },
+      orderBy: { position: 'asc' },
+    });
+    const memberIds = new Set(members.map((item) => item.id));
+
+    if (itemIds.some((id) => !memberIds.has(id))) {
+      throw new ValidationError('Reorder listed an item that is not in this collection');
+    }
+
+    // A caller may send fewer than it has: an owner who has lost access to one
+    // of the libraries involved is shown a filtered list. Those go first, in
+    // the order given, and everything else keeps its relative order behind
+    // them, so nothing ends up sharing a position.
+    const listed = new Set(itemIds);
+    const ordered = [...itemIds, ...members.map((item) => item.id).filter((id) => !listed.has(id))];
 
     // Update positions and collection's updatedAt in a transaction
     await prisma.$transaction([
-      ...itemIds.map((itemId, index) =>
+      ...ordered.map((itemId, index) =>
         prisma.userCollectionItem.update({
           where: { id: itemId },
           data: { position: index },
@@ -456,26 +504,46 @@ export class UserCollectionService {
       },
     });
 
-    // Create if it doesn't exist
+    // Create if it doesn't exist. Two requests arriving together used to
+    // create two Favorites rows for one user; the unique index on
+    // (userId, systemType) makes the loser fail, and it re-reads the winner's.
     if (!collection) {
-      collection = await prisma.userCollection.create({
-        data: {
-          name: systemType,
-          userId,
-          isSystem: true,
-          systemType,
-          isPublic: false,
-        },
-        include: {
-          items: {
-            include: itemInclude,
-            orderBy: { position: 'asc' },
+      try {
+        collection = await prisma.userCollection.create({
+          data: {
+            name: systemType,
+            userId,
+            isSystem: true,
+            systemType,
+            isPublic: false,
           },
-          _count: {
-            select: { items: true },
+          include: {
+            items: {
+              include: itemInclude,
+              orderBy: { position: 'asc' },
+            },
+            _count: {
+              select: { items: true },
+            },
           },
-        },
-      });
+        });
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+          throw error;
+        }
+        collection = await prisma.userCollection.findFirstOrThrow({
+          where: { userId, isSystem: true, systemType },
+          include: {
+            items: {
+              include: itemInclude,
+              orderBy: { position: 'asc' },
+            },
+            _count: {
+              select: { items: true },
+            },
+          },
+        });
+      }
     }
 
     return collection;
@@ -549,6 +617,30 @@ export class UserCollectionService {
    * Used when pressing Play to start fresh playback
    */
   async setPlaybackQueue(userId: string, items: AddUserCollectionItemInput[]) {
+    // The queue is played track by track, so it holds media and nothing else.
+    // It used to accept a collection, which the queue page then dropped on the
+    // next reorder: the item vanished with no explanation.
+    const mediaIds = items.map((item, index) => {
+      if (item.collectionId || item.userCollectionId) {
+        throw new ValidationError(`Queue item ${index + 1} must be a media item, not a collection`);
+      }
+      if (!item.mediaId) {
+        throw new ValidationError(`Queue item ${index + 1} has no mediaId`);
+      }
+      return item.mediaId;
+    });
+
+    if (new Set(mediaIds).size !== mediaIds.length) {
+      throw new ValidationError('The same media item was listed twice in the queue');
+    }
+
+    if (mediaIds.length > 0) {
+      const found = await prisma.media.findMany({ where: { id: { in: mediaIds } }, select: { id: true } });
+      if (found.length !== mediaIds.length) {
+        throw new NotFoundError('The queue named a media item that does not exist');
+      }
+    }
+
     // Get or create the playback queue
     const queue = await this.getSystemCollection(userId, 'PlaybackQueue');
 
@@ -559,12 +651,11 @@ export class UserCollectionService {
         where: { userCollectionId: queue.id },
       }),
       // Add new items with positions
-      ...items.map((item, index) =>
+      ...mediaIds.map((mediaId, index) =>
         prisma.userCollectionItem.create({
           data: {
             userCollectionId: queue.id,
-            collectionId: item.collectionId,
-            mediaId: item.mediaId,
+            mediaId,
             position: index,
           },
         })
@@ -587,9 +678,15 @@ export class UserCollectionService {
   async addToPlaybackQueue(userId: string, input: AddUserCollectionItemInput) {
     const { collectionId: contentCollectionId, mediaId } = input;
 
-    // Validate that exactly one reference is provided
-    if ((!contentCollectionId && !mediaId) || (contentCollectionId && mediaId)) {
-      throw new Error('Exactly one of collectionId or mediaId must be provided');
+    // Media only, for the same reason as `setPlaybackQueue`.
+    if (contentCollectionId) {
+      throw new ValidationError('The playback queue holds media items, not collections');
+    }
+    if (!mediaId) {
+      throw new ValidationError('mediaId is required');
+    }
+    if (!(await prisma.media.findUnique({ where: { id: mediaId }, select: { id: true } }))) {
+      throw new NotFoundError('Media not found');
     }
 
     // Get or create the playback queue
@@ -744,7 +841,7 @@ export class UserCollectionService {
     // Validate that exactly one reference is provided
     const refCount = [contentCollectionId, mediaId, itemUserCollectionId].filter(Boolean).length;
     if (refCount !== 1) {
-      throw new Error('Exactly one of collectionId, mediaId, or userCollectionId must be provided');
+      throw new ValidationError('Exactly one of collectionId, mediaId, or userCollectionId must be provided');
     }
 
     // Get or create the system collection
@@ -752,7 +849,7 @@ export class UserCollectionService {
 
     // Prevent adding a collection to itself
     if (itemUserCollectionId === systemCollection.id) {
-      throw new Error('Cannot add a collection to itself');
+      throw new ValidationError('Cannot add a collection to itself');
     }
 
     // Check if item already exists

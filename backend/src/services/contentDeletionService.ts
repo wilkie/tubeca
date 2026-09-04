@@ -79,6 +79,21 @@ export class ContentDeletionService {
     return images.map((i) => i.path);
   }
 
+  /**
+   * Delete every image row for a collection, and its file on disk.
+   *
+   * Used by Identify, which throws the old title's artwork away so the new
+   * one is downloaded. The rows used to be deleted on their own, leaving the
+   * files behind with nothing pointing at them.
+   */
+  async deleteCollectionImages(collectionId: string): Promise<number> {
+    const files = await this.imagePathsFor([collectionId], []);
+    for (const file of files) deleteImageFile(this.storageRoot, file);
+
+    const removed = await prisma.image.deleteMany({ where: { collectionId } });
+    return removed.count;
+  }
+
   /** Delete one media row and its artwork files. Returns false if it did not exist. */
   async deleteMedia(mediaId: string): Promise<boolean> {
     const exists = await prisma.media.findUnique({ where: { id: mediaId }, select: { id: true } });

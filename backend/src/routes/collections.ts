@@ -6,6 +6,8 @@ import { addCollectionScrapeJob, type CollectionScrapeType } from '../queues/col
 import { scraperManager } from '../plugins/scraperLoader';
 import { prisma } from '../config/database';
 import { syncCollectionSortFields } from '../services/collectionSortFields';
+import { errorResponse } from '../services/errors';
+import { contentDeletionService } from '../services/contentDeletionService';
 
 const router = Router();
 const collectionService = new CollectionService();
@@ -494,8 +496,10 @@ router.delete('/:id', requireRole('Editor'), collectionAccess, async (req, res) 
   try {
     await collectionService.deleteCollection(req.params.id);
     res.status(204).send();
-  } catch {
-    res.status(500).json({ error: 'Failed to delete collection' });
+  } catch (error) {
+    // A collection that is not there is the caller's mistake, not a fault.
+    const { status, error: message } = errorResponse(error, 'Failed to delete collection');
+    res.status(status).json({ error: message });
   }
 });
 
@@ -749,10 +753,9 @@ router.post('/:id/identify', requireRole('Editor'), collectionAccess, async (req
       return res.status(400).json({ error: 'Only Show and Film collections can be identified' });
     }
 
-    // Clear existing images for this collection so new ones are downloaded
-    await prisma.image.deleteMany({
-      where: { collectionId: collection.id },
-    });
+    // Clear existing images for this collection so new ones are downloaded,
+    // files included: the old title's artwork is of no use to anyone.
+    await contentDeletionService.deleteCollectionImages(collection.id);
 
     // Update or create the details record with the new external ID
     if (collection.collectionType === 'Show') {
