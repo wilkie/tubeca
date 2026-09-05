@@ -7,7 +7,9 @@ import {
   waitFor,
 } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
+import i18n from '../../i18n';
 import {
+  languageName,
   VideoControls,
   formatTime,
   formatAudioTrackLabel,
@@ -23,20 +25,24 @@ jest.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
 }));
 
+/** The real translations, so a label test reads what a viewer would see. */
+const labels = { t: i18n.t, locale: 'en' };
+
+const defaultProps = {
+  isPlaying: false,
+  currentTime: 0,
+  duration: 3600,
+  volume: 1,
+  isMuted: false,
+  isLoading: false,
+  onPlayPause: jest.fn(),
+  onSeek: jest.fn(),
+  onSeekCommit: jest.fn(),
+  onVolumeChange: jest.fn(),
+  onMuteToggle: jest.fn(),
+};
+
 describe('VideoControls', () => {
-  const defaultProps = {
-    isPlaying: false,
-    currentTime: 0,
-    duration: 3600,
-    volume: 1,
-    isMuted: false,
-    isLoading: false,
-    onPlayPause: jest.fn(),
-    onSeek: jest.fn(),
-    onSeekCommit: jest.fn(),
-    onVolumeChange: jest.fn(),
-    onMuteToggle: jest.fn(),
-  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -74,7 +80,7 @@ describe('VideoControls', () => {
         channelLayout: null,
         isDefault: true,
       };
-      expect(formatAudioTrackLabel(track)).toBe('English');
+      expect(formatAudioTrackLabel(track, labels)).toBe('English');
     });
 
     it('formats track with language and channel layout', () => {
@@ -86,7 +92,7 @@ describe('VideoControls', () => {
         channelLayout: '5.1',
         isDefault: true,
       };
-      expect(formatAudioTrackLabel(track)).toBe('English - 5.1');
+      expect(formatAudioTrackLabel(track, labels)).toBe('English - 5.1');
     });
 
     it('formats track with title', () => {
@@ -98,7 +104,7 @@ describe('VideoControls', () => {
         channelLayout: null,
         isDefault: false,
       };
-      expect(formatAudioTrackLabel(track)).toBe('English - Commentary');
+      expect(formatAudioTrackLabel(track, labels)).toBe('English - Commentary');
     });
 
     it('formats track with only channels', () => {
@@ -110,7 +116,7 @@ describe('VideoControls', () => {
         channelLayout: null,
         isDefault: false,
       };
-      expect(formatAudioTrackLabel(track)).toBe('6ch');
+      expect(formatAudioTrackLabel(track, labels)).toBe('6ch');
     });
 
     it('falls back to track number', () => {
@@ -122,7 +128,7 @@ describe('VideoControls', () => {
         channelLayout: null,
         isDefault: false,
       };
-      expect(formatAudioTrackLabel(track)).toBe('Track 2');
+      expect(formatAudioTrackLabel(track, labels)).toBe('Track 2');
     });
   });
 
@@ -136,7 +142,7 @@ describe('VideoControls', () => {
         isForced: false,
         url: '/subtitles/0',
       };
-      expect(formatSubtitleTrackLabel(track)).toBe('Spanish');
+      expect(formatSubtitleTrackLabel(track, labels)).toBe('Spanish');
     });
 
     it('formats forced subtitle track', () => {
@@ -148,7 +154,7 @@ describe('VideoControls', () => {
         isForced: true,
         url: '/subtitles/0',
       };
-      expect(formatSubtitleTrackLabel(track)).toBe('English - (Forced)');
+      expect(formatSubtitleTrackLabel(track, labels)).toBe('English - (Forced)');
     });
 
     it('formats track with title', () => {
@@ -160,7 +166,7 @@ describe('VideoControls', () => {
         isForced: false,
         url: '/subtitles/0',
       };
-      expect(formatSubtitleTrackLabel(track)).toBe('English - SDH');
+      expect(formatSubtitleTrackLabel(track, labels)).toBe('English - SDH');
     });
 
     it('falls back to track number', () => {
@@ -172,7 +178,7 @@ describe('VideoControls', () => {
         isForced: false,
         url: '/subtitles/3',
       };
-      expect(formatSubtitleTrackLabel(track)).toBe('Track 3');
+      expect(formatSubtitleTrackLabel(track, labels)).toBe('Track 3');
     });
   });
 
@@ -747,5 +753,115 @@ describe('VideoControls', () => {
 
       expect(screen.queryByTestId('trickplay-preview')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('languageName', () => {
+  it('names a language from its two-letter code', () => {
+    expect(languageName('en', labels)).toBe('English');
+    expect(languageName('nl', labels)).toBe('Dutch');
+  });
+
+  it('names one from the three-letter codes media files carry', () => {
+    // Both the terminological and the bibliographic form of the same language.
+    expect(languageName('deu', labels)).toBe('German');
+    expect(languageName('ger', labels)).toBe('German');
+    expect(languageName('fre', labels)).toBe('French');
+  });
+
+  it('names it in the viewer\'s own language', () => {
+    // The point of naming a language rather than printing its code.
+    expect(languageName('de', { t: i18n.t, locale: 'fr' })).toBe('allemand');
+    expect(languageName('ja', { t: i18n.t, locale: 'es' })).toBe('japonés');
+  });
+
+  it('says "Unknown" for the code that means exactly that', () => {
+    expect(languageName('und', labels)).toBe('Unknown');
+  });
+
+  it('falls back to the code when nothing knows it', () => {
+    // Intl hands an unrecognised tag straight back, which is not a name.
+    expect(languageName('zz', labels)).toBe('ZZ');
+    expect(languageName('qaa', labels)).toBe('QAA');
+  });
+
+  it('does not throw on a code that is not a tag at all', () => {
+    expect(languageName('not a tag', labels)).toBe('NOT A TAG');
+  });
+});
+
+describe('every control has a name a screen reader can read', () => {
+  const tracks = {
+    audioTracks: [
+      { streamIndex: 1, language: 'eng', title: null, channels: 2, channelLayout: 'stereo', isDefault: true },
+      { streamIndex: 2, language: 'fra', title: null, channels: 2, channelLayout: 'stereo', isDefault: false },
+    ],
+    subtitleTracks: [
+      { streamIndex: 3, language: 'eng', title: null, isDefault: false, isForced: false, url: '/s.vtt' },
+    ],
+  };
+
+  it('names the play button for what it will do', () => {
+    const { rerender } = render(<VideoControls {...defaultProps} {...tracks} isPlaying={false} />);
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
+
+    rerender(<VideoControls {...defaultProps} {...tracks} isPlaying />);
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+  });
+
+  it('names the mute button for what it will do', () => {
+    const { rerender } = render(<VideoControls {...defaultProps} isMuted={false} />);
+    expect(screen.getByRole('button', { name: 'Mute' })).toBeInTheDocument();
+
+    rerender(<VideoControls {...defaultProps} isMuted />);
+    expect(screen.getByRole('button', { name: 'Unmute' })).toBeInTheDocument();
+  });
+
+  it('names the fullscreen button for what it will do', () => {
+    const { rerender } = render(
+      <VideoControls {...defaultProps} showFullscreenButton onFullscreenToggle={jest.fn()} isFullscreen={false} />
+    );
+    expect(screen.getByRole('button', { name: 'Enter full screen' })).toBeInTheDocument();
+
+    rerender(
+      <VideoControls {...defaultProps} showFullscreenButton onFullscreenToggle={jest.fn()} isFullscreen />
+    );
+    expect(screen.getByRole('button', { name: 'Exit full screen' })).toBeInTheDocument();
+  });
+
+  it('names the skip, track and quality buttons', () => {
+    render(
+      <VideoControls
+        {...defaultProps}
+        {...tracks}
+        showSkipPrevious
+        showSkipNext
+        onSkipPrevious={jest.fn()}
+        onSkipNext={jest.fn()}
+        qualityOptions={[
+          { name: 'auto', label: 'Auto', bandwidth: 0 },
+          { name: '720p', label: '720p', bandwidth: 5000 },
+        ]}
+      />
+    );
+
+    for (const name of [
+      'Skip to previous',
+      'Skip to next',
+      'Select subtitle track',
+      'Select audio track',
+      'Select quality',
+    ]) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+  });
+
+  it('names the mini player\'s own two buttons', () => {
+    render(
+      <VideoControls {...defaultProps} compact showExpandButton showCloseButton onClose={jest.fn()} />
+    );
+
+    expect(screen.getByRole('button', { name: 'Expand to full screen' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close player' })).toBeInTheDocument();
   });
 });

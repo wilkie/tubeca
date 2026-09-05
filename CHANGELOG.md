@@ -95,6 +95,12 @@ All notable changes to Tubeca are recorded here. The format follows
   they no longer overflow the bar, a show's hero is as tall as it needs to be rather than a full
   screen of artwork with the episodes below the fold, and list rows are tighter. Pages also stop
   scrolling sideways on a narrow screen — every hero reached eight pixels past each edge.
+- The player speaks the interface language. Every label and menu entry in the video controls was
+  English regardless of locale, and audio and subtitle tracks were named from a list of nineteen
+  languages; they now come from the browser's own language data, so a French viewer sees
+  "allemand" and a language outside that list of nineteen gets a name at all.
+- Every button in the video controls tells a screen reader what it does, and the ones that change
+  meaning — play/pause, mute, fullscreen — say what pressing them will do.
 - The player fits a phone. The floating mini player scales with the screen instead of sitting at a
   fixed 320 pixels wide — which on a phone covered most of the page — and the full player's control
   row drops the volume slider and moves the time under the progress bar, so the buttons stop

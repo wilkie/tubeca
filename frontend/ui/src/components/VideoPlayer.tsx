@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { Box } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import { VideoControls, formatSubtitleTrackLabel } from './VideoControls';
 import type { AudioTrackInfo, SubtitleTrackInfo } from './VideoControls';
 import type { TrickplayResolution } from '../api/client';
@@ -50,6 +51,7 @@ export function VideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showControls, setShowControls] = useState(true);
+  const { t, i18n } = useTranslation();
   const lastPointerTypeRef = useRef<string>('mouse');
   const hideControlsTimeout = useRef<number | null>(null);
   const [videoSrc, setVideoSrc] = useState(src);
@@ -262,7 +264,7 @@ export function VideoPlayer({
             kind="subtitles"
             src={track.url}
             srcLang={track.language || 'und'}
-            label={formatSubtitleTrackLabel(track)}
+            label={formatSubtitleTrackLabel(track, { t, locale: i18n.language })}
             default={track.streamIndex === currentSubtitleTrack}
           />
         ))}

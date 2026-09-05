@@ -187,6 +187,23 @@ drag does not scroll the page instead. The tooltip's
 `GET /api/stream/trickplay/:id/:width/:index?token=`. Sheets load lazily on hover, one request
 per sheet. Not shown in `compact` mode.
 
+### Naming tracks and controls
+
+Every string in `VideoControls` went through `t()` on 2026-09-05; before that the one screen a
+viewer looks at longest was the least translated thing in the app. All ten icon buttons carry an
+`aria-label`, and the five whose meaning flips — play/pause, mute/unmute, enter/exit fullscreen —
+name what pressing them will do rather than what state the player is in.
+
+A language is named by `Intl.DisplayNames` in the viewer's own locale, so a French viewer reads
+`allemand` rather than `German`. What replaced the nineteen-entry English map is a smaller
+`LANGUAGE_ALIASES` table that only bridges the three-letter codes media files carry to the tags
+`Intl` expects: a file may say `deu` (ISO 639-2/T) or `ger` (639-2/B), and only the first is
+BCP-47. An unrecognised tag comes back from `Intl` unchanged, which is not a name, so the code is
+upper-cased instead.
+
+`formatAudioTrackLabel` and `formatSubtitleTrackLabel` therefore take a `TrackLabelContext`
+(`{ t, locale }`) rather than reading a module-level map.
+
 ### Controls, keyboard, fullscreen
 
 - Controls auto-hide after 3 s of no mouse movement while playing (`PlayPage`, `MiniPlayer`, and
@@ -353,6 +370,7 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - 2026-09-04 A failed progress report is retried on a backoff instead of being dropped, and search results show watched badges.
 - 2026-09-04 Watched badges extended to favourites, watch later, the queue and user collections.
 - 2026-09-04 `POST`/`DELETE /api/watch/collections/:id` mark or forget a whole subtree; "Mark all watched" on the collection menu.
+- 2026-09-05 Every string in `VideoControls` translated and every icon button given an `aria-label`; language names come from `Intl.DisplayNames` in the viewer's locale rather than a hard-coded English map.
 - 2026-09-05 The player fits a phone: `MiniPlayer` scales with the viewport (55% of the width, 180-320px, 16:9) and the full controls drop the volume slider and move the time under the progress bar below `sm`.
 - 2026-09-04 Player converted from mouse events to pointer events: touch drag of the mini player, scrub previews, tap-to-reveal controls.
 
@@ -383,9 +401,6 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - **Duplicated HLS config** (~50 lines) between `initHls` and `setAudioTrack`; stability
   tracking and fatal recovery are only wired in the first.
 - **Verbose production logging:** every fragment/level event logs to the console.
-- **Hard-coded English** in `VideoControls` ("Off", "Auto", "Track N", "Skip to next",
-  aria-labels, the `LANGUAGE_NAMES` map) while `player.skipNext/expand/close` i18n keys exist and
-  are unused. Play/pause, mute, fullscreen, expand and close buttons have no `aria-label`.
 - `isFullscreen` is never passed from `PlayPage`, so its fullscreen icon never toggles.
 - `VideoPlayer.tsx` is dead code kept alive by its test and the barrel export; the trickplay
   clamping tests exercise it rather than `VideoControls`.
@@ -413,8 +428,6 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - **Cheaper continuation** (S): skip next-episode resolution until `duration - currentTime < 60`
   or when in mini mode; sort seasons by `seasonDetails.seasonNumber` once the summary carries it.
 - **Gate HLS debug logging** (S) behind `import.meta.env.DEV` or `debug: true`.
-- **i18n and a11y pass on `VideoControls`** (S): use the existing `player.*` keys, add
-  `aria-label`s to every icon button, and translate "Off"/"Auto"/language names.
 - **Delete `VideoPlayer.tsx`** (S) and move the clamping tests onto `VideoControls`.
 - **Tests** (S): `PlayerContext` tests for `setAudioTrack` recreation, `seekCommit` on HLS and the
   DOM re-parenting between the mini and fullscreen containers; the rest of this part is covered.

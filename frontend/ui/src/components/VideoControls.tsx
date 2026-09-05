@@ -1,5 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   Box,
   IconButton,
@@ -108,36 +110,80 @@ export interface VideoControlsProps {
 }
 
 // Language code to display name mapping
-const LANGUAGE_NAMES: Record<string, string> = {
-  en: 'English',
-  eng: 'English',
-  es: 'Spanish',
-  spa: 'Spanish',
-  fr: 'French',
-  fra: 'French',
-  fre: 'French',
-  de: 'German',
-  deu: 'German',
-  ger: 'German',
-  it: 'Italian',
-  ita: 'Italian',
-  pt: 'Portuguese',
-  por: 'Portuguese',
-  ja: 'Japanese',
-  jpn: 'Japanese',
-  ko: 'Korean',
-  kor: 'Korean',
-  zh: 'Chinese',
-  zho: 'Chinese',
-  chi: 'Chinese',
-  ru: 'Russian',
-  rus: 'Russian',
-  ar: 'Arabic',
-  ara: 'Arabic',
-  hi: 'Hindi',
-  hin: 'Hindi',
-  und: 'Unknown',
+/**
+ * Three-letter codes `Intl.DisplayNames` does not recognise, mapped to the
+ * two-letter ones it does. A media file may carry either ISO 639-2/T (`deu`)
+ * or the bibliographic 639-2/B (`ger`), and only the first is a BCP-47 tag.
+ */
+const LANGUAGE_ALIASES: Record<string, string> = {
+  eng: 'en',
+  spa: 'es',
+  fra: 'fr',
+  fre: 'fr',
+  deu: 'de',
+  ger: 'de',
+  ita: 'it',
+  por: 'pt',
+  jpn: 'ja',
+  kor: 'ko',
+  zho: 'zh',
+  chi: 'zh',
+  rus: 'ru',
+  ara: 'ar',
+  hin: 'hi',
+  nld: 'nl',
+  dut: 'nl',
+  swe: 'sv',
+  dan: 'da',
+  nor: 'no',
+  fin: 'fi',
+  pol: 'pl',
+  tur: 'tr',
+  ces: 'cs',
+  cze: 'cs',
+  ell: 'el',
+  gre: 'el',
+  heb: 'he',
+  tha: 'th',
+  vie: 'vi',
+  ukr: 'uk',
+  hun: 'hu',
+  ron: 'ro',
+  rum: 'ro',
+  isl: 'is',
+  ice: 'is',
 };
+
+/** What the player calls the tracks it is offering. */
+export interface TrackLabelContext {
+  /** i18next's `t`, taken as its own type so a default value is still allowed. */
+  t: TFunction
+  /** The viewer's locale, so a language is named in their own language. */
+  locale: string
+}
+
+/**
+ * The name of a language in the viewer's own language.
+ *
+ * This was a hard-coded English map of nineteen codes; `Intl.DisplayNames`
+ * knows every code in the viewer's locale, which is the whole point of naming
+ * a language at all. The map that remains only bridges the three-letter codes
+ * media files use to the tags `Intl` expects.
+ */
+export function languageName(code: string, { t, locale }: TrackLabelContext): string {
+  const lower = code.toLowerCase();
+  if (lower === 'und') return t('player.unknownLanguage', 'Unknown');
+
+  const tag = LANGUAGE_ALIASES[lower] ?? lower;
+  try {
+    const name = new Intl.DisplayNames([locale], { type: 'language' }).of(tag);
+    // An unknown tag comes back unchanged, which is not a name.
+    if (name && name.toLowerCase() !== tag.toLowerCase()) return name;
+  } catch {
+    // A malformed tag throws rather than answering.
+  }
+  return code.toUpperCase();
+}
 
 export function formatTime(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
@@ -150,12 +196,11 @@ export function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function formatAudioTrackLabel(track: AudioTrackInfo): string {
+export function formatAudioTrackLabel(track: AudioTrackInfo, context: TrackLabelContext): string {
   const parts: string[] = [];
 
   if (track.language) {
-    const langName = LANGUAGE_NAMES[track.language.toLowerCase()] || track.language.toUpperCase();
-    parts.push(langName);
+    parts.push(languageName(track.language, context));
   }
 
   if (track.title && (!track.language || !track.title.toLowerCase().includes(track.language.toLowerCase()))) {
@@ -168,15 +213,16 @@ export function formatAudioTrackLabel(track: AudioTrackInfo): string {
     parts.push(`${track.channels}ch`);
   }
 
-  return parts.length > 0 ? parts.join(' - ') : `Track ${track.streamIndex}`;
+  return parts.length > 0
+    ? parts.join(' - ')
+    : context.t('player.trackNumber', { number: track.streamIndex });
 }
 
-export function formatSubtitleTrackLabel(track: SubtitleTrackInfo): string {
+export function formatSubtitleTrackLabel(track: SubtitleTrackInfo, context: TrackLabelContext): string {
   const parts: string[] = [];
 
   if (track.language) {
-    const langName = LANGUAGE_NAMES[track.language.toLowerCase()] || track.language.toUpperCase();
-    parts.push(langName);
+    parts.push(languageName(track.language, context));
   }
 
   if (track.title && (!track.language || !track.title.toLowerCase().includes(track.language.toLowerCase()))) {
@@ -184,10 +230,12 @@ export function formatSubtitleTrackLabel(track: SubtitleTrackInfo): string {
   }
 
   if (track.isForced) {
-    parts.push('(Forced)');
+    parts.push(context.t('player.forcedSubtitles', '(Forced)'));
   }
 
-  return parts.length > 0 ? parts.join(' - ') : `Track ${track.streamIndex}`;
+  return parts.length > 0
+    ? parts.join(' - ')
+    : context.t('player.trackNumber', { number: track.streamIndex });
 }
 
 export function VideoControls({
@@ -230,6 +278,10 @@ export function VideoControls({
 }: VideoControlsProps) {
   const navigate = useNavigate();
   const sliderRef = useRef<HTMLDivElement>(null);
+  // Nothing in this component was translated before 2026-09-05; it is the one
+  // screen a viewer looks at longest.
+  const { t, i18n } = useTranslation();
+  const trackLabels: TrackLabelContext = { t, locale: i18n.language };
   const theme = useTheme();
   // The full player's control row does not fit a phone: seven icon buttons, a
   // volume slider and a time readout want more than 360px. On a narrow screen
@@ -499,13 +551,19 @@ export function VideoControls({
               onClick={onSkipPrevious}
               sx={{ color: 'white' }}
               size={compact ? 'small' : 'medium'}
-              title="Skip to previous"
+              aria-label={t('player.skipPrevious', 'Skip to previous')}
+              title={t('player.skipPrevious', 'Skip to previous')}
             >
               <SkipPrevious fontSize={compact ? 'small' : 'medium'} />
             </IconButton>
           )}
 
-          <IconButton onClick={onPlayPause} sx={{ color: 'white' }} size={compact ? 'small' : 'medium'}>
+          <IconButton
+            onClick={onPlayPause}
+            sx={{ color: 'white' }}
+            size={compact ? 'small' : 'medium'}
+            aria-label={isPlaying ? t('player.pause', 'Pause') : t('common.play', 'Play')}
+          >
             {isPlaying ? <Pause fontSize={compact ? 'small' : 'medium'} /> : <PlayArrow fontSize={compact ? 'small' : 'medium'} />}
           </IconButton>
 
@@ -514,7 +572,8 @@ export function VideoControls({
               onClick={onSkipNext}
               sx={{ color: 'white' }}
               size={compact ? 'small' : 'medium'}
-              title="Skip to next"
+              aria-label={t('player.skipNext')}
+              title={t('player.skipNext')}
             >
               <SkipNext fontSize={compact ? 'small' : 'medium'} />
             </IconButton>
@@ -529,7 +588,12 @@ export function VideoControls({
           <Box sx={{ flexGrow: 1 }} />
 
           {/* Volume controls */}
-          <IconButton onClick={onMuteToggle} sx={{ color: 'white' }} size={compact ? 'small' : 'medium'}>
+          <IconButton
+            onClick={onMuteToggle}
+            sx={{ color: 'white' }}
+            size={compact ? 'small' : 'medium'}
+            aria-label={isMuted ? t('player.unmute', 'Unmute') : t('player.mute', 'Mute')}
+          >
             {isMuted ? <VolumeOff fontSize={compact ? 'small' : 'medium'} /> : <VolumeUp fontSize={compact ? 'small' : 'medium'} />}
           </IconButton>
 
@@ -555,7 +619,7 @@ export function VideoControls({
             <IconButton
               onClick={handleSubtitleMenuOpen}
               sx={{ color: currentSubtitleTrack !== null ? 'primary.main' : 'white' }}
-              aria-label="Select subtitle track"
+              aria-label={t('player.selectSubtitles', 'Select subtitle track')}
             >
               <Subtitles />
             </IconButton>
@@ -566,7 +630,7 @@ export function VideoControls({
             <IconButton
               onClick={handleAudioMenuOpen}
               sx={{ color: 'white' }}
-              aria-label="Select audio track"
+              aria-label={t('player.selectAudio', 'Select audio track')}
             >
               <Audiotrack />
             </IconButton>
@@ -577,7 +641,7 @@ export function VideoControls({
             <IconButton
               onClick={handleQualityMenuOpen}
               sx={{ color: currentQuality !== 'auto' ? 'primary.main' : 'white' }}
-              aria-label="Select quality"
+              aria-label={t('player.selectQuality', 'Select quality')}
             >
               <Hd />
             </IconButton>
@@ -585,21 +649,39 @@ export function VideoControls({
 
           {/* Fullscreen button */}
           {showFullscreenButton && onFullscreenToggle && !compact && (
-            <IconButton onClick={onFullscreenToggle} sx={{ color: 'white' }}>
+            <IconButton
+              onClick={onFullscreenToggle}
+              sx={{ color: 'white' }}
+              aria-label={
+                isFullscreen
+                  ? t('player.exitFullscreen', 'Exit full screen')
+                  : t('player.enterFullscreen', 'Enter full screen')
+              }
+            >
               {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
             </IconButton>
           )}
 
           {/* Expand button (for mini-player) */}
           {showExpandButton && (
-            <IconButton onClick={handleExpand} sx={{ color: 'white' }} size={compact ? 'small' : 'medium'}>
+            <IconButton
+              onClick={handleExpand}
+              sx={{ color: 'white' }}
+              size={compact ? 'small' : 'medium'}
+              aria-label={t('player.expand')}
+            >
               <OpenInFull fontSize={compact ? 'small' : 'medium'} />
             </IconButton>
           )}
 
           {/* Close button (for mini-player) */}
           {showCloseButton && onClose && (
-            <IconButton onClick={onClose} sx={{ color: 'white' }} size={compact ? 'small' : 'medium'}>
+            <IconButton
+              onClick={onClose}
+              sx={{ color: 'white' }}
+              size={compact ? 'small' : 'medium'}
+              aria-label={t('player.close')}
+            >
               <Close fontSize={compact ? 'small' : 'medium'} />
             </IconButton>
           )}
@@ -654,7 +736,7 @@ export function VideoControls({
             )}
             <ListItemText
               inset={track.streamIndex !== currentAudioTrack}
-              primary={formatAudioTrackLabel(track)}
+              primary={formatAudioTrackLabel(track, trackLabels)}
             />
           </MenuItem>
         ))}
@@ -705,7 +787,10 @@ export function VideoControls({
               <Check fontSize="small" />
             </ListItemIcon>
           )}
-          <ListItemText inset={currentSubtitleTrack !== null} primary="Off" />
+          <ListItemText
+            inset={currentSubtitleTrack !== null}
+            primary={t('player.subtitlesOff', 'Off')}
+          />
         </MenuItem>
         {subtitleTracks?.map((track) => (
           <MenuItem
@@ -728,7 +813,7 @@ export function VideoControls({
             )}
             <ListItemText
               inset={track.streamIndex !== currentSubtitleTrack}
-              primary={formatSubtitleTrackLabel(track)}
+              primary={formatSubtitleTrackLabel(track, trackLabels)}
             />
           </MenuItem>
         ))}
@@ -782,7 +867,9 @@ export function VideoControls({
             )}
             <ListItemText
               inset={quality.name !== currentQuality}
-              primary={quality.label}
+              primary={
+                quality.name === 'auto' ? t('player.qualityAuto', 'Auto') : quality.label
+              }
             />
           </MenuItem>
         ))}
