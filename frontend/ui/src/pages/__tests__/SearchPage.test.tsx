@@ -32,6 +32,9 @@ afterAll(() => {
 // Mock the API client
 jest.mock('../../api/client', () => ({
   apiClient: {
+    // The results carry watched badges.
+    getWatchProgressBatch: jest.fn().mockResolvedValue({ data: { progress: {} } }),
+    getCollectionWatchSummaries: jest.fn().mockResolvedValue({ data: { summaries: {} } }),
     search: jest.fn(),
     getSearchFacets: jest.fn(),
     searchPersons: jest.fn(),
@@ -150,6 +153,32 @@ describe('SearchPage', () => {
   describe('rendering results', () => {
     beforeEach(() => {
       mockSearchParams = new URLSearchParams('q=test');
+    });
+
+    it('says which episodes have been watched', async () => {
+      const { apiClient: client } = jest.requireMock('../../api/client') as {
+        apiClient: { getWatchProgressBatch: jest.Mock };
+      };
+      client.getWatchProgressBatch.mockResolvedValue({
+        data: { progress: { 'media-1': { mediaId: 'media-1', position: 1200, duration: 1200, completed: true } } },
+      });
+
+      render(<SearchPage />);
+
+      // A result out of its season is where "have I seen this?" is hardest.
+      expect(await screen.findByLabelText(/watched/i)).toBeInTheDocument();
+    });
+
+    it('asks about exactly what it is showing', async () => {
+      const { apiClient: client } = jest.requireMock('../../api/client') as {
+        apiClient: { getWatchProgressBatch: jest.Mock; getCollectionWatchSummaries: jest.Mock };
+      };
+
+      render(<SearchPage />);
+
+      await waitFor(() => expect(client.getWatchProgressBatch).toHaveBeenCalled());
+      expect(client.getWatchProgressBatch).toHaveBeenCalledWith(['media-1']);
+      expect(client.getCollectionWatchSummaries).toHaveBeenCalledWith(['col-1', 'col-2']);
     });
 
     it('shows collections section with count', async () => {

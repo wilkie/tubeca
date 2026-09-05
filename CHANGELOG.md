@@ -58,6 +58,10 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- Losing your place is harder: a progress update the server refuses is now retried rather than
+  discarded, so a moment of bad network no longer means starting the episode again.
+- Search results show whether you have watched something, which is where an episode is most often
+  seen away from its season.
 - Two people watching the same file no longer interfere with each other: a seek used to cancel
   everyone's speculative work on that file, so two viewers a few minutes apart spent their time
   undoing each other and re-encoding what they had just thrown away.

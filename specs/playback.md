@@ -343,16 +343,18 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - 2026-09-03 Resume on play, throttled progress reporting, mark-watched on `ended`, and the Continue Watching strip on `HomePage` (`ContinueWatchingRow`); `PlayerContext` tests cover the resume rule and reporting.
 - 2026-09-03 Watched badges and progress bars on library, season and episode cards; mark watched/unwatched on cards, film hero and media page; batch progress and collection summary endpoints.
 - 2026-09-03 Playback batch: real keyboard shortcuts, bounded fatal-error recovery with a visible retry, progress flushed on tab close, Up Next skips watched episodes, quality remembered by height, audio plays through the shared element, Media Session integration.
+- 2026-09-04 A failed progress report is retried on a backoff instead of being dropped, and search results show watched badges.
 
 ## Known Limitations
 
-- **Watched state is not shown on search results, user collections or the queue.** Those pages
-  do not call `useWatchState`; the badge components are ready but unwired there.
+- **Watched state is not shown on user collections or the queue.** Search results carry badges as
+  of 2026-09-04, being where an episode is most often seen out of its season; the collection pages
+  still show nothing.
 - **Marking a whole season or show watched is one item at a time.** There is no bulk endpoint.
-- **Progress reports are not retried.** A failed `PUT /api/watch` is not retried, and the
-  last position can be lost if the tab is closed mid-playback without a pause (no
-  `beforeunload`/`visibilitychange` flush, no `sendBeacon`).
-
+- **A report sent as the page closes cannot be retried.** An ordinary failed `PUT /api/watch` now
+  retries on a backoff until it lands (2026-09-04), but the `keepalive` report on `pagehide` has
+  no page left to retry from, so a viewer who closes a tab exactly when the network drops still
+  loses that position. Nothing is written to local storage to recover it later.
 - **No touch handling.** Drag, hover trickplay, and auto-hide are mouse-event only; `MiniPlayer`
   cannot be moved on touch devices and the preview never appears.
 

@@ -475,6 +475,120 @@ describe('PlayerContext', () => {
       mockApi.getHlsMasterPlaylistUrl.mockReturnValue('/hls/m1/master.m3u8');
     });
 
+    describe('a report the server refuses', () => {
+      /** Play, then move the clock so one report is sent. */
+      async function playingAt(seconds: number) {
+        mockApi.getWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+        jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+        const { result } = renderHook(() => usePlayer(), { wrapper });
+        await act(async () => {
+          await result.current.playMedia('m1');
+        });
+        const video = document.querySelector('video') as HTMLVideoElement;
+        Object.defineProperty(video, 'currentTime', { value: seconds, configurable: true, writable: true });
+        await act(async () => {
+          video.dispatchEvent(new Event('timeupdate'));
+        });
+        return { result, video };
+      }
+
+      it('tries again, rather than losing the position', async () => {
+        jest.useFakeTimers();
+        try {
+          mockApi.updateWatchProgress.mockResolvedValue({ error: 'Network error' } as never);
+          await playingAt(300);
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(1);
+
+          mockApi.updateWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(5000);
+          });
+
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(2);
+          expect(mockApi.updateWatchProgress).toHaveBeenLastCalledWith(
+            'm1',
+            { position: 300, duration: 1200 }
+          );
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('backs off while the server keeps refusing', async () => {
+        jest.useFakeTimers();
+        try {
+          mockApi.updateWatchProgress.mockResolvedValue({ error: 'Network error' } as never);
+          await playingAt(300);
+
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(5000);
+          });
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(2);
+
+          // The next attempt is not for another five seconds, but ten.
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(5000);
+          });
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(2);
+
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(5000);
+          });
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(3);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('stops trying once one lands', async () => {
+        jest.useFakeTimers();
+        try {
+          mockApi.updateWatchProgress.mockResolvedValue({ error: 'Network error' } as never);
+          await playingAt(300);
+          mockApi.updateWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(5000);
+          });
+          const afterSuccess = mockApi.updateWatchProgress.mock.calls.length;
+
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(120000);
+          });
+
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(afterSuccess);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('does not retry a report sent as the page goes away', async () => {
+        jest.useFakeTimers();
+        try {
+          // A clean start: nothing pending, so anything that fires afterwards
+          // came from the keepalive report itself.
+          mockApi.updateWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+          await playingAt(300);
+          mockApi.updateWatchProgress.mockResolvedValue({ error: 'Network error' } as never);
+          mockApi.updateWatchProgress.mockClear();
+
+          await act(async () => {
+            window.dispatchEvent(new Event('pagehide'));
+          });
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(1);
+
+          // The page is going: there is nothing left to retry with.
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(120000);
+          });
+
+          expect(mockApi.updateWatchProgress).toHaveBeenCalledTimes(1);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+    });
+
     it('starts from the saved position when one is worth resuming', async () => {
       mockApi.getWatchProgress.mockResolvedValue({
         data: { progress: { id: 'p', userId: 'u', mediaId: 'm1', position: 600, duration: 1200, completed: false, createdAt: '', updatedAt: '' } },

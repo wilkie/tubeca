@@ -41,6 +41,8 @@ import { apiClient, type Collection, type Media, type Keyword } from '../api/cli
 import { FilterChips } from '../components/FilterChips';
 import { KeywordFilter } from '../components/KeywordFilter';
 import { SelectionActionBar } from '../components/SelectionActionBar';
+import { WatchBadge } from '../components/WatchBadge';
+import { useWatchState } from '../hooks/useWatchState';
 
 const ITEMS_PER_PAGE = 50;
 
@@ -110,6 +112,16 @@ export function SearchPage() {
     () => resultsQuery.pages.flatMap((page) => page.media),
     [resultsQuery.pages]
   );
+  // What has been watched, for the badges on the cards below. Search results
+  // are the one place a viewer sees an episode without its season around it,
+  // which is exactly where "have I seen this?" is hardest to answer.
+  const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
+  const collectionIds = useMemo(() => collections.map((item) => item.id), [collections]);
+  const { progress: watchProgress, summaries: watchSummaries } = useWatchState({
+    mediaIds,
+    collectionIds,
+  });
+
   const totalCollections = resultsQuery.pages[0]?.totalCollections ?? 0;
   const totalMedia = resultsQuery.pages[0]?.totalMedia ?? 0;
   const isLoading = resultsQuery.isPending;
@@ -461,6 +473,7 @@ export function SearchPage() {
                             )}
                           </Box>
                         )}
+                        <WatchBadge kind="collection" summary={watchSummaries[collection.id]} />
                         {/* Selection checkbox */}
                         {isSelectionMode && (
                           <Box
@@ -588,6 +601,7 @@ export function SearchPage() {
                             )}
                           </Box>
                         )}
+                        <WatchBadge kind="media" progress={watchProgress[item.id]} />
                         {/* Selection checkbox */}
                         {isSelectionMode && (
                           <Box

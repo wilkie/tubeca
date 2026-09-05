@@ -35,6 +35,9 @@ const RESUME_MIN_POSITION = 30;
 const RESUME_END_MARGIN = 10;
 /** Minimum wall-clock gap between progress reports while playing. */
 const PROGRESS_REPORT_INTERVAL_MS = 10000;
+/** How soon to try a failed progress report again, and how far to back off. */
+const PROGRESS_RETRY_MIN_MS = 5000;
+const PROGRESS_RETRY_MAX_MS = 60000;
 // Number of successful fragments before considering a quality level "stable"
 const STABLE_FRAGMENT_COUNT = 5;
 
@@ -192,6 +195,53 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Media whose playback position is being reported to the server
   const progressTargetRef = useRef<{ id: string; duration: number } | null>(null);
   const lastProgressReportRef = useRef(0);
+  /** The report that did not arrive, kept so it can be tried again. */
+  const pendingProgressRef = useRef<{ id: string; position: number; duration: number } | null>(null);
+  const retryDelayRef = useRef(PROGRESS_RETRY_MIN_MS);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Send the report that failed, later.
+   *
+   * Only the most recent position matters, so a retry sends whatever is
+   * pending at the time rather than a queue of stale positions, and the delay
+   * doubles while the server keeps refusing.
+   */
+  const retryPendingProgress = useCallback(() => {
+    retryTimerRef.current = null;
+    const pending = pendingProgressRef.current;
+    if (!pending) return;
+
+    void apiClient
+      .updateWatchProgress(pending.id, { position: pending.position, duration: pending.duration })
+      .then((result) => {
+        if (result.error) throw new Error(result.error);
+        pendingProgressRef.current = null;
+        retryDelayRef.current = PROGRESS_RETRY_MIN_MS;
+      })
+      .catch(() => {
+        retryDelayRef.current = Math.min(retryDelayRef.current * 2, PROGRESS_RETRY_MAX_MS);
+        scheduleProgressRetryRef.current();
+      });
+  }, []);
+
+  /** Held in a ref so the two callbacks can refer to each other. */
+  const scheduleProgressRetryRef = useRef<() => void>(() => {});
+
+  const scheduleProgressRetry = useCallback(() => {
+    if (retryTimerRef.current) return;
+    retryTimerRef.current = setTimeout(retryPendingProgress, retryDelayRef.current);
+  }, [retryPendingProgress]);
+
+  scheduleProgressRetryRef.current = scheduleProgressRetry;
+
+  // Nothing outlives the provider: a pending retry for an item nobody is
+  // watching any more is noise.
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
   const fatalRecoveriesRef = useRef(0);
   const currentPositionRef = useRef(0);
   const hlsRef = useRef<Hls | null>(null);
@@ -211,18 +261,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    * Send the current position to the server. Throttled while playing; pass
    * `force` on pause/close/switch so the last position is never lost.
    */
+  /**
+   * Tell the server where the viewer is, and keep trying if it will not listen.
+   *
+   * A dropped report used to be dropped for good: the throttle clock advanced
+   * whether or not the request arrived, so a blip at the wrong moment — the
+   * last report before a pause, or the one after a laptop wakes — lost the
+   * position and the viewer started the episode again. Failures now retry on a
+   * backoff until one lands or the item changes.
+   *
+   * A `keepalive` report is the exception: the page is going away, and there is
+   * nothing left to retry with.
+   */
   const reportProgress = useCallback((position: number, force = false, keepalive = false) => {
     const target = progressTargetRef.current;
     if (!target) return;
     const now = Date.now();
     if (!force && now - lastProgressReportRef.current < PROGRESS_REPORT_INTERVAL_MS) return;
     lastProgressReportRef.current = now;
-    void apiClient.updateWatchProgress(
-      target.id,
-      { position: Math.floor(position), duration: target.duration },
-      { keepalive }
-    );
-  }, []);
+
+    const report = { id: target.id, position: Math.floor(position), duration: target.duration };
+    void apiClient
+      .updateWatchProgress(report.id, { position: report.position, duration: report.duration }, { keepalive })
+      .then((result) => {
+        if (result.error) throw new Error(result.error);
+        pendingProgressRef.current = null;
+        retryDelayRef.current = PROGRESS_RETRY_MIN_MS;
+      })
+      .catch(() => {
+        if (keepalive) return;
+        pendingProgressRef.current = report;
+        scheduleProgressRetry();
+      });
+  }, [scheduleProgressRetry]);
 
   // The last position is otherwise lost when a tab is closed or hidden mid-playback:
   // `pause` never fires. `keepalive` lets the request outlive the page.
