@@ -13,12 +13,15 @@
 
 - Authenticate stream requests via either an `Authorization: Bearer` header or a `?token=` query
   parameter (needed because `<video>`/`<track>` elements cannot set headers).
-- Serve an HLS master playlist per video (`original` stream-copy variant when the container is
-  `.mp4`/`.webm`, plus four fixed transcode rungs: 1080p/720p/480p/360p).
+- Serve an HLS master playlist per video (`original` stream-copy variant when the probed codecs
+  allow it, plus four fixed transcode rungs: 1080p/720p/480p/360p).
 - Serve a fully enumerated VOD variant playlist computed from `Media.duration` and the configured
   segment duration; no FFmpeg is needed to produce playlists.
-- Generate individual MPEG-TS segments on demand with one FFmpeg process per segment, de-duplicate
-  concurrent requests for the same segment, and cap concurrent FFmpeg processes with a semaphore.
+- Generate individual segments on demand with one FFmpeg process per segment — MPEG-TS for the
+  transcode rungs, fragmented MP4 (CMAF) for `original` — de-duplicate concurrent requests for the
+  same segment, and cap concurrent FFmpeg processes with a semaphore.
+- Split FFmpeg's fragmented-MP4 output into the `#EXT-X-MAP` initialisation segment and the media
+  segment, rebasing each segment's decode times onto the file's timeline.
 - Prefetch the first N segments when a variant playlist is requested and the next N segments after
   every served segment, giving player requests priority over prefetches and abandoning prefetches
   the player has seeked away from.
@@ -61,6 +64,7 @@
 | File | Role |
 |------|------|
 | `backend/src/routes/stream.ts` | All `/api/stream/*` endpoints: `streamAuth` middleware, legacy progressive `/video/:id`, `/subtitles/:id`, `/audio/:id`, `/trickplay/:id[...]`, and the HLS trio (`master.m3u8`, `:quality.m3u8`, `:quality/:segment.ts`) plus `/hls/:id/qualities`. |
+| `backend/src/services/fmp4.ts` | `Fmp4Splitter` and the box helpers it is built from: peels the initialisation segment off FFmpeg's fragmented-MP4 output and rebases each segment's decode times onto the file's timeline. |
 | `backend/src/services/hlsService.ts` | `HlsService`: playlist synthesis, segment cache layout, per-segment FFmpeg invocation, in-flight de-duplication, transcode semaphore, prefetching, encoder/preset selection, cache stats and TTL sweep. |
 | `backend/src/services/hlsCacheCleanupService.ts` | Singleton timer: first sweep 30 s after boot, then hourly; logs freed MB. Started/stopped from `index.ts`. Covered by `__tests__/hlsCacheCleanupService.test.ts` (fake timers, `HlsService` mocked). |
 | `backend/src/services/transcodingSettingsService.ts` | Read/create/update the `TranscodingSettings` singleton row with a 30 s in-memory cache; adds detected/active encoder and preset list for the settings UI. |
@@ -97,7 +101,8 @@ and cached by browsers.
 | `GET /trickplay/:id/:width/:index` | `token` | Serves the sprite JPEG with `max-age=86400`. |
 | `GET /hls/:id/master.m3u8` | `audioTrack`, `token` | Master playlist; `no-cache`. |
 | `GET /hls/:id/:quality.m3u8` | `audioTrack`, `token` | Variant playlist; validates quality against `QUALITY_PRESETS`/`original`; triggers initial prefetch; `no-cache`. |
-| `GET /hls/:id/:quality/:segment.ts` | `audioTrack`, `token` | A cached segment is sent from disk with a `Content-Length`; a fresh one is streamed as it encodes, chunked. `video/mp2t`, `max-age=3600`. |
+| `GET /hls/:id/:quality/:segment.ts` or `.m4s` | `audioTrack`, `token` | One handler, two extensions. A cached segment is sent from disk with a `Content-Length`; a fresh one is streamed as it encodes, chunked. `video/mp2t` for the transcode rungs, `video/iso.segment` for `original`; `max-age=3600`. |
+| `GET /hls/:id/:quality/init.mp4` | `audioTrack`, `token` | The `#EXT-X-MAP` initialisation segment for `original`. 404 for a transcode rung. Generated on first request by encoding segment 0 and keeping its header. `video/mp4`, `max-age=86400`. |
 | `GET /hls/:id/qualities` | `token` | JSON list of rungs; uses the static `DEFAULT_QUALITY_PRESETS`, not the settings-adjusted bitrates. Not called by the frontend. |
 
 ### HLS playlist synthesis
@@ -124,12 +129,43 @@ an empty VOD.
 Every variant playlist request also fires `prefetchInitialSegments`, which starts background
 generation of segments `0..prefetchSegments-1` without awaiting them.
 
+### Fragmented MP4 for `original` (`fmp4.ts`)
+
+Since 2026-09-05 the `original` rung is CMAF rather than MPEG-TS. MPEG-TS cannot carry HEVC or AV1
+to a browser at all, and even for H.264 it means repacking every byte into 188-byte packets for no
+gain — which is not what "copy the picture" was supposed to mean. The transcode rungs stay on
+MPEG-TS; they produce H.264 either way.
+
+FFmpeg asked for fragmented MP4 on a pipe writes one continuous stream: `ftyp moov moof mdat [moof
+mdat ...] mfra`. HLS wants that split — `ftyp moov` served once as `#EXT-X-MAP`, each `moof mdat`
+run served as a media segment. `Fmp4Splitter` does it as the bytes arrive, so a segment still
+reaches the player while it is being written: it collects `ftyp`/`moov` and hands them to
+`storeInitSegment`, collects each `moof` to rewrite it, passes `mdat` straight through without
+holding it (it can be megabytes), and drops the trailing `mfra` index.
+
+The rewrite is the part that is not obvious. Each segment is its own FFmpeg process, and FFmpeg
+numbers every fragment run from zero, so without intervention every segment would claim to start at
+the beginning of the file. `Fmp4Splitter` reads the first fragment's `tfdt` per track, computes the
+offset that would put it at `segmentIndex * segmentDuration` in that track's own timescale (read
+from the init segment's `mdhd`), and adds that offset to every fragment in the run — rebasing rather
+than assuming zero, and keeping later fragments the same distance along.
+
+The same commit fixed a quieter bug. `original` used to seek *after* the input for accuracy; with
+`-c copy` FFmpeg then counted the discarded head against `-t`, so a six-second slot held about four
+seconds of picture and the player skipped the rest at every boundary. Seeking before the input lands
+on the keyframe at or before the slot, which is exact whenever the source's GOP divides the segment
+duration and otherwise starts the segment slightly early.
+
+A copied HEVC stream is tagged `hvc1`, since Apple's players will not take `hev1`.
+
 ### Segment generation and cache layout
 
 Cache root is `hlsCache.path` from `tubeca.config.json`, defaulting to `backend/data/hls-cache`
 (`appConfig.ts:169-198`; the `data/` tree is ESLint-excluded because `.ts` segments would otherwise
 be linted as TypeScript). Layout is `<root>/<mediaId>/a<audioTrack|default>/<quality>/<index>.ts`
-(`getVariantCachePath`, `hlsService.ts:164`). No playlists are written to disk.
+for the transcode rungs and `<index>.m4s` plus one `init.mp4` for `original` (`getVariantCachePath`
+and `segmentFileName`). No playlists are written to disk. Segments left by the MPEG-TS `original`
+rung are simply never read again and age out with the TTL sweep.
 
 `getSegment` (`hlsService.ts:295`):
 
@@ -241,9 +277,11 @@ with audio no browser will take (E-AC-3 6,878, AC-3 5,514, DTS 1,610, FLAC 285) 
 picture, and 26% — mpeg4, HEVC, mpeg2video — must still transcode the video.
 
 Copying depends on segment boundaries landing near keyframes, since a copied segment cannot have
-one forced. The files measured here carry a keyframe every 2.002 s, so a six-second boundary is
-within 0.03 s; a file with a long GOP would judder at the boundaries, and the viewer's remedy is
-to pick a transcoded rung, which is always offered alongside.
+one forced. Seeking before the input means FFmpeg starts at the keyframe at or before the slot, so
+a file whose GOP divides the segment duration is exact and one with a long GOP has segments that
+start a little early and overlap their neighbour — MSE overwrites the overlap. The files measured
+here carry a keyframe every 2.002 s, so a six-second boundary is within 0.03 s; the viewer's remedy
+for a badly behaved file is to pick a transcoded rung, which is always offered alongside.
 
 Every player request also calls `cancelStalePrefetches`, which kills any encode for the same variant
 that is still `prefetch`, **belongs to the same viewer**, and whose index falls outside
@@ -435,14 +473,16 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 Prefetch cancellation is per viewer: the player names its viewing, the playlists carry that name onto every segment request, and a seek abandons only the prefetches of the viewer who seeked.
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
+- 2026-09-05 `original` became fragmented MP4 (CMAF): `#EXT-X-MAP`, an `init.mp4` per variant, `.m4s` segments, decode times rebased onto the file's timeline by `Fmp4Splitter`. Seeking moved before the input in the same commit, which fixed `original` segments holding about four seconds of a six-second slot.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
 
-- **Direct play is per stream, not per file, and still a remux.** Since 2026-09-04 `original` is
-  offered whenever the *video* can be copied, re-encoding only audio a browser could not play; but
-  every segment is still remuxed into MPEG-TS, so a `.mp4` of H.264/AAC is repackaged rather than
-  served, and HEVC or AV1 cannot be offered at all. fMP4/CMAF is what would change that.
+- **The master playlist declares no `CODECS`, so HEVC and AV1 still cannot be offered.** The
+  container stopped being the obstacle on 2026-09-05 — `original` is fragmented MP4 and would carry
+  them — but a player has no way to tell whether it can decode a rung it is not told about, and
+  hls.js on Chrome or Firefox cannot decode HEVC at all. Until each rung advertises an RFC 6381
+  codec string, `DIRECT_PLAY_VIDEO_CODECS` stays at H.264.
 - **The legacy `/video/:id` route still decides by extension.** Only the HLS paths use the probed
   codecs; the progressive route (used for audio and as a fallback) keeps the `.mp4`/`.webm` check.
 - **Only H.264 output, only stereo AAC audio, always letterboxed to 16:9 presets, no upscale guard,
@@ -504,8 +544,10 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Re-probe on file change and on demand** (S): the watcher already sees modifications; expose a
   "refresh streams" action.
 
-- **fMP4/CMAF segments with `#EXT-X-MAP`** (M): enables HEVC/AV1 passthrough in `original`, native
-  Safari playback of more codecs, and removes the MPEG-TS remux overhead.
+- **Declare `CODECS` on every `#EXT-X-STREAM-INF`** (M): the last thing between the library's HEVC
+  and AV1 files and being played as they are. The reliable source is the `avcC`/`hvcC`/`av1C` box in
+  the initialisation segment, which means producing it before the master playlist is answered, or
+  storing profile and level on `MediaStream` at probe time.
 - **Tests** (M): FFmpeg argument construction per encoder/quality, the semaphore, cache-path
   resolution, and `probeMediaFile` parsing against fixture JSON; route tests for `streamAuth` and
   quality validation. Playlist synthesis is covered.

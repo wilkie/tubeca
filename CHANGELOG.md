@@ -59,7 +59,16 @@ All notable changes to Tubeca are recorded here. The format follows
   originals, which for a backdrop can be several megabytes.
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
+### Changed
+- The Original quality is now served as fragmented MP4 rather than MPEG-TS. Playing a file as it
+  is no longer means repacking every byte on the way out, and it is the format that can carry HEVC
+  and AV1 — which is the next step rather than this one, since a player still has to be told what
+  a rung contains before it can decide whether it can play it.
+
 ### Fixed
+- Original quality no longer skips. Each six-second segment held about four seconds of picture,
+  because the seek was placed where FFmpeg counted the part it threw away against the length asked
+  for, so playback jumped forward at every segment boundary.
 - The player works by touch. The mini player can be dragged with a finger, dragging along the
   progress bar shows the preview frames a mouse got on hover, and a tap brings the controls back
   instead of pausing — before this, a touch device could start something playing and then not

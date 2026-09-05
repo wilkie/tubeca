@@ -119,6 +119,47 @@ describe('HlsService playlist synthesis', () => {
     expect(lines[lines.length - 1]).toBe('#EXT-X-ENDLIST');
   });
 
+  describe('the fragmented-MP4 original rung', () => {
+    it('points every segment at the header they share', async () => {
+      const media = await createVideoMedia({ path: '/media/film.mp4', duration: 20 });
+      const playlist = await service.generateVariantPlaylist(media.id, ORIGINAL_QUALITY, 'default');
+      const lines = playlist.split('\n');
+
+      // Version 7 is what a media playlist carrying #EXT-X-MAP requires.
+      expect(lines).toContain('#EXT-X-VERSION:7');
+      expect(lines).toContain('#EXT-X-MAP:URI="original/init.mp4?audioTrack=default"');
+      expect(lines.filter((l) => l.startsWith('original/'))).toEqual([
+        'original/0.m4s?audioTrack=default',
+        'original/1.m4s?audioTrack=default',
+        'original/2.m4s?audioTrack=default',
+        'original/3.m4s?audioTrack=default',
+      ]);
+    });
+
+    it('carries the token and session onto the header, which needs them too', async () => {
+      const media = await createVideoMedia({ path: '/media/film.mp4', duration: 20 });
+      const playlist = await service.generateVariantPlaylist(
+        media.id,
+        ORIGINAL_QUALITY,
+        'default',
+        'jwt',
+        'viewer-1'
+      );
+
+      expect(playlist).toContain(
+        '#EXT-X-MAP:URI="original/init.mp4?audioTrack=default&token=jwt&session=viewer-1"'
+      );
+    });
+
+    it('leaves the transcode rungs as MPEG-TS with no header segment', async () => {
+      const media = await createVideoMedia({ path: '/media/film.mkv', duration: 20 });
+      const playlist = await service.generateVariantPlaylist(media.id, '720p');
+
+      expect(playlist).toContain('#EXT-X-VERSION:3');
+      expect(playlist).not.toContain('#EXT-X-MAP');
+    });
+  });
+
   it('produces an empty VOD playlist for zero-duration media', async () => {
     const media = await createVideoMedia({ path: '/media/film.mkv', duration: 0 });
     const playlist = await service.generateVariantPlaylist(media.id, '480p');
@@ -246,6 +287,55 @@ describe('HlsService playlist synthesis', () => {
 
       expect(valueOf(args, '-c:a')).toBe('aac');
       expect(valueOf(args, '-c:v')).toBe('copy');
+    });
+
+    it('tags a copied HEVC stream the way Apple players expect', async () => {
+      const args = await argsFor([
+        { streamType: 'Video', codec: 'hevc' },
+        { streamType: 'Audio', codec: 'aac' },
+      ]);
+
+      expect(valueOf(args, '-tag:v')).toBe('hvc1');
+    });
+
+    it('leaves H.264 untagged, since nothing about it is ambiguous', async () => {
+      const args = await argsFor([
+        { streamType: 'Video', codec: 'h264' },
+        { streamType: 'Audio', codec: 'aac' },
+      ]);
+
+      expect(args).not.toContain('-tag:v');
+    });
+
+    it('writes fragmented MP4 to a pipe rather than MPEG-TS to a file', async () => {
+      const args = await argsFor([
+        { streamType: 'Video', codec: 'h264' },
+        { streamType: 'Audio', codec: 'aac' },
+      ]);
+
+      expect(valueOf(args, '-f')).toBe('mp4');
+      expect(valueOf(args, '-movflags')).toBe('+empty_moov+default_base_moof+frag_keyframe');
+      // Even a prefetch, which nobody is waiting for, goes through the pipe:
+      // the header has to be peeled off before anything is stored.
+      expect(args[args.length - 1]).toBe('pipe:1');
+    });
+
+    it('seeks before the input, so a segment is not cut short', async () => {
+      const media = await createVideoMedia({ path: '/media/seek.mkv', duration: 100 });
+      spawned.length = 0;
+      void service.getSegment(media.id, ORIGINAL_QUALITY, 3, 'default');
+      for (let attempt = 0; attempt < 50 && spawned.length === 0; attempt++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const args = spawned[0]?.args ?? [];
+      spawned[0]?.emit('close', 1);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Seeking after the input made FFmpeg count the discarded head against
+      // `-t`, so a six-second slot held about four seconds of picture.
+      expect(args.indexOf('-ss')).toBeLessThan(args.indexOf('-i'));
+      expect(valueOf(args, '-ss')).toBe('18');
+      expect(valueOf(args, '-t')).toBe('6');
     });
   });
 
@@ -436,6 +526,112 @@ describe('HlsService playlist synthesis', () => {
 
       spawned[0].emit('close', 0);
       await expect(delivery).resolves.toEqual({ kind: 'streamed' });
+    });
+
+    describe('a fragmented segment', () => {
+      /** A box with the given type and payload. */
+      function box(type: string, payload: Buffer = Buffer.alloc(0)): Buffer {
+        const header = Buffer.alloc(8);
+        header.writeUInt32BE(payload.length + 8, 0);
+        header.write(type, 4, 'latin1');
+        return Buffer.concat([header, payload]);
+      }
+      function fullBox(type: string, version: number, payload: Buffer): Buffer {
+        return box(type, Buffer.concat([Buffer.from([version, 0, 0, 0]), payload]));
+      }
+      function u32(value: number) {
+        const b = Buffer.alloc(4);
+        b.writeUInt32BE(value, 0);
+        return b;
+      }
+
+      /** What FFmpeg writes for one fragmented segment of a single-track file. */
+      const ffmpegOutput = Buffer.concat([
+        box('ftyp', Buffer.from('isom')),
+        box(
+          'moov',
+          box(
+            'trak',
+            Buffer.concat([
+              fullBox('tkhd', 0, Buffer.concat([u32(0), u32(0), u32(1)])),
+              box('mdia', fullBox('mdhd', 0, Buffer.concat([u32(0), u32(0), u32(90000), u32(0)]))),
+            ])
+          )
+        ),
+        box(
+          'moof',
+          Buffer.concat([
+            fullBox('mfhd', 0, u32(1)),
+            box('traf', Buffer.concat([fullBox('tfhd', 0, u32(1)), fullBox('tfdt', 0, u32(0))])),
+          ])
+        ),
+        box('mdat', Buffer.alloc(128, 9)),
+      ]);
+
+      it('stores the header once beside the segments and keeps it out of them', async () => {
+        const service = new HlsService({ segmentTimeoutMs: 5000 });
+        const media = await createVideoMedia({ path: '/media/film.mp4', duration: 600 });
+        const variant = service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default');
+        const { sink, chunks } = fakeSink();
+
+        const delivery = service.serveSegment(media.id, ORIGINAL_QUALITY, 2, 'default', sink);
+        await settle();
+        spawned[0].stdout.emit('data', ffmpegOutput);
+        spawned[0].emit('close', 0);
+        await expect(delivery).resolves.toEqual({ kind: 'streamed' });
+        await eventually(() => fs.existsSync(path.join(variant, '2.m4s')));
+
+        const init = fs.readFileSync(path.join(variant, 'init.mp4'));
+        expect(init.toString('latin1', 4, 8)).toBe('ftyp');
+        expect(init.length).toBeLessThan(ffmpegOutput.length);
+
+        // What the player got is the fragment alone.
+        const served = Buffer.concat(chunks);
+        expect(served.toString('latin1', 4, 8)).toBe('moof');
+        expect(served.includes(Buffer.from('ftyp'))).toBe(false);
+        expect(fs.readFileSync(path.join(variant, '2.m4s')).equals(served)).toBe(true);
+      });
+
+      it('puts the segment where the playlist says it is', async () => {
+        const service = new HlsService({ segmentTimeoutMs: 5000 });
+        const media = await createVideoMedia({ path: '/media/film.mp4', duration: 600 });
+        const { sink, chunks } = fakeSink();
+
+        // Segment 2 of a six-second grid starts twelve seconds in.
+        const delivery = service.serveSegment(media.id, ORIGINAL_QUALITY, 2, 'default', sink);
+        await settle();
+        spawned[0].stdout.emit('data', ffmpegOutput);
+        spawned[0].emit('close', 0);
+        await delivery;
+
+        const served = Buffer.concat(chunks);
+        const tfdt = served.indexOf('tfdt');
+        expect(served.readUInt32BE(tfdt + 8)).toBe(12 * 90000);
+      });
+
+      it('produces the header on request, without waiting for a player', async () => {
+        const service = new HlsService({ segmentTimeoutMs: 5000 });
+        const media = await createVideoMedia({ path: '/media/film.mp4', duration: 600 });
+
+        const pending = service.getInitSegment(media.id, ORIGINAL_QUALITY, 'default');
+        await settle();
+        spawned[0].stdout.emit('data', ffmpegOutput);
+        spawned[0].emit('close', 0);
+
+        const initPath = await pending;
+        expect(initPath).toBe(
+          path.join(service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default'), 'init.mp4')
+        );
+        expect(fs.readFileSync(initPath!).toString('latin1', 4, 8)).toBe('ftyp');
+      });
+
+      it('has no header to offer for a transcode rung', async () => {
+        const service = new HlsService({ segmentTimeoutMs: 5000 });
+        const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
+
+        await expect(service.getInitSegment(media.id, '720p', 'default')).resolves.toBeNull();
+        expect(spawned).toHaveLength(0);
+      });
     });
 
     it('only names the cache file once the encode exits cleanly', async () => {

@@ -377,6 +377,72 @@ describe('stream route guards', () => {
     });
   });
 
+  describe('GET /hls/:id/:quality/init.mp4', () => {
+    it('serves a cached header for the fragmented rung', async () => {
+      const { media, authHeader } = await fixture();
+      const variant = path.join(cacheDir, media.id, 'adefault', 'original');
+      fs.mkdirSync(variant, { recursive: true });
+      fs.writeFileSync(path.join(variant, 'init.mp4'), Buffer.from('a fake header'));
+
+      const res = await request(app)
+        .get(`/api/stream/hls/${media.id}/original/init.mp4`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('video/mp4');
+      expect(res.headers['content-length']).toBe('13');
+    });
+
+    it('has no header for a rung that is MPEG-TS', async () => {
+      const { media, authHeader } = await fixture();
+
+      const res = await request(app)
+        .get(`/api/stream/hls/${media.id}/720p/init.mp4`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Not a fragmented variant');
+    });
+
+    it('needs the same access as the segments it describes', async () => {
+      const { media } = await fixture();
+
+      const res = await request(app).get(`/api/stream/hls/${media.id}/original/init.mp4`);
+
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('GET /hls/:id/:quality/:segment', () => {
+    it('serves a cached fragmented segment as a media segment', async () => {
+      const { media, authHeader } = await fixture();
+      const variant = path.join(cacheDir, media.id, 'adefault', 'original');
+      fs.mkdirSync(variant, { recursive: true });
+      fs.writeFileSync(path.join(variant, '0.m4s'), Buffer.from('fragment bytes'));
+
+      const res = await request(app)
+        .get(`/api/stream/hls/${media.id}/original/0.m4s`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('video/iso.segment');
+    });
+
+    it('serves a cached transcoded segment as MPEG-TS', async () => {
+      const { media, authHeader } = await fixture();
+      const variant = path.join(cacheDir, media.id, 'adefault', '720p');
+      fs.mkdirSync(variant, { recursive: true });
+      fs.writeFileSync(path.join(variant, '0.ts'), Buffer.from('transport stream'));
+
+      const res = await request(app)
+        .get(`/api/stream/hls/${media.id}/720p/0.ts`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('video/mp2t');
+    });
+  });
+
   describe('GET /hls/:id/qualities', () => {
     it('offers the whole ladder, with labels and bitrates', async () => {
       const { media, authHeader } = await fixture();

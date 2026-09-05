@@ -25,6 +25,7 @@ import {
   sweepExpiredSegments,
 } from './hlsCache';
 import type { TranscodingSettings } from '@prisma/client';
+import { Fmp4Splitter } from './fmp4';
 
 // Quality presets for transcoding (default values, overridden by settings)
 export interface QualityPreset {
@@ -49,6 +50,25 @@ export const QUALITY_PRESETS = DEFAULT_QUALITY_PRESETS;
 
 // Original quality uses stream copy (no transcoding)
 export const ORIGINAL_QUALITY = 'original';
+
+/**
+ * The `original` rung is fragmented MP4 (CMAF) rather than MPEG-TS. MPEG-TS
+ * cannot carry HEVC or AV1 to a browser, and even for H.264 it means repacking
+ * every byte into 188-byte packets for no gain; fMP4 carries the source's own
+ * samples, which is what "copy the picture" was supposed to mean. The
+ * transcode rungs stay on MPEG-TS: they produce H.264 either way.
+ */
+export function isFmp4Quality(quality: string): boolean {
+  return quality === ORIGINAL_QUALITY;
+}
+
+/** Cache and URL name of a segment, which differs by container. */
+export function segmentFileName(quality: string, index: number): string {
+  return isFmp4Quality(quality) ? `${index}.m4s` : `${index}.ts`;
+}
+
+/** The `#EXT-X-MAP` initialisation segment shared by every segment of a variant. */
+export const INIT_SEGMENT_NAME = 'init.mp4';
 
 export interface SegmentInfo {
   path: string;
@@ -356,7 +376,7 @@ export class HlsService {
     sink?: Writable,
     session?: string
   ): Promise<void> {
-    const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
+    const segmentPath = path.join(variantPath, segmentFileName(quality, segmentIndex));
     try {
       if (fs.statSync(segmentPath).size > 0) return Promise.resolve();
     } catch {
@@ -517,22 +537,33 @@ export class HlsService {
     const duration = media.duration || 0;
     const segmentCount = Math.ceil(duration / segmentDuration);
 
+    const carried =
+      (token ? `&token=${encodeURIComponent(token)}` : '') +
+      (session ? `&session=${encodeURIComponent(session)}` : '');
+    const fmp4 = isFmp4Quality(quality);
+
     const lines: string[] = [
       '#EXTM3U',
-      '#EXT-X-VERSION:3',
+      // Version 7 is what `#EXT-X-MAP` on a media playlist requires.
+      `#EXT-X-VERSION:${fmp4 ? 7 : 3}`,
       `#EXT-X-TARGETDURATION:${segmentDuration + 1}`,
       '#EXT-X-MEDIA-SEQUENCE:0',
       '#EXT-X-PLAYLIST-TYPE:VOD',
     ];
 
+    if (fmp4) {
+      // Fragments carry no header of their own; this is where the player gets
+      // the track descriptions it needs before the first segment means anything.
+      lines.push(
+        `#EXT-X-MAP:URI="${quality}/${INIT_SEGMENT_NAME}?audioTrack=${audioTrack}${carried}"`
+      );
+    }
+
     for (let i = 0; i < segmentCount; i++) {
       const segmentDur = Math.min(segmentDuration, duration - (i * segmentDuration));
       lines.push(`#EXTINF:${segmentDur.toFixed(3)},`);
       // Include quality in segment URL path so it resolves correctly
-      const carried =
-        (token ? `&token=${encodeURIComponent(token)}` : '') +
-        (session ? `&session=${encodeURIComponent(session)}` : '');
-      lines.push(`${quality}/${i}.ts?audioTrack=${audioTrack}${carried}`);
+      lines.push(`${quality}/${segmentFileName(quality, i)}?audioTrack=${audioTrack}${carried}`);
     }
 
     lines.push('#EXT-X-ENDLIST');
@@ -599,7 +630,7 @@ export class HlsService {
     if (!media) return { kind: 'missing' };
 
     const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
-    const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
+    const segmentPath = path.join(variantPath, segmentFileName(quality, segmentIndex));
     const settings = await this.getSettings();
 
     // The player has told us where it is; anything still encoding behind it is
@@ -679,7 +710,7 @@ export class HlsService {
     }
 
     const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
-    const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
+    const segmentPath = path.join(variantPath, segmentFileName(quality, segmentIndex));
 
     // The player has told us where it is. Anything still encoding for a part
     // of this variant it has left behind (a seek, or a jump backwards) is
@@ -795,8 +826,9 @@ export class HlsService {
       throw new Error(`Invalid segment index: ${segmentIndex}`);
     }
 
-    const outputPath = path.join(outputDir, `${segmentIndex}.ts`);
+    const outputPath = path.join(outputDir, segmentFileName(quality, segmentIndex));
     const isOriginal = quality === ORIGINAL_QUALITY;
+    const fmp4 = isFmp4Quality(quality);
     const qualityPreset = isOriginal ? null : presets[quality];
 
     const ffmpegArgs: string[] = [];
@@ -808,19 +840,18 @@ export class HlsService {
       ffmpegArgs.push(...getDecoderInputArgs(encoder, await this.videoCodecOf(videoPath)));
     }
 
-    // For stream copy, we need accurate seeking, so use -ss after -i
-    // For transcoding, we can use -ss before -i for faster seeking
-    if (!isOriginal && startTime > 0) {
-      // Fast seek before input for transcoding
+    // Seek before the input either way. For a transcode that is simply faster.
+    // For a stream copy it is also the only way to get a whole segment: seeking
+    // after the input makes FFmpeg count the discarded head against `-t`, so it
+    // wrote about four seconds of a six-second slot and the player skipped the
+    // rest. Seeking before the input lands on the keyframe at or before the
+    // slot, which is exact whenever the source's GOP divides the segment
+    // duration and otherwise starts the segment a little early.
+    if (startTime > 0) {
       ffmpegArgs.push('-ss', startTime.toString());
     }
 
     ffmpegArgs.push('-i', videoPath);
-
-    if (isOriginal && startTime > 0) {
-      // Accurate seek after input for stream copy
-      ffmpegArgs.push('-ss', startTime.toString());
-    }
 
     // Duration limit
     ffmpegArgs.push('-t', segmentDuration.toString());
@@ -845,10 +876,15 @@ export class HlsService {
       } else {
         ffmpegArgs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
       }
-      // For stream copy, keep original timestamps and let mpegts handle them
-      ffmpegArgs.push('-copyts');
-      // Set the output timestamp offset to match expected segment position
-      ffmpegArgs.push('-output_ts_offset', startTime.toString());
+      // Apple's players want the sample entry spelled `hvc1`, not `hev1`, and
+      // a copied HEVC stream keeps whichever tag the source file used.
+      if ((await this.videoCodecOf(videoPath)) === 'hevc') {
+        ffmpegArgs.push('-tag:v', 'hvc1');
+      }
+      // Timestamps run from zero within this segment; `Fmp4Splitter` puts it
+      // back on the file's timeline by rewriting the fragments' decode times,
+      // because FFmpeg numbers every fragment run from zero and each segment
+      // is its own FFmpeg process.
     } else if (qualityPreset) {
       // Add encoder-specific arguments
       const encoderArgs = getEncoderArgs(
@@ -902,17 +938,30 @@ export class HlsService {
     }
 
     // Output format settings for HLS segments
-    ffmpegArgs.push(
-      '-f', 'mpegts',
-      '-mpegts_copyts', '1',
-      '-avoid_negative_ts', 'disabled'
-    );
+    if (fmp4) {
+      ffmpegArgs.push(
+        '-f', 'mp4',
+        // `empty_moov` puts the header up front so the output can be written to
+        // a pipe at all; `frag_keyframe` closes a fragment at each keyframe so
+        // bytes leave the muxer during the segment rather than at the end of it.
+        '-movflags', '+empty_moov+default_base_moof+frag_keyframe'
+      );
+    } else {
+      ffmpegArgs.push(
+        '-f', 'mpegts',
+        '-mpegts_copyts', '1',
+        '-avoid_negative_ts', 'disabled'
+      );
+    }
 
-    // Streaming writes to a pipe and the cache file is assembled alongside it;
-    // a prefetch, which nobody is waiting for, writes straight to the file.
-    const streaming = Boolean(sink);
+    // A fragmented segment always goes through the pipe: its header has to be
+    // peeled off and its decode times rewritten before anything is stored or
+    // sent. Otherwise streaming writes to a pipe and the cache file is
+    // assembled alongside it, and a prefetch, which nobody is waiting for,
+    // writes straight to the file.
+    const piped = fmp4 || Boolean(sink);
     const tempPath = `${outputPath}.part-${randomUUID().slice(0, 8)}`;
-    if (streaming) {
+    if (piped) {
       ffmpegArgs.push('pipe:1');
     } else {
       ffmpegArgs.push('-y', outputPath);
@@ -934,19 +983,35 @@ export class HlsService {
 
       // The cache copy is written under a temporary name and renamed only on
       // a clean exit, so a truncated encode can never be served as complete.
-      const tempFile = streaming ? fs.createWriteStream(tempPath) : null;
+      const tempFile = piped ? fs.createWriteStream(tempPath) : null;
       // A write stream with no error listener throws out of the event loop, so
       // a full disk would take the process down rather than one segment.
       tempFile?.on('error', (error) => {
         console.warn(`Could not write the cache copy of segment ${segmentIndex}:`, error);
       });
-      if (streaming && ffmpeg.stdout) {
+      const emit = (chunk: Buffer) => {
+        if (tempFile && !tempFile.destroyed) tempFile.write(chunk);
+        // Deliberately not awaiting backpressure from the sink: a client that
+        // stalls must not stall the encode, and one segment is small enough
+        // to hold. The cache write is the one that has to finish.
+        if (sink && !sink.destroyed) sink.write(chunk);
+      };
+
+      // A fragmented segment is two things on one pipe: the initialisation
+      // segment every segment of this variant shares, written once beside them,
+      // and this segment's own fragments, rebased onto the file's timeline.
+      const splitter = fmp4
+        ? new Fmp4Splitter({
+            startSeconds: startTime,
+            onInit: (init) => this.storeInitSegment(outputDir, init),
+            onMedia: emit,
+          })
+        : null;
+
+      if (piped && ffmpeg.stdout) {
         ffmpeg.stdout.on('data', (chunk: Buffer) => {
-          if (tempFile && !tempFile.destroyed) tempFile.write(chunk);
-          // Deliberately not awaiting backpressure from the sink: a client that
-          // stalls must not stall the encode, and one segment is small enough
-          // to hold. The cache write is the one that has to finish.
-          if (sink && !sink.destroyed) sink.write(chunk);
+          if (splitter) splitter.write(chunk);
+          else emit(chunk);
         });
       }
 
@@ -991,6 +1056,7 @@ export class HlsService {
 
       ffmpeg.on('close', (code) => {
         finish();
+        splitter?.end();
 
         if (code !== 0 || job.cancelled) {
           if (job.cancelled) {
@@ -1027,6 +1093,69 @@ export class HlsService {
         abandon(err);
       });
     });
+  }
+
+  /**
+   * Write the initialisation segment beside the media segments of its variant.
+   * Every segment's FFmpeg run produces an identical one, so the first to
+   * arrive wins and the rest are ignored; the write is via a temporary name so
+   * a reader never sees a half-written header.
+   */
+  private storeInitSegment(variantPath: string, init: Buffer): void {
+    const initPath = path.join(variantPath, INIT_SEGMENT_NAME);
+    try {
+      if (fs.existsSync(initPath) && fs.statSync(initPath).size > 0) return;
+      const tempPath = `${initPath}.part-${randomUUID().slice(0, 8)}`;
+      fs.writeFileSync(tempPath, init);
+      fs.renameSync(tempPath, initPath);
+    } catch (error) {
+      console.warn('Could not cache the initialisation segment:', error);
+    }
+  }
+
+  /**
+   * The initialisation segment for a variant, generating it if it is not
+   * cached. The player asks for this before any media segment, so it cannot
+   * wait for one; when nothing is cached yet, a short FFmpeg run produces the
+   * header and its media fragments are thrown away.
+   */
+  async getInitSegment(
+    mediaId: string,
+    quality: string,
+    audioTrack: string = 'default'
+  ): Promise<string | null> {
+    if (!isFmp4Quality(quality)) return null;
+    const media = await this.mediaService.getVideoById(mediaId);
+    if (!media) return null;
+
+    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
+    const initPath = path.join(variantPath, INIT_SEGMENT_NAME);
+    try {
+      if (fs.statSync(initPath).size > 0) {
+        this.touchFile(initPath);
+        return initPath;
+      }
+    } catch {
+      // Not cached yet
+    }
+
+    try {
+      // The first segment is what a player asks for next anyway, so generating
+      // it now is not wasted work.
+      await this.ensureSegment(
+        media.path,
+        media.duration || 0,
+        quality,
+        0,
+        audioTrack,
+        variantPath
+      );
+    } catch (error) {
+      console.error(`Could not produce an initialisation segment for ${mediaId}:`, error);
+      return null;
+    }
+
+    return fs.existsSync(initPath) ? initPath : null;
   }
 
   /**

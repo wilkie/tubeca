@@ -44,6 +44,9 @@ function listSegments(cacheRoot: string): SegmentFile[] {
         walk(full);
       } else if (
         entry.name.endsWith('.ts') ||
+        // Fragmented-MP4 segments and the initialisation segment they share.
+        entry.name.endsWith('.m4s') ||
+        entry.name.endsWith('.mp4') ||
         entry.name.endsWith('.m3u8') ||
         // Extracted subtitles live beside the segments they belong to; they are
         // small, but the cap should still know about them.
@@ -89,9 +92,9 @@ export function pruneEmptyDirs(cacheRoot: string): void {
 }
 
 export function collectCacheStats(cacheRoot: string): CacheStats {
-  const segments = listSegments(cacheRoot).filter(
-    (s) => s.path.endsWith('.ts') || s.path.endsWith('.vtt')
-  );
+  // Playlists are synthesised per request and never cached, so everything else
+  // listed is something that took work to produce.
+  const segments = listSegments(cacheRoot).filter((s) => !s.path.endsWith('.m3u8'));
   let mediaCount = 0;
   if (fs.existsSync(cacheRoot)) {
     mediaCount = fs.readdirSync(cacheRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
@@ -170,7 +173,13 @@ export function enforceCacheSize(cacheRoot: string, maxBytes: number): { deleted
   return result;
 }
 
-/** Codecs that browsers play from an MPEG-TS HLS segment without transcoding. */
+/**
+ * Codecs the `original` rung copies rather than re-encodes. The rung became
+ * fragmented MP4 in 2026-09-05, so the container no longer limits this to what
+ * MPEG-TS can carry; what still does is that the master playlist does not yet
+ * declare CODECS, and a player that cannot decode HEVC or AV1 has no way to
+ * skip a rung offering them.
+ */
 export const DIRECT_PLAY_VIDEO_CODECS = new Set(['h264']);
 export const DIRECT_PLAY_AUDIO_CODECS = new Set(['aac', 'mp3']);
 

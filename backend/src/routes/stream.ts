@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -8,7 +8,7 @@ import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
 import { prisma } from '../config/database';
-import { getHlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
+import { getHlsService, QUALITY_PRESETS, ORIGINAL_QUALITY, isFmp4Quality } from '../services/hlsService';
 import { extractSubtitle, isTextSubtitle, subtitleCachePath } from '../services/subtitleService';
 import { readManifest } from '../services/trickplayService';
 import { getHlsCachePath } from '../config/appConfig';
@@ -845,7 +845,77 @@ router.get('/hls/:id/:quality.m3u8', mediaAccess, async (req, res) => {
  *       404:
  *         description: Segment not found
  */
-router.get('/hls/:id/:quality/:segment.ts', mediaAccess, async (req, res) => {
+/**
+ * @openapi
+ * /api/stream/hls/{id}/{quality}/init.mp4:
+ *   get:
+ *     tags:
+ *       - Streaming
+ *     summary: Initialisation segment for a fragmented-MP4 variant
+ *     description: >
+ *       The `#EXT-X-MAP` resource for the `original` rung: the track headers every
+ *       media segment of that variant depends on. Generated from the source on first
+ *       request and cached beside the segments.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: quality
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [original]
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         description: JWT token
+ *       - in: query
+ *         name: audioTrack
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Initialisation segment
+ *         content:
+ *           video/mp4:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       404:
+ *         description: Not a fragmented variant, or the header could not be produced
+ */
+// NOTE: registered before the segment route so "init" is not read as an index.
+router.get('/hls/:id/:quality/init.mp4', mediaAccess, async (req, res) => {
+  try {
+    const { id, quality } = req.params;
+    const audioTrack = (req.query.audioTrack as string) || 'default';
+
+    if (!isFmp4Quality(quality)) {
+      return res.status(404).json({ error: 'Not a fragmented variant' });
+    }
+
+    const initPath = await hlsService.getInitSegment(id, quality, audioTrack);
+    if (!initPath) {
+      return res.status(404).json({ error: 'Initialisation segment not found' });
+    }
+
+    res.setHeader('Content-Type', 'video/mp4');
+    // It never changes for a given file, and every segment depends on it.
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Content-Length', fs.statSync(initPath).size);
+    fs.createReadStream(initPath).pipe(res);
+  } catch (error) {
+    console.error('HLS init segment error:', error);
+    return res.status(500).json({ error: 'Failed to get initialisation segment' });
+  }
+});
+
+const serveHlsSegment: RequestHandler = async (req, res) => {
   try {
     const { id, quality, segment } = req.params;
     const audioTrack = (req.query.audioTrack as string) || 'default';
@@ -862,7 +932,7 @@ router.get('/hls/:id/:quality/:segment.ts', mediaAccess, async (req, res) => {
 
     // Headers go out before the encode starts: a fresh segment is written to
     // the response as FFmpeg produces it, so there is no length to declare.
-    res.setHeader('Content-Type', 'video/mp2t');
+    res.setHeader('Content-Type', isFmp4Quality(quality) ? 'video/iso.segment' : 'video/mp2t');
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache segments for 1 hour
 
     // Who is asking, so a seek only abandons this viewer's own prefetches.
@@ -886,7 +956,12 @@ router.get('/hls/:id/:quality/:segment.ts', mediaAccess, async (req, res) => {
     console.error('HLS segment error:', error);
     return res.status(500).json({ error: 'Failed to get segment' });
   }
-});
+};
+
+// One handler, two extensions: the transcode rungs are MPEG-TS and `original`
+// is fragmented MP4.
+router.get('/hls/:id/:quality/:segment.ts', mediaAccess, serveHlsSegment);
+router.get('/hls/:id/:quality/:segment.m4s', mediaAccess, serveHlsSegment);
 
 /**
  * @openapi

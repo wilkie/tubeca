@@ -64,6 +64,14 @@ describe('cache maintenance', () => {
     expect(collectCacheStats(path.join(root, 'missing'))).toEqual({ totalSize: 0, mediaCount: 0, segmentCount: 0 });
   });
 
+  it('counts fragmented segments and the header they share', () => {
+    segment('m1/adefault/original/0.m4s', 100);
+    segment('m1/adefault/original/1.m4s', 50);
+    segment('m1/adefault/original/init.mp4', 20);
+
+    expect(collectCacheStats(root)).toEqual({ totalSize: 170, mediaCount: 1, segmentCount: 3 });
+  });
+
   it('sweeps segments older than the TTL and prunes empty folders', () => {
     const old = segment('m1/adefault/720p/0.ts', 10, 48);
     const fresh = segment('m1/adefault/720p/1.ts', 10, 1);
