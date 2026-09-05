@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { MiniPlayer } from '../MiniPlayer';
 import { usePlayer } from '../../context/PlayerContext';
-import { createRef } from 'react';
+import { act, createRef } from 'react';
 
 // Mock the PlayerContext
 jest.mock('../../context/PlayerContext', () => ({
@@ -58,7 +58,7 @@ describe('MiniPlayer', () => {
     setMode: jest.fn(),
     registerFullscreenContainer: jest.fn(),
     registerMouseMoveHandler: jest.fn(),
-    registerMouseDownHandler: jest.fn(),
+    registerPointerDownHandler: jest.fn(),
     registerClickHandler: jest.fn(),
     close: jest.fn(),
     setMiniPlayerPosition: jest.fn(),
@@ -263,25 +263,25 @@ describe('MiniPlayer', () => {
   });
 
   describe('dragging', () => {
-    it('registers mouse down handler on mount', () => {
-      const registerMouseDownHandler = jest.fn();
+    it('registers a pointer down handler on mount', () => {
+      const registerPointerDownHandler = jest.fn();
 
       mockUsePlayer.mockReturnValue({
         ...mockPlayerState,
-        registerMouseDownHandler,
+        registerPointerDownHandler,
       });
 
       render(<MiniPlayer {...defaultProps} />);
 
-      expect(registerMouseDownHandler).toHaveBeenCalled();
+      expect(registerPointerDownHandler).toHaveBeenCalled();
     });
 
-    it('unregisters mouse down handler on unmount', () => {
-      const registerMouseDownHandler = jest.fn();
+    it('unregisters the pointer down handler on unmount', () => {
+      const registerPointerDownHandler = jest.fn();
 
       mockUsePlayer.mockReturnValue({
         ...mockPlayerState,
-        registerMouseDownHandler,
+        registerPointerDownHandler,
       });
 
       const { unmount } = render(<MiniPlayer {...defaultProps} />);
@@ -289,17 +289,17 @@ describe('MiniPlayer', () => {
       unmount();
 
       // Last call should be with null to unregister
-      expect(registerMouseDownHandler).toHaveBeenLastCalledWith(null);
+      expect(registerPointerDownHandler).toHaveBeenLastCalledWith(null);
     });
 
-    it('starts drag on mouse down', () => {
+    it('starts drag on pointer down', () => {
       render(<MiniPlayer {...defaultProps} />);
 
       const videoContainer = document.querySelector('[class*="MuiBox-root"]');
       expect(videoContainer).toBeTruthy();
 
-      // Simulate mouse down on the container (not on a button)
-      fireEvent.mouseDown(videoContainer!, { clientX: 100, clientY: 100 });
+      // Simulate a press on the container (not on a button)
+      fireEvent.pointerDown(videoContainer!, { clientX: 100, clientY: 100 });
 
       // The player should now be in dragging mode
       const paper = getPaperElement();
@@ -336,11 +336,11 @@ describe('MiniPlayer', () => {
       expect(screen.getByTestId('PlayArrowIcon')).toBeInTheDocument();
     });
 
-    it('shows controls on mouse move', () => {
+    it('shows controls on pointer move', () => {
       render(<MiniPlayer {...defaultProps} />);
 
       const paper = getPaperElement();
-      fireEvent.mouseMove(paper!);
+      fireEvent.pointerMove(paper!);
 
       // Controls should be visible
       expect(screen.getByTestId('PlayArrowIcon')).toBeInTheDocument();
@@ -403,6 +403,52 @@ describe('MiniPlayer', () => {
       fireEvent.click(videoContainer!);
 
       expect(togglePlay).toHaveBeenCalled();
+    });
+
+    it('brings the controls back on a tap instead of pausing', () => {
+      jest.useFakeTimers();
+      const togglePlay = jest.fn();
+      mockUsePlayer.mockReturnValue({ ...mockPlayerState, isPlaying: true, togglePlay });
+
+      render(<MiniPlayer {...defaultProps} />);
+      const videoContainer = document.querySelector('[class*="MuiBox-root"]')!;
+
+      // Let the controls hide, as they do a few seconds into playback.
+      fireEvent.pointerMove(getPaperElement()!);
+      act(() => {
+        jest.advanceTimersByTime(3500);
+      });
+
+      fireEvent.pointerDown(videoContainer, { pointerType: 'touch' });
+      fireEvent.click(videoContainer);
+
+      // The first tap only reveals the controls.
+      expect(togglePlay).not.toHaveBeenCalled();
+
+      // A second tap, with the controls up, toggles playback.
+      fireEvent.pointerDown(videoContainer, { pointerType: 'touch' });
+      fireEvent.click(videoContainer);
+      expect(togglePlay).toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
+    it('still toggles straight away for a mouse', () => {
+      jest.useFakeTimers();
+      const togglePlay = jest.fn();
+      mockUsePlayer.mockReturnValue({ ...mockPlayerState, isPlaying: true, togglePlay });
+
+      render(<MiniPlayer {...defaultProps} />);
+      const videoContainer = document.querySelector('[class*="MuiBox-root"]')!;
+      fireEvent.pointerMove(getPaperElement()!);
+      act(() => {
+        jest.advanceTimersByTime(3500);
+      });
+
+      fireEvent.pointerDown(videoContainer, { pointerType: 'mouse' });
+      fireEvent.click(videoContainer);
+
+      expect(togglePlay).toHaveBeenCalled();
+      jest.useRealTimers();
     });
   });
 });

@@ -116,7 +116,7 @@ interface PlayerContextActions {
   setMode: (mode: 'fullscreen' | 'mini' | 'hidden') => void;
   registerFullscreenContainer: (element: HTMLElement | null) => void;
   registerMouseMoveHandler: (handler: (() => void) | null) => void;
-  registerMouseDownHandler: (handler: ((e: React.MouseEvent) => void) | null) => void;
+  registerPointerDownHandler: (handler: ((e: React.PointerEvent) => void) | null) => void;
   registerClickHandler: (handler: (() => void) | null) => void;
   close: () => void;
   setMiniPlayerPosition: (position: MiniPlayerPosition) => void;
@@ -1294,15 +1294,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     mouseMoveHandlerRef.current?.();
   }, []);
 
-  // Mouse down handler for video element (needed for drag in mini player)
-  const mouseDownHandlerRef = useRef<((e: React.MouseEvent) => void) | null>(null);
+  // Pointer down on the video element, so the mini player can be dragged with a
+  // finger as well as a mouse.
+  const pointerDownHandlerRef = useRef<((e: React.PointerEvent) => void) | null>(null);
 
-  const registerMouseDownHandler = useCallback((handler: ((e: React.MouseEvent) => void) | null) => {
-    mouseDownHandlerRef.current = handler;
+  const registerPointerDownHandler = useCallback((handler: ((e: React.PointerEvent) => void) | null) => {
+    pointerDownHandlerRef.current = handler;
   }, []);
 
-  const handleVideoMouseDown = useCallback((e: React.MouseEvent) => {
-    mouseDownHandlerRef.current?.(e);
+  const handleVideoPointerDown = useCallback((e: React.PointerEvent) => {
+    pointerDownHandlerRef.current?.(e);
   }, []);
 
   // Click handler for video element (for play/pause toggle)
@@ -1372,7 +1373,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setMode,
     registerFullscreenContainer,
     registerMouseMoveHandler,
-    registerMouseDownHandler,
+    registerPointerDownHandler,
     registerClickHandler,
     close,
     setMiniPlayerPosition,
@@ -1433,8 +1434,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       <div
         ref={videoContainerRef}
         onClick={handleVideoClick}
-        onMouseDown={handleVideoMouseDown}
-        onMouseMove={handleVideoMouseMove}
+        onPointerDown={handleVideoPointerDown}
+        onPointerMove={handleVideoMouseMove}
         style={{
           position: 'absolute',
           top: 0,

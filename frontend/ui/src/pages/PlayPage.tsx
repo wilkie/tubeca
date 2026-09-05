@@ -15,6 +15,9 @@ export function PlayPage() {
   const [showControls, setShowControls] = useState(true);
   const hideControlsTimeout = useRef<number | null>(null);
   const isPlayingRef = useRef(false);
+  // The click handler is registered once with the context, so it reads the
+  // current visibility from a ref rather than a captured value.
+  const showControlsRef = useRef(true);
 
   const {
     currentMedia,
@@ -43,6 +46,7 @@ export function PlayPage() {
     registerFullscreenContainer,
     registerMouseMoveHandler,
     registerClickHandler,
+    registerPointerDownHandler,
     refreshQueue,
     playNext,
     playPrevious,
@@ -80,10 +84,14 @@ export function PlayPage() {
     // If currentMedia.id === mediaId, we're in sync - do nothing
   }, [mediaId, currentMedia, playMedia, navigate]);
 
-  // Keep ref in sync with isPlaying state
+  // Keep refs in sync with state
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
+
+  useEffect(() => {
+    showControlsRef.current = showControls;
+  }, [showControls]);
 
   const handleBack = useCallback(() => {
     navigate(-1);
@@ -103,9 +111,23 @@ export function PlayPage() {
     }, 3000);
   }, []);
 
-  const handleMouseMove = useCallback(() => {
+  const handlePointerMove = useCallback(() => {
     showControlsWithTimeout();
   }, [showControlsWithTimeout]);
+
+  const lastPointerTypeRef = useRef<string>('mouse');
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    lastPointerTypeRef.current = e.pointerType;
+  }, []);
+
+  // The video element is portaled, so its own pointer events arrive through the
+  // context rather than this tree.
+  useEffect(() => {
+    registerPointerDownHandler(handlePointerDown);
+    return () => {
+      registerPointerDownHandler(null);
+    };
+  }, [registerPointerDownHandler, handlePointerDown]);
 
   const handleMouseLeave = useCallback(() => {
     if (isPlayingRef.current) {
@@ -227,9 +249,15 @@ export function PlayPage() {
     volume,
   ]);
 
+  // With no hover to reveal them, a tap on a touch screen brings the controls
+  // back; only a tap while they are already up toggles playback.
   const handleVideoClick = useCallback(() => {
+    if (lastPointerTypeRef.current !== 'mouse' && !showControlsRef.current) {
+      showControlsWithTimeout();
+      return;
+    }
     togglePlay();
-  }, [togglePlay]);
+  }, [togglePlay, showControlsWithTimeout]);
 
   // Register click handler for video element (for play/pause toggle)
   useEffect(() => {
@@ -343,7 +371,8 @@ export function PlayPage() {
   return (
     <Box
       ref={containerRef}
-      onMouseMove={handleMouseMove}
+      onPointerMove={handlePointerMove}
+      onPointerDown={handlePointerDown}
       onMouseLeave={handleMouseLeave}
       sx={{
         position: 'fixed',

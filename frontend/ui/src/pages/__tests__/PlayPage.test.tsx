@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '../../test-utils';
+import { render, screen, waitFor, fireEvent, act } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { PlayPage } from '../PlayPage';
 
@@ -44,7 +44,7 @@ const mockSetAudioTrack = jest.fn();
 const mockSetSubtitleTrack = jest.fn();
 const mockRegisterFullscreenContainer = jest.fn();
 const mockRegisterMouseMoveHandler = jest.fn();
-const mockRegisterMouseDownHandler = jest.fn();
+const mockRegisterPointerDownHandler = jest.fn();
 const mockRegisterClickHandler = jest.fn();
 const mockRetryPlayback = jest.fn();
 
@@ -94,7 +94,7 @@ jest.mock('../../context/PlayerContext', () => ({
     setMode: jest.fn(),
     registerFullscreenContainer: mockRegisterFullscreenContainer,
     registerMouseMoveHandler: mockRegisterMouseMoveHandler,
-    registerMouseDownHandler: mockRegisterMouseDownHandler,
+    registerPointerDownHandler: mockRegisterPointerDownHandler,
     registerClickHandler: mockRegisterClickHandler,
     close: jest.fn(),
     setMiniPlayerPosition: jest.fn(),
@@ -325,6 +325,58 @@ describe('PlayPage', () => {
       await user.click(screen.getByTestId('play-pause'));
 
       expect(mockTogglePlay).toHaveBeenCalled();
+    });
+
+    it('brings the controls back on the first tap rather than pausing', async () => {
+      jest.useFakeTimers();
+      mockPlayerState.isPlaying = true;
+      render(<PlayPage />);
+      await act(async () => {
+        // The page hides its controls a few seconds in.
+        jest.advanceTimersByTime(3500);
+      });
+
+      const pointerDown = mockRegisterPointerDownHandler.mock.calls
+        .map(([handler]) => handler)
+        .filter(Boolean)
+        .pop() as (e: { pointerType: string }) => void;
+      const click = mockRegisterClickHandler.mock.calls
+        .map(([handler]) => handler)
+        .filter(Boolean)
+        .pop() as () => void;
+
+      act(() => {
+        pointerDown({ pointerType: 'touch' });
+        click();
+      });
+      expect(mockTogglePlay).not.toHaveBeenCalled();
+
+      act(() => {
+        pointerDown({ pointerType: 'touch' });
+        click();
+      });
+      expect(mockTogglePlay).toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
+    it('toggles on the first click from a mouse', async () => {
+      jest.useFakeTimers();
+      mockPlayerState.isPlaying = true;
+      render(<PlayPage />);
+      await act(async () => {
+        jest.advanceTimersByTime(3500);
+      });
+
+      const click = mockRegisterClickHandler.mock.calls
+        .map(([handler]) => handler)
+        .filter(Boolean)
+        .pop() as () => void;
+      act(() => {
+        click();
+      });
+
+      expect(mockTogglePlay).toHaveBeenCalled();
+      jest.useRealTimers();
     });
   });
 

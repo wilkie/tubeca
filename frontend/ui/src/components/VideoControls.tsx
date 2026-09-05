@@ -318,8 +318,10 @@ export function VideoControls({
   };
 
   // Trickplay preview handlers
-  const handleSliderMouseMove = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
+  // Pointer rather than mouse events, so a thumb dragged along the bar scrubs
+  // with a preview the same way a mouse hovering it does.
+  const handleSliderPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
       if (!trickplay || !mediaId || !sliderRef.current) return;
 
       const rect = sliderRef.current.getBoundingClientRect();
@@ -338,7 +340,7 @@ export function VideoControls({
     [trickplay, mediaId, duration]
   );
 
-  const handleSliderMouseLeave = useCallback(() => {
+  const handleSliderPointerLeave = useCallback(() => {
     setPreviewVisible(false);
   }, []);
 
@@ -379,7 +381,7 @@ export function VideoControls({
 
       {/* Controls overlay */}
       <Box
-        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         sx={{
           position: 'absolute',
@@ -403,9 +405,11 @@ export function VideoControls({
         {/* Progress bar with trickplay preview */}
         <Box
           ref={sliderRef}
-          onMouseMove={handleSliderMouseMove}
-          onMouseLeave={handleSliderMouseLeave}
-          sx={{ position: 'relative' }}
+          onPointerMove={handleSliderPointerMove}
+          onPointerLeave={handleSliderPointerLeave}
+          onPointerUp={handleSliderPointerLeave}
+          onPointerCancel={handleSliderPointerLeave}
+          sx={{ position: 'relative', touchAction: 'none' }}
         >
           {/* Trickplay preview tooltip - not shown in compact mode */}
           {trickplay && mediaId && previewVisible && !compact && (

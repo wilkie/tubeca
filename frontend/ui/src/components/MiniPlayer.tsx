@@ -35,7 +35,7 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
     setVolume,
     toggleMute,
     close,
-    registerMouseDownHandler,
+    registerPointerDownHandler,
   } = usePlayer();
 
   const paperRef = useRef<HTMLDivElement>(null);
@@ -44,6 +44,7 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
   const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
   const [showControls, setShowControls] = useState(true);
   const hideControlsTimeout = useRef<number | null>(null);
+  const lastPointerTypeRef = useRef<string>('mouse');
 
   // Get current position based on corner or drag
   const getPositionStyles = useCallback((): React.CSSProperties => {
@@ -72,9 +73,12 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
     return 'bottom-right';
   }, []);
 
-  // Drag handlers
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // Only start drag if clicking on the drag handle area (top of player)
+  // Drag handlers. Pointer events cover mouse, touch and pen with one path, so
+  // the player can be moved with a finger.
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    lastPointerTypeRef.current = e.pointerType;
+
+    // Only start drag if pressing on the drag handle area (top of player)
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('[role="slider"]')) {
       return; // Don't start drag on controls
@@ -97,13 +101,13 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
   useEffect(() => {
     if (!isDragging) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       const newX = Math.max(0, Math.min(window.innerWidth - PLAYER_WIDTH, e.clientX - dragOffset.x));
       const newY = Math.max(NAV_BAR_HEIGHT, Math.min(window.innerHeight - PLAYER_HEIGHT, e.clientY - dragOffset.y));
       setDragPosition({ x: newX, y: newY });
     };
 
-    const handleMouseUp = (e: MouseEvent) => {
+    const handlePointerUp = (e: PointerEvent) => {
       const newX = e.clientX - dragOffset.x;
       const newY = e.clientY - dragOffset.y;
       const newCorner = calculateNearestCorner(newX, newY);
@@ -111,25 +115,30 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
       setIsDragging(false);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    const handlePointerCancel = () => setIsDragging(false);
+
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerCancel);
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerCancel);
     };
   }, [isDragging, dragOffset, calculateNearestCorner, onPositionChange]);
 
-  // Register mouse down handler for video container (needed because video is moved via DOM manipulation)
+  // Register the handler for the video container, which is moved into this
+  // frame by DOM manipulation rather than rendered here.
   useEffect(() => {
-    registerMouseDownHandler(handleMouseDown);
+    registerPointerDownHandler(handlePointerDown);
     return () => {
-      registerMouseDownHandler(null);
+      registerPointerDownHandler(null);
     };
-  }, [registerMouseDownHandler, handleMouseDown]);
+  }, [registerPointerDownHandler, handlePointerDown]);
 
   // Auto-hide controls
-  const handleMouseMove = useCallback(() => {
+  const showControlsBriefly = useCallback(() => {
     setShowControls(true);
     if (hideControlsTimeout.current) {
       clearTimeout(hideControlsTimeout.current);
@@ -147,10 +156,16 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
     }
   }, [isPlaying]);
 
-  // Click on video to toggle play
+  // Tap or click on the video. A touch device has no hover, so a tap while the
+  // controls are hidden reveals them instead of toggling playback — otherwise
+  // reaching the controls means pausing first.
   const handleVideoClick = useCallback(() => {
+    if (lastPointerTypeRef.current !== 'mouse' && !showControls) {
+      showControlsBriefly();
+      return;
+    }
     togglePlay();
-  }, [togglePlay]);
+  }, [togglePlay, showControls, showControlsBriefly]);
 
   if (!currentMedia) return null;
 
@@ -158,7 +173,8 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
     <Paper
       ref={paperRef}
       elevation={8}
-      onMouseMove={handleMouseMove}
+      onPointerMove={showControlsBriefly}
+      onPointerDown={handlePointerDown}
       onMouseLeave={handleMouseLeave}
       sx={{
         position: 'fixed',
@@ -167,6 +183,8 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
         borderRadius: 2,
         overflow: 'hidden',
         cursor: isDragging ? 'grabbing' : 'grab',
+        // The browser must not treat a drag on the player as a page scroll.
+        touchAction: 'none',
         transition: isDragging ? 'none' : 'top 0.3s ease, left 0.3s ease, right 0.3s ease, bottom 0.3s ease',
         ...getPositionStyles(),
       }}
@@ -174,7 +192,7 @@ export function MiniPlayer({ position, onPositionChange, containerRef }: MiniPla
       {/* Video container - video element is moved here via DOM manipulation */}
       <Box
         ref={containerRef}
-        onMouseDown={handleMouseDown}
+        onPointerDown={handlePointerDown}
         onClick={handleVideoClick}
         sx={{
           width: PLAYER_WIDTH,

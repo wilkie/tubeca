@@ -38,8 +38,9 @@
 - **One controls component.** `VideoControls` is shared by the full player and the mini player
   via a `compact` flag; menus are rendered inside the player container so they work in fullscreen.
 
-What the code does *not* optimise for: mobile/touch or keyboard control of playback (see Known
-Limitations). Resume and watched state were added on 2026-09-03.
+What the code does *not* optimise for: a phone-shaped layout — the controls are the desktop ones at
+desktop sizes (see Known Limitations). Resume and watched state were added on 2026-09-03; touch
+input on 2026-09-04.
 
 ## Components
 
@@ -177,7 +178,10 @@ when not on Auto. Selecting a quality does not affect the remembered level.
 
 ### Trickplay preview (`VideoControls.tsx:321-361`)
 
-On mouse move over the slider box, the hover fraction is mapped to `previewTime`; the tooltip's
+On pointer move over the slider box (mouse, touch or pen — a finger dragged along the bar scrubs
+with a preview, since a touch screen never hovers), the fraction is mapped to `previewTime`; the
+preview is cleared on pointer leave, up or cancel, and the box sets `touch-action: none` so the
+drag does not scroll the page instead. The tooltip's
 `left` is clamped to `[tileWidth/2, sliderWidth - tileWidth/2]` (1a2a410) so it never overflows.
 `getTrickplayStyle` computes `frameIndex = floor(time / interval)`, sprite sheet index
 `floor(frameIndex / tileCount)`, and `background-position` from column/row, pointing at
@@ -350,6 +354,7 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - 2026-09-04 A failed progress report is retried on a backoff instead of being dropped, and search results show watched badges.
 - 2026-09-04 Watched badges extended to favourites, watch later, the queue and user collections.
 - 2026-09-04 `POST`/`DELETE /api/watch/collections/:id` mark or forget a whole subtree; "Mark all watched" on the collection menu.
+- 2026-09-04 Player converted from mouse events to pointer events: touch drag of the mini player, scrub previews, tap-to-reveal controls.
 
 ## Known Limitations
 
@@ -362,8 +367,10 @@ Collections in libraries the user cannot access are omitted from the summaries e
   retries on a backoff until it lands (2026-09-04), but the `keepalive` report on `pagehide` has
   no page left to retry from, so a viewer who closes a tab exactly when the network drops still
   loses that position. Nothing is written to local storage to recover it later.
-- **No touch handling.** Drag, hover trickplay, and auto-hide are mouse-event only; `MiniPlayer`
-  cannot be moved on touch devices and the preview never appears.
+- **The player's layout is not adapted for small screens.** Touch input works as of 2026-09-04,
+  but `MiniPlayer` is a fixed 320x180 pinned to a corner and the full player's control row is the
+  desktop one; on a phone in portrait the buttons are close together and the mini player covers a
+  large fraction of the screen.
 
 - **Safari's native HLS path worked only as far as the master playlist** until 2026-09-04: the
   variant and segment URIs carried no token, and a `<video>` element cannot be given headers, so
@@ -403,8 +410,9 @@ Collections in libraries the user cannot access are omitted from the summaries e
   `initHls` and `setAudioTrack`, so stability tracking and recovery apply to audio switches too.
   Prefer `hls.audioTrack`-style switching later if the backend exposes alternate audio renditions.
 
-- **Touch support** (M): pointer events for drag and a tap-to-toggle-controls model; show
-  trickplay while scrubbing via `onChange` on touch.
+- **A phone layout for the player** (M): a mini player sized to the viewport rather than a fixed
+  320x180, and a control row that drops to the essentials at `xs`. Touch input itself landed
+  2026-09-04.
 - **Cheaper continuation** (S): skip next-episode resolution until `duration - currentTime < 60`
   or when in mini mode; sort seasons by `seasonDetails.seasonNumber` once the summary carries it.
 - **Gate HLS debug logging** (S) behind `import.meta.env.DEV` or `debug: true`.

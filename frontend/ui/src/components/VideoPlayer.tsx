@@ -50,6 +50,7 @@ export function VideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showControls, setShowControls] = useState(true);
+  const lastPointerTypeRef = useRef<string>('mouse');
   const hideControlsTimeout = useRef<number | null>(null);
   const [videoSrc, setVideoSrc] = useState(src);
   const seekOffset = useRef(0);
@@ -202,7 +203,7 @@ export function VideoPlayer({
     }
   };
 
-  const handleMouseMove = () => {
+  const showControlsBriefly = () => {
     setShowControls(true);
     if (hideControlsTimeout.current) {
       clearTimeout(hideControlsTimeout.current);
@@ -214,14 +215,25 @@ export function VideoPlayer({
     }, 3000);
   };
 
+  const handlePointerDown = (e: React.PointerEvent) => {
+    lastPointerTypeRef.current = e.pointerType;
+  };
+
+  // A touch device has no hover, so a tap while the controls are hidden brings
+  // them back rather than pausing; only then does a tap toggle playback.
   const handleVideoClick = () => {
+    if (lastPointerTypeRef.current !== 'mouse' && !showControls) {
+      showControlsBriefly();
+      return;
+    }
     handlePlayPause();
   };
 
   return (
     <Box
       ref={containerRef}
-      onMouseMove={handleMouseMove}
+      onPointerMove={showControlsBriefly}
+      onPointerDown={handlePointerDown}
       onMouseLeave={() => isPlaying && setShowControls(false)}
       sx={{
         position: 'relative',

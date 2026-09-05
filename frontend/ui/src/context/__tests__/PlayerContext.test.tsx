@@ -392,7 +392,7 @@ describe('PlayerContext', () => {
       expect(typeof result.current.setMode).toBe('function');
       expect(typeof result.current.registerFullscreenContainer).toBe('function');
       expect(typeof result.current.registerMouseMoveHandler).toBe('function');
-      expect(typeof result.current.registerMouseDownHandler).toBe('function');
+      expect(typeof result.current.registerPointerDownHandler).toBe('function');
       expect(typeof result.current.registerClickHandler).toBe('function');
       expect(typeof result.current.close).toBe('function');
       expect(typeof result.current.setMiniPlayerPosition).toBe('function');
@@ -416,20 +416,20 @@ describe('PlayerContext', () => {
       expect(result.current.registerMouseMoveHandler).toBeDefined();
     });
 
-    it('registerMouseDownHandler accepts handler', () => {
+    it('registerPointerDownHandler accepts handler', () => {
       const { result } = renderHook(() => usePlayer(), { wrapper });
       const handler = jest.fn();
 
       // Should not throw
       act(() => {
-        result.current.registerMouseDownHandler(handler);
+        result.current.registerPointerDownHandler(handler);
       });
 
       act(() => {
-        result.current.registerMouseDownHandler(null);
+        result.current.registerPointerDownHandler(null);
       });
 
-      expect(result.current.registerMouseDownHandler).toBeDefined();
+      expect(result.current.registerPointerDownHandler).toBeDefined();
     });
 
     it('registerClickHandler accepts handler', () => {

@@ -73,14 +73,14 @@ describe('VideoPlayer', () => {
       expect(sliderContainer).toBeTruthy();
 
       // Simulate mouse move over the slider
-      fireEvent.mouseMove(sliderContainer!, { clientX: 400 });
+      fireEvent.pointerMove(sliderContainer!, { clientX: 400 });
 
       // The preview should be visible - check for the time display
       // At 400px on an 800px slider = 50% = 1800 seconds = "30:00"
       expect(screen.getByText('30:00')).toBeInTheDocument();
     });
 
-    it('hides trickplay preview when mouse leaves slider', () => {
+    it('hides trickplay preview when the pointer leaves the slider', () => {
       render(
         <VideoPlayer
           {...defaultProps}
@@ -92,11 +92,24 @@ describe('VideoPlayer', () => {
       const sliderContainer = findSliderContainer();
 
       // Show preview
-      fireEvent.mouseMove(sliderContainer!, { clientX: 400 });
+      fireEvent.pointerMove(sliderContainer!, { clientX: 400 });
       expect(screen.getByText('30:00')).toBeInTheDocument();
 
       // Hide preview
-      fireEvent.mouseLeave(sliderContainer!);
+      fireEvent.pointerLeave(sliderContainer!);
+      expect(screen.queryByText('30:00')).not.toBeInTheDocument();
+    });
+
+    it('follows a finger dragged along the bar and clears on release', () => {
+      render(<VideoPlayer {...defaultProps} trickplay={trickplayData} mediaId="media-123" />);
+
+      const sliderContainer = findSliderContainer();
+
+      // A touch device never hovers, so scrubbing is the only way to preview.
+      fireEvent.pointerMove(sliderContainer!, { clientX: 400, pointerType: 'touch' });
+      expect(screen.getByText('30:00')).toBeInTheDocument();
+
+      fireEvent.pointerUp(sliderContainer!, { pointerType: 'touch' });
       expect(screen.queryByText('30:00')).not.toBeInTheDocument();
     });
 
@@ -124,7 +137,7 @@ describe('VideoPlayer', () => {
         // Preview width is 160px, so halfWidth = 80px
         // Clamped position should be 80 (not 0)
         // Time at 0% = 0 seconds = "0:00"
-        fireEvent.mouseMove(sliderContainer!, { clientX: 0 });
+        fireEvent.pointerMove(sliderContainer!, { clientX: 0 });
 
         const position = getPreviewPosition();
         expect(position).toBe(80); // halfWidth of preview
@@ -144,7 +157,7 @@ describe('VideoPlayer', () => {
         // Mouse at x=800 (right edge)
         // Slider width = 800, preview width = 160, halfWidth = 80
         // Clamped position should be 800 - 80 = 720
-        fireEvent.mouseMove(sliderContainer!, { clientX: mockSliderWidth });
+        fireEvent.pointerMove(sliderContainer!, { clientX: mockSliderWidth });
 
         const position = getPreviewPosition();
         expect(position).toBe(mockSliderWidth - 80); // sliderWidth - halfWidth
@@ -163,7 +176,7 @@ describe('VideoPlayer', () => {
 
         // Mouse at center (x=400)
         // This is within bounds, so position should be exactly 400
-        fireEvent.mouseMove(sliderContainer!, { clientX: 400 });
+        fireEvent.pointerMove(sliderContainer!, { clientX: 400 });
 
         const position = getPreviewPosition();
         expect(position).toBe(400);
@@ -182,7 +195,7 @@ describe('VideoPlayer', () => {
 
         // Mouse at x=50, which is less than halfWidth (80)
         // Should be clamped to 80
-        fireEvent.mouseMove(sliderContainer!, { clientX: 50 });
+        fireEvent.pointerMove(sliderContainer!, { clientX: 50 });
 
         const position = getPreviewPosition();
         expect(position).toBe(80);
@@ -201,7 +214,7 @@ describe('VideoPlayer', () => {
 
         // Mouse at x=750, which is greater than sliderWidth - halfWidth (720)
         // Should be clamped to 720
-        fireEvent.mouseMove(sliderContainer!, { clientX: 750 });
+        fireEvent.pointerMove(sliderContainer!, { clientX: 750 });
 
         const position = getPreviewPosition();
         expect(position).toBe(720);
@@ -220,7 +233,7 @@ describe('VideoPlayer', () => {
 
         // Mouse at x=100, which is greater than halfWidth (80)
         // Should not be clamped
-        fireEvent.mouseMove(sliderContainer!, { clientX: 100 });
+        fireEvent.pointerMove(sliderContainer!, { clientX: 100 });
 
         const position = getPreviewPosition();
         expect(position).toBe(100);
@@ -239,7 +252,7 @@ describe('VideoPlayer', () => {
 
         // Mouse at x=700, which is less than sliderWidth - halfWidth (720)
         // Should not be clamped
-        fireEvent.mouseMove(sliderContainer!, { clientX: 700 });
+        fireEvent.pointerMove(sliderContainer!, { clientX: 700 });
 
         const position = getPreviewPosition();
         expect(position).toBe(700);
@@ -282,7 +295,7 @@ describe('VideoPlayer', () => {
       render(<VideoPlayer {...defaultProps} />);
 
       const sliderContainer = findSliderContainer();
-      fireEvent.mouseMove(sliderContainer!, { clientX: 400 });
+      fireEvent.pointerMove(sliderContainer!, { clientX: 400 });
 
       // Should not show any time preview since trickplay is not available
       // Look for any element with bottom: 20px style (the preview container)
@@ -308,7 +321,7 @@ describe('VideoPlayer', () => {
       );
 
       const sliderContainer = findSliderContainer();
-      fireEvent.mouseMove(sliderContainer!, { clientX: 400 });
+      fireEvent.pointerMove(sliderContainer!, { clientX: 400 });
 
       // Should not show preview without mediaId
       const allElements = document.querySelectorAll('*');

@@ -60,6 +60,10 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- The player works by touch. The mini player can be dragged with a finger, dragging along the
+  progress bar shows the preview frames a mouse got on hover, and a tap brings the controls back
+  instead of pausing — before this, a touch device could start something playing and then not
+  move, scrub or reveal the player again.
 - Losing your place is harder: a progress update the server refuses is now retried rather than
   discarded, so a moment of bad network no longer means starting the episode again.
 - Search results show whether you have watched something, which is where an episode is most often
