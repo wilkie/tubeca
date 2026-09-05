@@ -129,9 +129,9 @@ through `SettingsService`, passing `'Tubeca'` as the name a fresh instance takes
 is only displayed on the Settings page itself; no other frontend or backend code reads it.
 
 `trickplay` (2026-09-04) controls preview sprites: `auto` (default `false`), `interval` (10 s),
-`width` (320), `columns` and `rows` (10 x 10). Only `auto` is read outside the generator — by the
-scan worker and the file watcher — and the serving route still assumes a 10 s interval, so
-changing `interval` would put previews at the wrong time.
+`width` (320), `columns` and `rows` (10 x 10). `auto` is read by the scan worker and the file
+watcher; the rest reach the generator, which records them in a `manifest.json` beside the sheets
+so the serving route reports what was actually used rather than assuming.
 
 `TranscodingSettings` is created lazily with schema defaults (`veryfast`, 2 concurrent transcodes,
 6 s segments, 8000/5000/2500/1000 kbps). `transcodingSettingsService.ts` caches the row for 30 s and

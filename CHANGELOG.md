@@ -8,7 +8,9 @@ All notable changes to Tubeca are recorded here. The format follows
 ### Added
 - Hover-scrub previews can be generated for a video rather than only imported from a folder
   something else made. An editor asks for them per item; a library that wants them for everything
-  it imports can set `trickplay.auto`, bearing in mind each one decodes the whole file.
+  it imports can set `trickplay.auto`, bearing in mind each one decodes the whole file. Generated
+  previews record their own spacing, so changing `trickplay.interval` shows the right frame rather
+  than one from the wrong moment.
 - TVDB can now match films, not only shows: a film search asks for films, and a film's own record
   supplies its description, runtime, certificate, cast and artwork.
 - The images dialog now shows the other artwork the provider has for a title — usually a dozen

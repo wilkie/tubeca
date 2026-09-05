@@ -25,7 +25,7 @@ jest.unstable_mockModule('child_process', () => ({
   }),
 }));
 
-const { generateTrickplay, hasTrickplay, layoutFolder, removeTrickplay, trickplayRoot } =
+const { generateTrickplay, hasTrickplay, layoutFolder, readManifest, removeTrickplay, trickplayRoot } =
   await import('../trickplayService');
 
 let storage: string;
@@ -89,7 +89,11 @@ describe('generateTrickplay', () => {
     await generate();
 
     const folder = path.join(trickplayRoot('media-1', storage), '320 - 10x10');
-    expect(fs.readdirSync(folder).sort()).toEqual(['0.jpg', '1.jpg', '2.jpg']);
+    expect(fs.readdirSync(folder).filter((f) => f.endsWith('.jpg')).sort()).toEqual([
+      '0.jpg',
+      '1.jpg',
+      '2.jpg',
+    ]);
   });
 
   it('reads no audio or subtitles it will not use', async () => {
@@ -127,7 +131,7 @@ describe('generateTrickplay', () => {
     await generate();
 
     const folder = path.join(trickplayRoot('media-1', storage), '320 - 10x10');
-    expect(fs.readdirSync(folder)).toEqual(['0.jpg']);
+    expect(fs.readdirSync(folder).filter((f) => f.endsWith('.jpg'))).toEqual(['0.jpg']);
   });
 
   it('refuses a file that is not there', async () => {
@@ -181,6 +185,78 @@ describe('generateTrickplay', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('the manifest', () => {
+  const folder = () => path.join(trickplayRoot('media-1', storage), '320 - 10x10');
+
+  it('records what the sheets are, so nothing downstream has to assume', async () => {
+    ffmpegWrites(2);
+
+    await generate();
+
+    expect(readManifest(folder())).toMatchObject({
+      interval: 10,
+      width: 320,
+      columns: 10,
+      rows: 10,
+      spriteCount: 2,
+    });
+  });
+
+  it('records the interval it was actually given, not the usual one', async () => {
+    ffmpegWrites(1);
+
+    await generateTrickplay({
+      mediaId: 'media-1',
+      sourcePath: source,
+      layout: { interval: 4, width: 200, columns: 5, rows: 5 },
+      storageRoot: storage,
+    });
+
+    expect(readManifest(path.join(trickplayRoot('media-1', storage), '200 - 5x5'))).toMatchObject({
+      interval: 4,
+      width: 200,
+      columns: 5,
+      rows: 5,
+    });
+  });
+
+  it('measures a tile rather than trusting the requested width', async () => {
+    ffmpegWrites(1);
+    await generate();
+
+    const manifest = readManifest(folder());
+    // The fake sheets are not images, so the measurement falls back to the
+    // shape that was asked for.
+    expect(manifest).toMatchObject({ tileWidth: 320, tileHeight: 180 });
+  });
+
+  it('has nothing to say about sheets that came with the library', () => {
+    fs.mkdirSync(folder(), { recursive: true });
+    fs.writeFileSync(path.join(folder(), '0.jpg'), 'sheet');
+
+    expect(readManifest(folder())).toBeNull();
+  });
+
+  it('ignores a manifest that is not ours or not sense', () => {
+    fs.mkdirSync(folder(), { recursive: true });
+    fs.writeFileSync(path.join(folder(), 'manifest.json'), 'not json at all');
+    expect(readManifest(folder())).toBeNull();
+
+    fs.writeFileSync(path.join(folder(), 'manifest.json'), JSON.stringify({ interval: 'ten' }));
+    expect(readManifest(folder())).toBeNull();
+
+    fs.writeFileSync(path.join(folder(), 'manifest.json'), JSON.stringify({ interval: 0, width: 320, columns: 10, rows: 10 }));
+    expect(readManifest(folder())).toBeNull();
+  });
+
+  it('does not let a manifest alone pass for sprites', () => {
+    fs.mkdirSync(folder(), { recursive: true });
+    fs.writeFileSync(path.join(folder(), 'manifest.json'), JSON.stringify({ interval: 10 }));
+
+    expect(hasTrickplay('media-1', storage)).toBe(false);
   });
 });
 

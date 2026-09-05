@@ -10,9 +10,13 @@ import { MediaService } from '../services/mediaService';
 import { prisma } from '../config/database';
 import { getHlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
 import { extractSubtitle, isTextSubtitle, subtitleCachePath } from '../services/subtitleService';
+import { readManifest } from '../services/trickplayService';
 import { getHlsCachePath } from '../config/appConfig';
 
 const router = Router();
+
+/** What sheets without a manifest are assumed to be spaced at, in seconds. */
+const DEFAULT_TRICKPLAY_INTERVAL = 10;
 const mediaService = new MediaService();
 const authService = new AuthService();
 const hlsService = getHlsService();
@@ -518,19 +522,27 @@ router.get('/trickplay/:id', mediaAccess, async (req, res) => {
 
       if (spriteCount === 0) continue;
 
-      // Read actual image dimensions from the first sprite
-      const firstSpritePath = path.join(resolutionPath, '0.jpg');
-      let tileWidth = width;
-      let tileHeight = Math.round(width * (9 / 16)); // Fallback to 16:9 aspect ratio
+      // Sheets this server generated say what they are; sheets that came with
+      // the library do not, and ten seconds is the interval every tool that
+      // writes this layout has used.
+      const manifest = readManifest(resolutionPath);
 
-      try {
-        const metadata = await sharp(firstSpritePath).metadata();
-        if (metadata.width && metadata.height) {
-          tileWidth = Math.floor(metadata.width / columns);
-          tileHeight = Math.floor(metadata.height / rows);
+      let tileWidth = manifest?.tileWidth ?? width;
+      let tileHeight = manifest?.tileHeight ?? Math.round(width * (9 / 16));
+
+      if (!manifest) {
+        // Measure a sheet instead, which is a file read per request but the
+        // only way to know for artwork we did not make.
+        const firstSpritePath = path.join(resolutionPath, '0.jpg');
+        try {
+          const metadata = await sharp(firstSpritePath).metadata();
+          if (metadata.width && metadata.height) {
+            tileWidth = Math.floor(metadata.width / columns);
+            tileHeight = Math.floor(metadata.height / rows);
+          }
+        } catch (imgError) {
+          console.warn(`Could not read sprite dimensions from ${firstSpritePath}:`, imgError);
         }
-      } catch (imgError) {
-        console.warn(`Could not read sprite dimensions from ${firstSpritePath}:`, imgError);
       }
 
       resolutions.push({
@@ -538,7 +550,7 @@ router.get('/trickplay/:id', mediaAccess, async (req, res) => {
         tileWidth,
         tileHeight,
         tileCount: tilesPerSprite,
-        interval: 10, // 10 seconds between frames as specified
+        interval: manifest?.interval ?? DEFAULT_TRICKPLAY_INTERVAL,
         spriteCount,
         columns,
         rows,

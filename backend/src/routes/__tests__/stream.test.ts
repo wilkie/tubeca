@@ -242,6 +242,69 @@ describe('stream route guards', () => {
       expect(res.body.trickplay.available).toBe(false);
     });
 
+    it('takes the interval from the manifest, so a preview lands where it should', async () => {
+      const trickplay = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-trickplay-'));
+      const folder = path.join(trickplay, '200 - 5x5');
+      fs.mkdirSync(folder);
+      fs.writeFileSync(path.join(folder, '0.jpg'), 'sprite');
+      fs.writeFileSync(
+        path.join(folder, 'manifest.json'),
+        JSON.stringify({
+          interval: 4,
+          width: 200,
+          columns: 5,
+          rows: 5,
+          tileWidth: 200,
+          tileHeight: 112,
+          spriteCount: 1,
+        })
+      );
+      const { media, authHeader } = await fixture({ thumbnails: trickplay });
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.body.trickplay.resolutions[0]).toMatchObject({
+        width: 200,
+        interval: 4,
+        tileWidth: 200,
+        tileHeight: 112,
+        tileCount: 25,
+      });
+      fs.rmSync(trickplay, { recursive: true, force: true });
+    });
+
+    it('assumes ten seconds for sheets that came with the library', async () => {
+      const trickplay = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-trickplay-'));
+      fs.mkdirSync(path.join(trickplay, '320 - 10x10'));
+      fs.writeFileSync(path.join(trickplay, '320 - 10x10', '0.jpg'), 'sprite');
+      const { media, authHeader } = await fixture({ thumbnails: trickplay });
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.body.trickplay.resolutions[0].interval).toBe(10);
+      fs.rmSync(trickplay, { recursive: true, force: true });
+    });
+
+    it('does not count the manifest as a sprite', async () => {
+      const trickplay = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-trickplay-'));
+      const folder = path.join(trickplay, '320 - 10x10');
+      fs.mkdirSync(folder);
+      fs.writeFileSync(path.join(folder, '0.jpg'), 'sprite');
+      fs.writeFileSync(path.join(folder, 'manifest.json'), JSON.stringify({ interval: 10, width: 320, columns: 10, rows: 10 }));
+      const { media, authHeader } = await fixture({ thumbnails: trickplay });
+
+      const res = await request(app)
+        .get(`/api/stream/trickplay/${media.id}`)
+        .set('Authorization', authHeader);
+
+      expect(res.body.trickplay.resolutions[0].spriteCount).toBe(1);
+      fs.rmSync(trickplay, { recursive: true, force: true });
+    });
+
     it('lists the widths it has sprites for', async () => {
       const trickplay = fs.mkdtempSync(path.join(os.tmpdir(), 'tubeca-trickplay-'));
       fs.mkdirSync(path.join(trickplay, '320 - 10x10'));

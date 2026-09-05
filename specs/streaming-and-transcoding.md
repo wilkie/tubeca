@@ -303,9 +303,11 @@ They go to the image store rather than beside the video (a library is often a re
 not to the HLS cache (swept by age and size, and a sheet costs a full decode to rebuild).
 `ContentDeletionService.deleteMedia` removes them with the media.
 
-The `interval` the info route reports is still a hardcoded 10 s rather than read back from what
-generated the sheets, so a configured `trickplay.interval` other than 10 would put previews at the
-wrong time.
+Generation writes a `manifest.json` beside the sheets — interval, layout, measured tile size and
+sheet count — and the info route reports what it says. Sheets that came with the library have no
+manifest, so the route falls back to measuring a sheet with `sharp` and assuming the 10 s every
+tool that writes this layout uses. That fallback is the only remaining guess, and it is confined
+to artwork this server did not make.
 
 ### The video worker
 
@@ -385,6 +387,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 Stream route guards tested (missing media and files, subtitle stream index and sidecar rows, trickplay resolutions, the quality ladder); the part-file assertion in `hlsService.test.ts` now waits for `createWriteStream` to open rather than assuming one tick, which made the suite flake under load.
 - 2026-09-04 Playlists carry the request's token into the variant and segment URIs, so Safari and any other player that follows a playlist itself can authenticate; the native path in the player now reports an error instead of staying black. Bitmap subtitle tracks are no longer offered and answer 415, and an extracted track is cached rather than re-read from the container on every request.
 - 2026-09-04 Trickplay sprites can be generated rather than only imported: a `trickplay` queue and worker, `POST /api/media/:id/trickplay` for an editor, and `trickplay.auto` for a library that wants them on import. Verified against real FFmpeg output, including that a partial final sheet is padded to the full grid.
+- 2026-09-04 Generated sheets carry a `manifest.json`, and the info route reports its interval and tile size rather than assuming ten seconds and opening a sheet.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
@@ -429,6 +432,9 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   decode, and a library of thirty thousand episodes would spend days on it uninvited. An editor
   asks per item through `POST /api/media/:id/trickplay`; there is no "generate for this library"
   action, and no progress beyond the job's own state.
+- **Imported sprites are still guessed at**: a `.trickplay` folder from another tool has no
+  manifest, so its interval is assumed to be 10 s and its tile size is measured from a sheet on
+  every request.
 - **Encoder detection still costs the first playback** if it has not finished: the first segment
   request awaits it, and a machine with several unusable hardware encoders can spend tens of
   seconds there. Results are not cached across restarts.
