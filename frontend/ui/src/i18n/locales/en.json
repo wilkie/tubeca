@@ -371,7 +371,10 @@
     "markUnwatched": "Mark as unwatched",
     "remaining": "{{count}} left",
     "remaining_one": "{{count}} left",
-    "progress": "{{percent}}% watched"
+    "progress": "{{percent}}% watched",
+    "markAllWatched": "Mark all watched",
+    "markAllUnwatched": "Mark all unwatched",
+    "markAllFailed": "Could not update watched state"
   },
   "playback": {
     "errorNetwork": "Playback stopped: the connection to the server was lost.",

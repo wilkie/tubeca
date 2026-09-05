@@ -17,6 +17,11 @@ export interface WatchState {
   summaries: Record<string, CollectionWatchSummary>;
   /** Mark or unmark a media item as watched; resolves true on success */
   setWatched: (mediaId: string, watched: boolean) => Promise<boolean>;
+  /**
+   * Mark or unmark everything in a collection's subtree; resolves with how many
+   * items changed, or null when the call failed.
+   */
+  setCollectionWatched: (collectionId: string, watched: boolean) => Promise<number | null>;
   /** Re-fetch everything (e.g. after playback) */
   refresh: () => void;
 }
@@ -88,5 +93,19 @@ export function useWatchState(input: { mediaIds?: string[]; collectionIds?: stri
     [collectionKey]
   );
 
-  return { progress, summaries, setWatched, refresh };
+  const setCollectionWatched = useCallback(
+    async (collectionId: string, watched: boolean) => {
+      const result = watched
+        ? await apiClient.markCollectionWatched(collectionId)
+        : await apiClient.clearCollectionWatchProgress(collectionId);
+      if (result?.error) return null;
+      // The change reaches media this page lists and roll-ups it shows, and the
+      // collection acted on may be neither, so re-read both.
+      refresh();
+      return result?.data?.count ?? 0;
+    },
+    [refresh]
+  );
+
+  return { progress, summaries, setWatched, setCollectionWatched, refresh };
 }

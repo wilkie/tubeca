@@ -12,6 +12,8 @@ import {
   Image as ImageIcon,
   Delete,
   Search,
+  CheckCircle,
+  RemoveDone,
 } from '@mui/icons-material';
 
 interface CollectionOptionsMenuProps {
@@ -23,6 +25,11 @@ interface CollectionOptionsMenuProps {
   onRefreshMetadata: () => void;
   onRefreshImages: () => void;
   onDeleteClick: () => void;
+  /** Mark the whole subtree watched. Omitted when there is nothing to mark. */
+  onMarkAllWatched?: () => void;
+  /** Clear the whole subtree. Omitted when nothing under it has been watched. */
+  onMarkAllUnwatched?: () => void;
+  isMarkingWatched?: boolean;
   canEdit: boolean;
   canIdentify: boolean;
   isRefreshing: boolean;
@@ -38,6 +45,9 @@ export function CollectionOptionsMenu({
   onRefreshMetadata,
   onRefreshImages,
   onDeleteClick,
+  onMarkAllWatched,
+  onMarkAllUnwatched,
+  isMarkingWatched = false,
   canEdit,
   canIdentify,
   isRefreshing,
@@ -60,6 +70,23 @@ export function CollectionOptionsMenu({
         horizontal: 'right',
       }}
     >
+      {onMarkAllWatched && (
+        <MenuItem onClick={onMarkAllWatched} disabled={isMarkingWatched}>
+          <ListItemIcon>
+            <CheckCircle fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t('watch.markAllWatched', 'Mark all watched')}</ListItemText>
+        </MenuItem>
+      )}
+      {onMarkAllUnwatched && (
+        <MenuItem onClick={onMarkAllUnwatched} disabled={isMarkingWatched}>
+          <ListItemIcon>
+            <RemoveDone fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t('watch.markAllUnwatched', 'Mark all unwatched')}</ListItemText>
+        </MenuItem>
+      )}
+      {(onMarkAllWatched || onMarkAllUnwatched) && <Divider />}
       <MenuItem onClick={onImagesClick}>
         <ListItemIcon>
           <Collections fontSize="small" />

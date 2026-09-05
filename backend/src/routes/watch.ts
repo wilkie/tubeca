@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
-import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
+import { requireLibraryAccess, mediaParam, collectionParam } from '../middleware/libraryAccess';
 import { WatchProgressService } from '../services/watchProgressService';
 
 const router = Router();
 const watchProgressService = new WatchProgressService();
 const mediaAccess = requireLibraryAccess(mediaParam('mediaId'));
+const collectionAccess = requireLibraryAccess(collectionParam('collectionId'));
 
 router.use(authenticate);
 
@@ -114,6 +115,68 @@ router.get('/collections', async (req, res) => {
     res.json({ summaries });
   } catch {
     res.status(500).json({ error: 'Failed to fetch watch summaries' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/watch/collections/{collectionId}:
+ *   post:
+ *     tags:
+ *       - Watch Progress
+ *     summary: Mark a whole collection watched
+ *     description: >
+ *       Marks every media item in the collection and its descendants as watched for the
+ *       current user, so a season or a show can be caught up in one action.
+ *     parameters:
+ *       - in: path
+ *         name: collectionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: How many items were marked
+ *       404:
+ *         description: Collection not found or not accessible
+ *   delete:
+ *     tags:
+ *       - Watch Progress
+ *     summary: Clear watch progress for a whole collection
+ *     parameters:
+ *       - in: path
+ *         name: collectionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: How many rows were cleared
+ *       404:
+ *         description: Collection not found or not accessible
+ */
+// NOTE: registered before /:mediaId so "collections" is not taken as a media id.
+router.post('/collections/:collectionId', collectionAccess, async (req, res) => {
+  try {
+    const count = await watchProgressService.markCollectionCompleted(
+      req.user!.userId,
+      req.params.collectionId
+    );
+    res.json({ count });
+  } catch {
+    res.status(500).json({ error: 'Failed to mark as watched' });
+  }
+});
+
+router.delete('/collections/:collectionId', collectionAccess, async (req, res) => {
+  try {
+    const count = await watchProgressService.clearCollectionProgress(
+      req.user!.userId,
+      req.params.collectionId
+    );
+    res.json({ count });
+  } catch {
+    res.status(500).json({ error: 'Failed to clear watch progress' });
   }
 });
 

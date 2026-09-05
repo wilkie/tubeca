@@ -691,6 +691,16 @@ class ApiClient {
     );
   }
 
+  /** Mark every item in a collection's subtree watched; resolves with how many. */
+  async markCollectionWatched(collectionId: string): Promise<ApiResponse<{ count: number }>> {
+    return this.request<{ count: number }>(`/watch/collections/${collectionId}`, { method: 'POST' });
+  }
+
+  /** Forget progress for everything in a collection's subtree. */
+  async clearCollectionWatchProgress(collectionId: string): Promise<ApiResponse<{ count: number }>> {
+    return this.request<{ count: number }>(`/watch/collections/${collectionId}`, { method: 'DELETE' });
+  }
+
   async getContinueWatching(limit?: number): Promise<ApiResponse<ContinueWatchingResponse>> {
     const query = limit ? `?limit=${limit}` : '';
     return this.request<ContinueWatchingResponse>(`/watch/continue${query}`);

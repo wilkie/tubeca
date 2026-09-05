@@ -113,3 +113,58 @@ describe('/api/watch batch endpoints', () => {
     expect((await request(app).get(`/api/watch/collections?ids=${tooMany}`).set('Authorization', user.authHeader)).status).toBe(400);
   });
 });
+
+describe('/api/watch/collections/:collectionId', () => {
+  beforeEach(resetDatabase);
+
+  async function season() {
+    const library = await createLibrary({ libraryType: 'Television' });
+    const show = await createCollection({ libraryId: library.id, name: 'Show', collectionType: 'Show' });
+    const s1 = await createCollection({
+      libraryId: library.id,
+      name: 'Season 1',
+      collectionType: 'Season',
+      parentId: show.id,
+    });
+    const e1 = await createVideoMedia({ path: '/s1e1.mkv', duration: 600, collectionId: s1.id });
+    const e2 = await createVideoMedia({ path: '/s1e2.mkv', duration: 600, collectionId: s1.id });
+    const user = await createUser();
+    return { show, s1, e1, e2, user };
+  }
+
+  it('marks a season watched in one call and clears it again', async () => {
+    const { s1, e1, user } = await season();
+
+    const marked = await request(app)
+      .post(`/api/watch/collections/${s1.id}`)
+      .set('Authorization', user.authHeader);
+    expect(marked.status).toBe(200);
+    expect(marked.body.count).toBe(2);
+
+    const one = await request(app).get(`/api/watch/${e1.id}`).set('Authorization', user.authHeader);
+    expect(one.body.progress).toMatchObject({ completed: true });
+
+    const cleared = await request(app)
+      .delete(`/api/watch/collections/${s1.id}`)
+      .set('Authorization', user.authHeader);
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.count).toBe(2);
+  });
+
+  it('refuses a collection in a library the viewer cannot see', async () => {
+    const group = await createGroup();
+    const library = await createLibrary({ groupIds: [group.id] });
+    const show = await createCollection({ libraryId: library.id, name: 'Private' });
+    const outsider = await createUser();
+
+    const res = await request(app)
+      .post(`/api/watch/collections/${show.id}`)
+      .set('Authorization', outsider.authHeader);
+    expect(res.status).toBe(404);
+  });
+
+  it('needs a token', async () => {
+    const { s1 } = await season();
+    expect((await request(app).post(`/api/watch/collections/${s1.id}`)).status).toBe(401);
+  });
+});

@@ -28,6 +28,8 @@ jest.mock('../../context/PlayerContext', () => ({
 
 // Mock API client
 const mockGetCollection = jest.fn();
+const mockMarkCollectionWatched = jest.fn();
+const mockClearCollectionWatched = jest.fn();
 const mockRefreshCollectionMetadata = jest.fn();
 const mockRefreshCollectionImages = jest.fn();
 const mockDeleteCollection = jest.fn();
@@ -44,6 +46,8 @@ jest.mock('../../api/client', () => ({
     getCollectionWatchSummaries: jest.fn().mockReturnValue(new Promise(() => {})),
     markWatched: jest.fn().mockResolvedValue({ data: { progress: { completed: true } } }),
     clearWatchProgress: jest.fn().mockResolvedValue({ data: undefined }),
+    markCollectionWatched: (...args: unknown[]) => mockMarkCollectionWatched(...args),
+    clearCollectionWatchProgress: (...args: unknown[]) => mockClearCollectionWatched(...args),
     getImageUrl: jest.fn((id: string) => `http://localhost/api/images/${id}`),
     refreshCollectionMetadata: (...args: unknown[]) => mockRefreshCollectionMetadata(...args),
     refreshCollectionImages: (...args: unknown[]) => mockRefreshCollectionImages(...args),
@@ -416,6 +420,54 @@ describe('CollectionPage', () => {
       await waitFor(() => {
         expect(mockRefreshCollectionImages).toHaveBeenCalledWith('season-1');
       });
+    });
+
+    it('marks a whole season watched from the menu', async () => {
+      const user = userEvent.setup();
+      mockGetCollection.mockResolvedValue({ data: { collection: createMockSeasonCollection() } });
+      mockMarkCollectionWatched.mockResolvedValue({ data: { count: 8 } });
+
+      render(<CollectionPage />);
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Season 1' })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /more options/i }));
+      await user.click(screen.getByText('Mark all watched'));
+
+      await waitFor(() => expect(mockMarkCollectionWatched).toHaveBeenCalledWith('season-1'));
+    });
+
+    it('unmarks a whole season from the menu', async () => {
+      const user = userEvent.setup();
+      mockGetCollection.mockResolvedValue({ data: { collection: createMockSeasonCollection() } });
+      mockClearCollectionWatched.mockResolvedValue({ data: { count: 8 } });
+
+      render(<CollectionPage />);
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Season 1' })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /more options/i }));
+      await user.click(screen.getByText('Mark all unwatched'));
+
+      await waitFor(() => expect(mockClearCollectionWatched).toHaveBeenCalledWith('season-1'));
+    });
+
+    it('says so when the server refuses to mark it', async () => {
+      const user = userEvent.setup();
+      mockGetCollection.mockResolvedValue({ data: { collection: createMockSeasonCollection() } });
+      mockMarkCollectionWatched.mockResolvedValue({ error: 'Server is down' });
+
+      render(<CollectionPage />);
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Season 1' })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /more options/i }));
+      await user.click(screen.getByText('Mark all watched'));
+
+      expect(await screen.findByText('Could not update watched state')).toBeInTheDocument();
     });
   });
 

@@ -178,6 +178,66 @@ export class WatchProgressService {
     await prisma.watchProgress.deleteMany({ where: { userId, mediaId } });
   }
 
+  /** Every media id in a collection and its descendants. */
+  private async mediaIdsUnder(collectionId: string): Promise<string[]> {
+    const seen = new Set<string>([collectionId]);
+    let frontier = [collectionId];
+    while (frontier.length > 0) {
+      const children = await prisma.collection.findMany({
+        where: { parentId: { in: frontier } },
+        select: { id: true },
+      });
+      frontier = children.map((c) => c.id).filter((id) => !seen.has(id));
+      for (const id of frontier) seen.add(id);
+    }
+    const media = await prisma.media.findMany({
+      where: { collectionId: { in: [...seen] } },
+      select: { id: true },
+    });
+    return media.map((m) => m.id);
+  }
+
+  /**
+   * Mark every item in a collection's subtree watched. Returns how many rows
+   * the user now has completed there, so the caller can report "12 episodes".
+   */
+  async markCollectionCompleted(userId: string, collectionId: string): Promise<number> {
+    const ids = await this.mediaIdsUnder(collectionId);
+    if (ids.length === 0) return 0;
+    const media = await prisma.media.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, duration: true },
+    });
+    // One upsert per item: SQLite has no multi-row upsert through Prisma, and a
+    // season is tens of rows rather than thousands.
+    await prisma.$transaction(
+      media.map((item) =>
+        prisma.watchProgress.upsert({
+          where: { userId_mediaId: { userId, mediaId: item.id } },
+          create: {
+            userId,
+            mediaId: item.id,
+            position: item.duration,
+            duration: item.duration,
+            completed: true,
+          },
+          update: { position: item.duration, duration: item.duration, completed: true },
+        })
+      )
+    );
+    return media.length;
+  }
+
+  /** Forget progress for everything in a collection's subtree. Returns rows removed. */
+  async clearCollectionProgress(userId: string, collectionId: string): Promise<number> {
+    const ids = await this.mediaIdsUnder(collectionId);
+    if (ids.length === 0) return 0;
+    const { count } = await prisma.watchProgress.deleteMany({
+      where: { userId, mediaId: { in: ids } },
+    });
+    return count;
+  }
+
   /**
    * In-progress items for the user, most recently played first, limited to
    * libraries the user may see.

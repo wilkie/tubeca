@@ -153,4 +153,86 @@ describe('WatchProgressService batch and summaries', () => {
       [film.id]: { total: 1, watched: 0, inProgress: 0 },
     });
   });
+
+  describe('marking a whole collection', () => {
+    async function showWithSeasons() {
+      const library = await createLibrary({ libraryType: 'Television' });
+      const show = await createCollection({ libraryId: library.id, name: 'Show', collectionType: 'Show' });
+      const s1 = await createCollection({
+        libraryId: library.id,
+        name: 'Season 1',
+        collectionType: 'Season',
+        parentId: show.id,
+      });
+      const s2 = await createCollection({
+        libraryId: library.id,
+        name: 'Season 2',
+        collectionType: 'Season',
+        parentId: show.id,
+      });
+      const e1 = await createVideoMedia({ path: '/s1e1.mkv', duration: 1000, collectionId: s1.id });
+      const e2 = await createVideoMedia({ path: '/s1e2.mkv', duration: 1000, collectionId: s1.id });
+      const e3 = await createVideoMedia({ path: '/s2e1.mkv', duration: 1000, collectionId: s2.id });
+      const { user } = await createUser();
+      return { show, s1, s2, e1, e2, e3, user };
+    }
+
+    it('marks every episode under a season', async () => {
+      const { s1, e1, e2, e3, user } = await showWithSeasons();
+
+      expect(await service.markCollectionCompleted(user.id, s1.id)).toBe(2);
+
+      expect(await service.getProgress(user.id, e1.id)).toMatchObject({ completed: true, position: 1000 });
+      expect(await service.getProgress(user.id, e2.id)).toMatchObject({ completed: true });
+      // The other season is untouched.
+      expect(await service.getProgress(user.id, e3.id)).toBeNull();
+    });
+
+    it('reaches through the whole subtree from a show', async () => {
+      const { show, e1, e3, user } = await showWithSeasons();
+
+      expect(await service.markCollectionCompleted(user.id, show.id)).toBe(3);
+
+      expect(await service.getProgress(user.id, e1.id)).toMatchObject({ completed: true });
+      expect(await service.getProgress(user.id, e3.id)).toMatchObject({ completed: true });
+    });
+
+    it('overwrites a part-watched position rather than leaving it behind', async () => {
+      const { s1, e1, user } = await showWithSeasons();
+      await service.recordProgress(user.id, e1.id, 100);
+
+      await service.markCollectionCompleted(user.id, s1.id);
+
+      expect(await service.getProgress(user.id, e1.id)).toMatchObject({ position: 1000, completed: true });
+    });
+
+    it('clears the subtree again, reporting what it removed', async () => {
+      const { show, s1, e1, e3, user } = await showWithSeasons();
+      await service.markCollectionCompleted(user.id, show.id);
+
+      expect(await service.clearCollectionProgress(user.id, s1.id)).toBe(2);
+
+      expect(await service.getProgress(user.id, e1.id)).toBeNull();
+      expect(await service.getProgress(user.id, e3.id)).toMatchObject({ completed: true });
+    });
+
+    it('leaves another viewer\'s state alone', async () => {
+      const { show, e1, user } = await showWithSeasons();
+      const { user: other } = await createUser();
+      await service.markCollectionCompleted(other.id, show.id);
+
+      await service.clearCollectionProgress(user.id, show.id);
+
+      expect(await service.getProgress(other.id, e1.id)).toMatchObject({ completed: true });
+    });
+
+    it('does nothing for an empty collection', async () => {
+      const library = await createLibrary({ libraryType: 'Television' });
+      const empty = await createCollection({ libraryId: library.id, name: 'Empty', collectionType: 'Show' });
+      const { user } = await createUser();
+
+      expect(await service.markCollectionCompleted(user.id, empty.id)).toBe(0);
+      expect(await service.clearCollectionProgress(user.id, empty.id)).toBe(0);
+    });
+  });
 });

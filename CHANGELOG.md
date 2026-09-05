@@ -16,6 +16,8 @@ All notable changes to Tubeca are recorded here. The format follows
 - The images dialog now shows the other artwork the provider has for a title — usually a dozen
   posters, backdrops and logos rather than the one a scrape picked — and downloads one only when
   you choose it.
+- "Mark all watched" and "Mark all unwatched" on a season or show, instead of clicking through
+  twenty-two episodes to record what you already saw elsewhere.
 - A search box in the header, so searching no longer means going to the search page first.
 - A library remembers which content ratings you hid and which keywords you filtered by, the way
   it already remembered posters-or-list and the sort.

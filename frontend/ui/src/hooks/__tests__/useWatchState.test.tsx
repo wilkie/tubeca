@@ -8,6 +8,8 @@ jest.mock('../../api/client', () => ({
     getCollectionWatchSummaries: jest.fn(),
     markWatched: jest.fn(),
     clearWatchProgress: jest.fn(),
+    markCollectionWatched: jest.fn(),
+    clearCollectionWatchProgress: jest.fn(),
   },
 }));
 const mockApi = apiClient as jest.Mocked<typeof apiClient>;
@@ -58,5 +60,53 @@ describe('useWatchState', () => {
       await result.current.setWatched('a', false);
     });
     expect(result.current.progress.a).toBeUndefined();
+  });
+
+  describe('marking a whole collection', () => {
+    it('reports how many items changed and re-reads both halves', async () => {
+      mockApi.markCollectionWatched.mockResolvedValue({ data: { count: 12 } });
+      const { result } = renderHook(() => useWatchState({ mediaIds: ['a'], collectionIds: ['c1'] }));
+      await waitFor(() => expect(result.current.progress.a).toBeDefined());
+      mockApi.getWatchProgressBatch.mockClear();
+      mockApi.getCollectionWatchSummaries.mockClear();
+
+      let count: number | null = null;
+      await act(async () => {
+        count = await result.current.setCollectionWatched('show-1', true);
+      });
+
+      expect(count).toBe(12);
+      expect(mockApi.markCollectionWatched).toHaveBeenCalledWith('show-1');
+      await waitFor(() => expect(mockApi.getWatchProgressBatch).toHaveBeenCalled());
+      expect(mockApi.getCollectionWatchSummaries).toHaveBeenCalled();
+    });
+
+    it('clears a collection when asked to unmark it', async () => {
+      mockApi.clearCollectionWatchProgress.mockResolvedValue({ data: { count: 3 } });
+      const { result } = renderHook(() => useWatchState({ mediaIds: ['a'] }));
+      await waitFor(() => expect(result.current.progress.a).toBeDefined());
+
+      let count: number | null = null;
+      await act(async () => {
+        count = await result.current.setCollectionWatched('show-1', false);
+      });
+
+      expect(count).toBe(3);
+      expect(mockApi.clearCollectionWatchProgress).toHaveBeenCalledWith('show-1');
+      expect(mockApi.markCollectionWatched).not.toHaveBeenCalled();
+    });
+
+    it('says nothing changed when the call fails', async () => {
+      mockApi.markCollectionWatched.mockResolvedValue({ error: 'Server is down' });
+      const { result } = renderHook(() => useWatchState({ mediaIds: ['a'] }));
+      await waitFor(() => expect(result.current.progress.a).toBeDefined());
+
+      let count: number | null = 0;
+      await act(async () => {
+        count = await result.current.setCollectionWatched('show-1', true);
+      });
+
+      expect(count).toBeNull();
+    });
   });
 });

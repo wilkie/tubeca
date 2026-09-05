@@ -106,6 +106,7 @@ export function CollectionPage() {
   // Refresh states
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingImages, setIsRefreshingImages] = useState(false);
+  const [isMarkingWatched, setIsMarkingWatched] = useState(false);
 
   // Add to collection dialog state
   const [addToCollectionOpen, setAddToCollectionOpen] = useState(false);
@@ -155,6 +156,17 @@ export function CollectionPage() {
       console.error('Failed to queue image refresh:', error);
     } finally {
       setIsRefreshingImages(false);
+    }
+  };
+
+  const handleMarkAllWatched = async (watched: boolean) => {
+    if (!collection) return;
+    handleMenuClose();
+    setIsMarkingWatched(true);
+    const count = await watch.setCollectionWatched(collection.id, watched);
+    setIsMarkingWatched(false);
+    if (count === null) {
+      setActionError(t('watch.markAllFailed', 'Could not update watched state'));
     }
   };
 
@@ -254,6 +266,10 @@ export function CollectionPage() {
   const mediaIds = useMemo(() => rawMedia.map((m) => m.id), [rawMedia]);
   const childIds = useMemo(() => childCollections.map((c) => c.id), [childCollections]);
   const watch = useWatchState({ mediaIds, collectionIds: childIds });
+
+  // "Mark all watched" only makes sense where there is something to play: a
+  // season's episodes, or a show's seasons.
+  const hasPlayableContent = rawMedia.length > 0 || childCollections.length > 0;
 
   // Filter children and media by quick search query
   const filteredChildren = useMemo(() => {
@@ -413,6 +429,9 @@ export function CollectionPage() {
         onRefreshMetadata={handleRefreshMetadata}
         onRefreshImages={handleRefreshImages}
         onDeleteClick={handleDeleteClick}
+        onMarkAllWatched={hasPlayableContent ? () => void handleMarkAllWatched(true) : undefined}
+        onMarkAllUnwatched={hasPlayableContent ? () => void handleMarkAllWatched(false) : undefined}
+        isMarkingWatched={isMarkingWatched}
         canEdit={canEdit}
         canIdentify={collection.collectionType === 'Show' || collection.collectionType === 'Film'}
         isRefreshing={isRefreshing}

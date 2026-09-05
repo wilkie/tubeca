@@ -253,4 +253,60 @@ describe('CollectionOptionsMenu', () => {
       expect(refreshingItems.length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  describe('marking a whole collection watched', () => {
+    const baseProps = {
+      onClose: jest.fn(),
+      onImagesClick: jest.fn(),
+      onRefreshMetadata: jest.fn(),
+      onRefreshImages: jest.fn(),
+      onDeleteClick: jest.fn(),
+      canEdit: true,
+      canIdentify: false,
+      isRefreshing: false,
+      isRefreshingImages: false,
+    };
+
+    it('offers nothing when the collection has no items to mark', () => {
+      render(<CollectionOptionsMenu anchorEl={anchorEl} open {...baseProps} />);
+
+      expect(screen.queryByText('Mark all watched')).not.toBeInTheDocument();
+      expect(screen.queryByText('Mark all unwatched')).not.toBeInTheDocument();
+    });
+
+    it('marks and unmarks through the given handlers', async () => {
+      const user = userEvent.setup();
+      const onMarkAllWatched = jest.fn();
+      render(
+        <CollectionOptionsMenu
+          anchorEl={anchorEl}
+          open
+          {...baseProps}
+          onMarkAllWatched={onMarkAllWatched}
+        />
+      );
+
+      await user.click(screen.getByText('Mark all watched'));
+
+      expect(onMarkAllWatched).toHaveBeenCalled();
+    });
+
+    it('will not fire twice while a mark is in flight', () => {
+      const onMarkAllUnwatched = jest.fn();
+      render(
+        <CollectionOptionsMenu
+          anchorEl={anchorEl}
+          open
+          {...baseProps}
+          onMarkAllUnwatched={onMarkAllUnwatched}
+          isMarkingWatched
+        />
+      );
+
+      expect(screen.getByRole('menuitem', { name: 'Mark all unwatched' })).toHaveAttribute(
+        'aria-disabled',
+        'true'
+      );
+    });
+  });
 });
