@@ -117,7 +117,7 @@ from" line appears repeatedly. Paths are memoised in module-level variables afte
 (`imageStoragePath`, `hlsCachePath`); 4dc330d fixed callers that passed no `appConfig` and
 previously fell back to the default `backend/data/*` paths.
 
-Keys in use: `imagePath`, `hlsCache.{path,maxSizeGB,segmentTTLHours,segmentDuration}`,
+Keys in use: `imagePath`, `images.allowedHosts`, `hlsCache.{path,maxSizeGB,segmentTTLHours,segmentDuration}`,
 `fileWatcher.{enabled,usePolling,pollInterval}`, `scrapers.<id>.{enabled,apiKey,language,region,imageSize,baseUrl}`.
 `hlsCache.maxSizeGB` is exposed by `getHlsCacheConfig()` but no caller reads it; only the TTL is
 enforced by the cleanup service. `getScraperConfigs()` drops scrapers that are `enabled: false` or
@@ -130,6 +130,11 @@ options reach it unchanged. Language codes are the provider's own: TMDB expects 
 through `SettingsService`, passing `'Tubeca'` as the name a fresh instance takes; the service's own
 `'Tubeca Instance'` default is now only a fallback for a caller that names nothing. `instanceName`
 is only displayed on the Settings page itself; no other frontend or backend code reads it.
+
+`images.allowedHosts` (2026-09-05) adds hosts to the artwork download allowlist, which otherwise
+holds only what the installed scrapers declare in `ScraperPlugin.imageHosts`. It exists for a
+third-party plugin that declares none of its own, or a local mirror of a provider's images; see
+[Images](images.md).
 
 `trickplay` (2026-09-04) controls preview sprites: `auto` (default `false`), `interval` (10 s),
 `width` (320), `columns` and `rows` (10 x 10). `auto` is read by the scan worker and the file
@@ -283,6 +288,7 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
 - 2026-09-03 `TUBECA_ROLE` (`api`/`worker`/`all`) and `FRONTEND_DIST` env vars; workers loaded lazily by role; esbuild bundle replaces `tsx` at runtime.
 - 2026-09-03 `routes/settings.ts` routed through `SettingsService` rather than its own inline find-or-create; the service's unused `updateSettings`/`resetSettings` removed; both gained tests.
 - 2026-09-04 `REDIS_DB` added so a second instance on the same Redis does not consume the first one's queued jobs.
+- 2026-09-05 `images.allowedHosts` added, for a scraper that declares no `imageHosts` of its own.
 - 2026-09-05 `.env.example`, the README and `backend/CLAUDE.md` corrected to the code's own `file:./dev.db`; the schema-only `backend/prisma/dev.db` left over from the old convention deleted, and `systemd/install.sh` widened to rewrite any *relative* `DATABASE_URL` rather than only one containing `prisma/`, so a service install is never left reading a database inside its own install tree.
 
 ## Known Limitations

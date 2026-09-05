@@ -79,8 +79,18 @@ export interface TrickplayConfig {
   rows?: number
 }
 
+export interface ImagesConfig {
+  /**
+   * Extra hosts artwork may be downloaded from, beyond the ones the installed
+   * scrapers declare. For a third-party plugin that does not declare its own,
+   * or a local mirror of a provider's images.
+   */
+  allowedHosts?: string[]
+}
+
 export interface AppConfig {
   imagePath?: string  // Path for storing downloaded images
+  images?: ImagesConfig
   hlsCache?: HlsCacheConfig
   trickplay?: TrickplayConfig
   fileWatcher?: FileWatcherConfig
@@ -274,6 +284,12 @@ export function getHlsCachePath(appConfig?: AppConfig): string {
  * seconds and 320px match what the serving route and the player already
  * assume.
  */
+/** Hosts an admin has added to the artwork allowlist, lowercased. */
+export function getExtraImageHosts(appConfig?: AppConfig): string[] {
+  const configured = (appConfig ?? loadAppConfig()).images?.allowedHosts ?? [];
+  return configured.map((host) => host.trim().toLowerCase()).filter(Boolean);
+}
+
 export function getTrickplayConfig(appConfig?: AppConfig): Required<TrickplayConfig> {
   const config = appConfig?.trickplay || {};
   return {

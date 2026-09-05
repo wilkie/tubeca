@@ -196,6 +196,9 @@ class TMDBScraper implements ScraperPlugin {
   readonly version = '1.0.0'
   readonly supportedTypes = ['video' as const]
 
+  /** Every image URL TMDB returns is built from `TMDB_IMAGE_BASE`. */
+  readonly imageHosts = ['image.tmdb.org'] as const
+
   private apiKey: string | null = null
   private language = 'en-US'
   private imageSize = 'w500'

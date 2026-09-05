@@ -128,6 +128,36 @@ by an `EBLOCKED` code, *and* by a marker string in the message, and re-throws it
 "`localhost` resolves only to addresses this server will not request (127.0.0.1)" rather than
 "fetch failed".
 
+### Where a download is allowed to come from (`services/imageHosts.ts`)
+
+A different question from the one above, and neither answers the other.
+`safeFetch` decides whether a URL points somewhere dangerous; this decides
+whether it points somewhere the artwork could plausibly have come from. A
+provider that has been compromised, or has simply changed, pointing at an
+unrelated *public* host is not a security boundary being crossed — it is
+artwork arriving from somewhere nobody asked for, cached under a name that says
+a scraper chose it.
+
+`ScraperPlugin` gained an optional `imageHosts`, and each plugin declares its
+own: TMDB `image.tmdb.org` (every URL it returns is built from `TMDB_IMAGE_BASE`,
+and a test asserts the two agree), TVDB `artworks.thetvdb.com` (its URLs come
+back absolute from the API; checked against 2,118 artwork URLs across series,
+movie, season, search and person responses, with no other host among them).
+`images.allowedHosts` in `tubeca.config.json` adds to the list, for a
+third-party plugin or a local mirror.
+
+The check is the **union** of every installed plugin's hosts, not the hosts of
+the scraper the download claims to be for. The download route takes `scraperId`
+from the request body, so keying the rule on it would let the caller pick which
+rule to be judged by; a union of what is actually installed is not something a
+request can widen. Matching is exact — `image.tmdb.org.example.com` and
+`sub.image.tmdb.org` are both different hosts, and a suffix test is how that
+gets missed.
+
+When nothing declares a host, nothing is checked. An empty list refusing
+everything is not a safer failure than not checking: it would break artwork for
+anyone running a scraper written before `imageHosts` existed.
+
 ### Who triggers downloads
 
 - **Collection scrape** (`collectionScrapeWorker.ts`): shows and films download Poster, Backdrop, Thumbnail and Logo concurrently with `Promise.all`; seasons download only a Poster; each credit's person gets a `Photo` only if it has none. TMDB supplies one URL per slot: poster at the configured `imageSize` (default `w500`), backdrop and logo as the top-voted `original`, thumbnail as the top-voted English backdrop (`scrapers/tmdb/src/index.ts:379-423`). TVDB picks artwork by type code (2/3/6).
@@ -188,6 +218,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - 2026-09-03 — Library access enforced on all image routes via `requireLibraryAccess`.
 
 - 2026-09-05 `utils/safeFetch.ts`: every download restricted to public http(s) addresses, enforced by the dispatcher's own DNS lookup so redirects and rebinding are covered too. `POST /api/images/download` had accepted any URL an Editor sent, including this server's own loopback.
+- 2026-09-05 `services/imageHosts.ts` and `ScraperPlugin.imageHosts`: a download's host must be one an installed scraper claims, or one `images.allowedHosts` adds.
 
 ## Known Limitations
 
@@ -197,9 +228,10 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - Orphaned files: a format change (`poster.jpg` then `poster.png`) and identify's `deleteMany` leave files behind; there is no sweep. (Library deletion, watcher-driven media deletion and scan reconciliation clean up through `ContentDeletionService` since 2026-09-03.)
 - No library-level authorisation on `/api/images/:id/file`; any valid token can fetch any image by UUID.
 - JWT in the query string of every image URL: it lands in server logs, browser history and any `Referer`, and the `public` cache directive makes the token-bearing URL cacheable by intermediaries. URLs also change whenever the token changes, defeating browser caching across logins.
-- The download host is not checked against the scraper's image base, so a compromised provider can
-  still point at any *public* host it likes. Since 2026-09-05 it cannot point inside (see
-  `safeFetch` above), which was the part that mattered.
+- **A scraper that declares no `imageHosts` disables the host check for every scraper**, since the
+  list is a union and an empty union means "do not check". A third-party plugin without the field
+  therefore widens the allowlist to everything public. `images.allowedHosts` is the way to give it
+  hosts without changing it.
 - Images are served by a Node handler with a DB lookup per request rather than a static file server or reverse proxy.
 - An upload is always stored as a `Poster` from the dialog's button; the endpoint accepts any type, but nothing in the UI offers the choice.
 - `QueuePage` ignores the landscape preference for a media item's own images (`media.images[0]`), unlike `UserCollectionPage`.
@@ -211,9 +243,9 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 - **Choose the type when uploading** (S): the dialog always uploads a `Poster`, though the endpoint takes any type. Artwork chosen from the provider does carry its own type.
 - **Candidates are collection-only** (S): a media item has no provider identity of its own (`VideoDetails` has no `scraperId`/`externalId`), so an episode still has nothing to choose from. The episode-level identity opportunity in [Metadata Scraping](metadata-scraping.md) would settle it.
-- **Validate the download host** (S) against the scraper's known image base. Reaching inside the
-  network was closed on 2026-09-05; this is the remaining, much smaller half — a compromised
-  provider pointing at an unrelated public host.
+- **Per-scraper host checking** (S): the allowlist is a union, so TMDB artwork could arrive from
+  TVDB's host. Keying it on the scraper that actually produced the URL means passing that down from
+  `scrapeApply` rather than reading the request body's `scraperId`, which a caller controls.
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
 - **Orphan cleanup** (S): make identify go through `ContentDeletionService.imagePathsFor`, and add an admin "prune images" job that diffs disk against `Image.path`.
 - **Cookie auth for image URLs** (M): a `SameSite` cookie would keep tokens out of URLs entirely; today they carry a short-lived media-scoped token. This would also let us drop `public` from a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.

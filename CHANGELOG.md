@@ -82,6 +82,10 @@ All notable changes to Tubeca are recorded here. The format follows
   which let anyone who could edit the library probe what was listening there. Only public http and
   https addresses are fetched now, checked where the connection is actually opened so that
   redirects and DNS tricks are covered too.
+- Artwork is only downloaded from hosts the installed metadata scrapers say their images come from,
+  so a provider that has been compromised — or has simply changed — cannot have arbitrary files
+  saved into the library as posters. `images.allowedHosts` in `tubeca.config.json` adds to that
+  list for anyone running a scraper that does not declare its own.
 
 ### Fixed
 - Original quality no longer skips. Each six-second segment held about four seconds of picture,

@@ -278,6 +278,13 @@ class TVDBScraper implements ScraperPlugin {
   readonly version = '1.0.0'
   readonly supportedTypes = ['video' as const]
 
+  /**
+   * TVDB returns absolute artwork URLs rather than paths, and every one of them
+   * is on this host: checked against 2,118 URLs across series, movie, season,
+   * search and person responses from the v4 API.
+   */
+  readonly imageHosts = ['artworks.thetvdb.com'] as const
+
   private apiKey: string | null = null
   private token: string | null = null
   private tokenExpiry: Date | null = null

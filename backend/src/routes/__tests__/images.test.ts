@@ -5,6 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import sharp from 'sharp';
 import imageRoutes from '../images';
+import { scraperManager } from '../../plugins/scraperLoader';
 import { prisma, resetDatabase, createUser, createLibrary, createCollection } from '../../test/db';
 
 // The image store must not be the configured one.
@@ -196,5 +197,85 @@ describe('POST /api/images/download', () => {
       .set('Authorization', editorHeader)
       .send({ url: 'https://example.com/a.png', imageType: 'Poster' });
     expect(noEntity.status).toBe(400);
+  });
+});
+
+describe('POST /api/images/download with a scraper installed', () => {
+  /** Register a scraper that declares where its artwork lives, then undo it. */
+  function withScraper<T>(hosts: string[], run: () => Promise<T>): Promise<T> {
+    const manager = scraperManager as unknown as {
+      scrapers: Map<string, { plugin: unknown; config: unknown }>;
+    };
+    const before = new Map(manager.scrapers);
+    manager.scrapers.set('fake', {
+      plugin: {
+        id: 'fake',
+        name: 'Fake',
+        description: '',
+        version: '1',
+        supportedTypes: ['video'],
+        imageHosts: hosts,
+        initialize: async () => {},
+        isConfigured: () => true,
+      },
+      config: {},
+    });
+    return run().finally(() => {
+      manager.scrapers.clear();
+      for (const [id, entry] of before) manager.scrapers.set(id, entry);
+    });
+  }
+
+  function download(url: string) {
+    return request(app)
+      .post('/api/images/download')
+      .set('Authorization', editorHeader)
+      .send({ url, imageType: 'Poster', collectionId });
+  }
+
+  it('refuses a public host no scraper claims', async () => {
+    await withScraper(['image.tmdb.org'], async () => {
+      const res = await download('https://example.com/poster.jpg');
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('not a host artwork comes from');
+    });
+  });
+
+  it('cannot be walked past with a host that merely ends in an allowed one', async () => {
+    await withScraper(['image.tmdb.org'], async () => {
+      const res = await download('https://image.tmdb.org.evil.example/poster.jpg');
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('not a host artwork comes from');
+    });
+  });
+
+  it('cannot be widened by naming a different scraper in the body', async () => {
+    await withScraper(['image.tmdb.org'], async () => {
+      const res = await request(app)
+        .post('/api/images/download')
+        .set('Authorization', editorHeader)
+        .send({
+          url: 'https://example.com/poster.jpg',
+          imageType: 'Poster',
+          collectionId,
+          scraperId: 'something-else',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('not a host artwork comes from');
+    });
+  });
+
+  it('gets past the host check for an allowed one, and fails later on its own merits', async () => {
+    await withScraper(['localhost'], async () => {
+      // An allowed host that is nonetheless inside: the two checks are separate
+      // questions, and this one is answered by safeFetch.
+      const res = await download('http://localhost/poster.jpg');
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/resolves only to addresses/);
+    });
   });
 });

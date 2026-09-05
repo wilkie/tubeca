@@ -6,6 +6,7 @@ import { prisma } from '../config/database';
 import { getImageStoragePath } from '../config/appConfig';
 import type { ImageType } from '@prisma/client';
 import { safeFetch } from '../utils/safeFetch';
+import { imageHostRefusalReason } from './imageHosts';
 
 export interface SaveImageInput {
   imageType: ImageType
@@ -156,6 +157,14 @@ export class ImageService {
         if (reused) {
           return reused;
         }
+      }
+
+      // Artwork comes from where artwork comes from. A provider that has been
+      // compromised, or simply changed, can hand back a URL to anywhere; this
+      // is what says the URL looks like one of theirs.
+      const wrongHost = imageHostRefusalReason(url);
+      if (wrongHost) {
+        return { success: false, error: wrongHost };
       }
 
       // Fetch the image. The URL is a third party's — a scraper's answer, or a

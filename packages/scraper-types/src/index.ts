@@ -342,6 +342,16 @@ export interface ScraperPlugin {
   readonly supportedTypes: MediaType[]
 
   /**
+   * Hosts this scraper's artwork URLs come from, e.g. `image.tmdb.org`.
+   *
+   * A scraper hands back URLs that the server then fetches, so what it says
+   * here is what the server will accept from it. Matching is exact — a
+   * subdomain is a different host — and omitting this means the server has
+   * nothing to check the scraper's URLs against.
+   */
+  readonly imageHosts?: readonly string[]
+
+  /**
    * Initialize the scraper with configuration
    */
   initialize(config: ScraperConfig): Promise<void>

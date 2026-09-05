@@ -606,3 +606,35 @@ describe('when TMDB misbehaves', () => {
     }
   });
 });
+
+describe('where its artwork comes from', () => {
+  it('declares the host it actually builds its URLs on', async () => {
+    // The server refuses a download from a host no scraper claims, so the
+    // declaration and the base have to stay in step.
+    routes['/3/movie/949'] = {
+      id: 949,
+      title: 'Heat',
+      poster_path: '/heat.jpg',
+      backdrop_path: '/heat-bd.jpg',
+      genres: [],
+      credits: { cast: [], crew: [] },
+    };
+    routes['/3/movie/949/images'] = {
+      posters: [{ file_path: '/alt.jpg', vote_average: 9 }],
+      backdrops: [],
+      logos: [],
+    };
+
+    const plugin = await scraper();
+    const result = await plugin.getVideoMetadata!('movie-949');
+
+    const urls = [result!.posterUrl, result!.backdropUrl, ...(result!.posterUrls ?? [])].filter(
+      (url): url is string => Boolean(url)
+    );
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) {
+      expect(plugin.imageHosts).toContain(new URL(url).hostname);
+    }
+  });
+});
+
