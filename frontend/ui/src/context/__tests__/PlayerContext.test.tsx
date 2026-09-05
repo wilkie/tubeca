@@ -654,6 +654,72 @@ describe('PlayerContext', () => {
     });
   });
 
+  describe('a browser without hls.js', () => {
+    const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+    /** The mocked hls.js module, whose isSupported these tests turn off. */
+    const hls = (jest.requireMock('hls.js') as { default: { isSupported: () => boolean } }).default;
+
+    beforeEach(() => {
+      jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+      mockApi.getMedia.mockResolvedValue({
+        data: { media: { id: 'm1', name: 'Heat', duration: 1200, type: 'Video', streams: [] } },
+      } as never);
+      mockApi.getTrickplayInfo.mockResolvedValue({ data: undefined } as never);
+      mockApi.getWatchProgress.mockResolvedValue({ data: { progress: null } } as never);
+      mockApi.getHlsMasterPlaylistUrl.mockReturnValue('/hls/m1/master.m3u8?token=t');
+      hls.isSupported = () => false;
+    });
+
+    afterEach(() => {
+      hls.isSupported = () => true;
+    });
+
+    it('hands the playlist to a browser that plays HLS itself', async () => {
+      jest
+        .spyOn(HTMLMediaElement.prototype, 'canPlayType')
+        .mockImplementation((type: string) =>
+          type === 'application/vnd.apple.mpegurl' ? 'maybe' : ''
+        );
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+
+      await act(async () => {
+        await result.current.playMedia('m1');
+      });
+
+      expect(document.querySelector('video')!.src).toContain('master.m3u8?token=t');
+      expect(result.current.error).toBeNull();
+    });
+
+    it('says so when the playlist will not load, rather than staying black', async () => {
+      jest
+        .spyOn(HTMLMediaElement.prototype, 'canPlayType')
+        .mockImplementation((type: string) =>
+          type === 'application/vnd.apple.mpegurl' ? 'maybe' : ''
+        );
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+      await act(async () => {
+        await result.current.playMedia('m1');
+      });
+
+      await act(async () => {
+        document.querySelector('video')!.dispatchEvent(new Event('error'));
+      });
+
+      expect(result.current.error).toBe('playback.errorLoad');
+    });
+
+    it('says so when the browser cannot play HLS at all', async () => {
+      jest.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('');
+      const { result } = renderHook(() => usePlayer(), { wrapper });
+
+      await act(async () => {
+        await result.current.playMedia('m1');
+      });
+
+      expect(result.current.error).toBe('playback.errorUnsupported');
+    });
+  });
+
   describe('the queue', () => {
     const mockApi = apiClient as jest.Mocked<typeof apiClient>;
 

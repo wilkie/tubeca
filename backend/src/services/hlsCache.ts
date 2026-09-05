@@ -42,7 +42,13 @@ function listSegments(cacheRoot: string): SegmentFile[] {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
-      } else if (entry.name.endsWith('.ts') || entry.name.endsWith('.m3u8')) {
+      } else if (
+        entry.name.endsWith('.ts') ||
+        entry.name.endsWith('.m3u8') ||
+        // Extracted subtitles live beside the segments they belong to; they are
+        // small, but the cap should still know about them.
+        entry.name.endsWith('.vtt')
+      ) {
         try {
           const stat = fs.statSync(full);
           segments.push({ path: full, size: stat.size, atimeMs: stat.atimeMs });
@@ -83,7 +89,9 @@ export function pruneEmptyDirs(cacheRoot: string): void {
 }
 
 export function collectCacheStats(cacheRoot: string): CacheStats {
-  const segments = listSegments(cacheRoot).filter((s) => s.path.endsWith('.ts'));
+  const segments = listSegments(cacheRoot).filter(
+    (s) => s.path.endsWith('.ts') || s.path.endsWith('.vtt')
+  );
   let mediaCount = 0;
   if (fs.existsSync(cacheRoot)) {
     mediaCount = fs.readdirSync(cacheRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
@@ -139,7 +147,9 @@ export function purgeAllSegments(cacheRoot: string): number {
  * segments first. Returns what was removed.
  */
 export function enforceCacheSize(cacheRoot: string, maxBytes: number): { deleted: number; freedBytes: number } {
-  const segments = listSegments(cacheRoot).filter((s) => s.path.endsWith('.ts'));
+  const segments = listSegments(cacheRoot).filter(
+    (s) => s.path.endsWith('.ts') || s.path.endsWith('.vtt')
+  );
   let total = segments.reduce((sum, s) => sum + s.size, 0);
   const result = { deleted: 0, freedBytes: 0 };
   if (total <= maxBytes) return result;

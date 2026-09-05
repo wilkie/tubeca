@@ -53,6 +53,12 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- Playback works in Safari and on iOS. The playlists named their variants and segments without a
+  token, and Safari plays HLS itself rather than through hls.js, so every request after the first
+  was rejected and the player sat there black and silent.
+- Subtitle tracks that are images rather than text are no longer offered: choosing one produced
+  nothing and said nothing. Text tracks are now extracted once instead of re-reading the whole
+  film every time the menu is opened.
 - A title a provider has deleted is now recorded as unmatched instead of being retried three
   times and left as a failure, and a season whose scrape hit a timeout is retried instead of
   being written off as unmatched. The two cases had been the other way round.

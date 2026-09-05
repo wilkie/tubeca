@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import type Hls from 'hls.js';
+import { isTextSubtitle } from '../utils/subtitles';
 import { apiClient, type Media, type TrickplayResolution, type UserCollectionItem } from '../api/client';
 import type { AudioTrackInfo, SubtitleTrackInfo } from '../components/VideoControls';
 import { MiniPlayer } from '../components/MiniPlayer';
@@ -486,7 +487,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       hlsRef.current = hls;
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS support (Safari)
+      // Native HLS (Safari, iOS). The element follows the playlist itself and
+      // cannot be given headers, which is why the playlists carry the token in
+      // their URIs.
       video.src = hlsUrl;
       video.addEventListener('loadedmetadata', () => {
         if (startPosition > 0) {
@@ -496,6 +499,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           // Autoplay might be blocked
         });
       });
+      // Without this the native path fails silently: a rejected playlist, an
+      // unplayable codec and a missing file all look like a player that never
+      // starts.
+      video.addEventListener('error', () => setError('playback.errorLoad'), { once: true });
+    } else {
+      // Neither hls.js nor native HLS. Nothing will play, and saying so beats
+      // a video element that stays black.
+      setError('playback.errorUnsupported');
     }
   }, [destroyHls]);
 
@@ -646,7 +657,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // Extract subtitle tracks
       const subtitleTracks: SubtitleTrackInfo[] = media.streams
-        ?.filter((s) => s.streamType === 'Subtitle')
+        ?.filter((s) => s.streamType === 'Subtitle' && isTextSubtitle(s.codec))
         .map((s) => ({
           streamIndex: s.streamIndex,
           language: s.language,

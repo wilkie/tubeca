@@ -367,6 +367,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-03 Streaming robustness: codec-aware `Original` (`isDirectPlayable`), single de-dup key for all segment paths, per-segment FFmpeg timeout with partial-file cleanup, tracked processes killed on shutdown, lazy `HlsService` singleton, `maxSizeGB` enforced LRU-first, cache evicted on media delete, settings cache invalidated by version.
 - 2026-09-03 `hlsCacheCleanupService` tested: the startup delay, the hourly repeat, the refusal to start twice, and that a failed sweep does not stop the next one.
 - 2026-09-04 Stream route guards tested (missing media and files, subtitle stream index and sidecar rows, trickplay resolutions, the quality ladder); the part-file assertion in `hlsService.test.ts` now waits for `createWriteStream` to open rather than assuming one tick, which made the suite flake under load.
+- 2026-09-04 Playlists carry the request's token into the variant and segment URIs, so Safari and any other player that follows a playlist itself can authenticate; the native path in the player now reports an error instead of staying black. Bitmap subtitle tracks are no longer offered and answer 415, and an extracted track is cached rather than re-read from the container on every request.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
@@ -396,14 +397,17 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   watching, which is correct but costs a re-encode for everything afterwards.
 - **VAAPI decodes in software** and assumes one render node; a box whose GPU is not
   `/dev/dri/renderD128` needs `TUBECA_VAAPI_DEVICE` set.
-- **Stream ACL.** Any authenticated user can stream any media id regardless of library group
-  membership; tokens appear in URLs.
-- **Subtitles**: every subtitle stream is offered, including bitmap formats that cannot become
-  WebVTT; extraction re-reads the whole file on each request with no caching beyond the browser's 1
-  h. Sidecar files (negative stream indices, see [Libraries](libraries-and-scanning.md)) are
-  converted the same way, so a large `.srt` is re-parsed per request too.
-- **Probing happens once**; file replacement keeps stale duration/streams, and a probe failure
-  yields `duration 0` and therefore an unplayable empty playlist.
+- **Tokens appear in URLs.** Library access is enforced on every stream route
+  (`requireLibraryAccess(mediaParam('id'))`, 2026-09-03), but a media-scoped token still travels in
+  the query string, and since 2026-09-04 the playlists repeat it in the URIs they emit, because a
+  player that follows a playlist itself cannot be given headers. A cookie would keep it out of URLs
+  entirely.
+- **Subtitles**: a bitmap track (`hdmv_pgs_subtitle`, `dvd_subtitle`) needs OCR rather than a
+  remux, so the menu leaves it out and the route answers 415 (2026-09-04). Text tracks are
+  extracted once and cached beside the media's segments; what remains is that a re-probe does not
+  invalidate an extracted track, so replacing a file in place keeps the old subtitles until the
+  media's cache is evicted.
+- **Probing happens once per import** (the watcher re-probes on `change`, but a scan-only setup has no other trigger); a probe failure leaves the row without streams and no retry.
 - **Trickplay is external only**; the `thumbnail` job that might have generated sprites is a stub,
   and the reported interval is hardcoded.
 - **Encoder detection still costs the first playback** if it has not finished: the first segment
@@ -430,8 +434,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Purge only what changed** (S): a `segmentDuration` change could re-encode lazily instead of
   emptying the whole cache.
 
-- **Filter subtitle streams by codec and cache extracted VTT** (S): only text codecs (`subrip`,
-  `ass`, `webvtt`, `mov_text`) are convertible; write the VTT next to the HLS cache.
 - **Re-probe on file change and on demand** (S): the watcher already sees modifications; expose a
   "refresh streams" action.
 

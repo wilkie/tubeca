@@ -188,6 +188,25 @@ describe('stream route guards', () => {
       expect(res.body.error).toBe('Subtitle file not found');
     });
 
+    it('refuses a picture subtitle rather than returning an empty file', async () => {
+      const { media, authHeader } = await fixture();
+      await prisma.mediaStream.create({
+        data: {
+          mediaId: media.id,
+          streamIndex: 3,
+          streamType: 'Subtitle',
+          codec: 'hdmv_pgs_subtitle',
+        },
+      });
+
+      const res = await request(app)
+        .get(`/api/stream/subtitles/${media.id}?streamIndex=3`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(415);
+      expect(res.body.error).toMatch(/image format/);
+    });
+
     it('is a 404 when the video the track lives in is gone', async () => {
       const { media, authHeader } = await fixture();
 
@@ -322,5 +341,74 @@ describe('stream route guards', () => {
       expect(res.status).toBe(200);
       expect(res.body.qualities).toEqual([]);
     });
+  });
+});
+
+describe('playlists a player can follow without headers', () => {
+  beforeEach(resetDatabase);
+
+  async function playable() {
+    const library = await createLibrary({ libraryType: 'Film' });
+    const collection = await createCollection({ libraryId: library.id, name: 'Heat' });
+    const media = await createVideoMedia({
+      path: '/nonexistent/heat.mkv',
+      duration: 30,
+      collectionId: collection.id,
+    });
+    const { authHeader, token } = await createUser();
+    return { media, authHeader, token };
+  }
+
+  it('carries the token into every variant it offers', async () => {
+    const { media, token } = await playable();
+
+    const res = await request(app).get(`/api/stream/hls/${media.id}/master.m3u8?token=${token}`);
+
+    expect(res.status).toBe(200);
+    const variants = res.text.split('\n').filter((line) => line.endsWith('.m3u8') || line.includes('.m3u8?'));
+    expect(variants.length).toBeGreaterThan(0);
+    for (const variant of variants) {
+      expect(variant).toContain(`token=${encodeURIComponent(token)}`);
+    }
+  });
+
+  it('carries it into every segment of a variant too', async () => {
+    const { media, token } = await playable();
+
+    const res = await request(app).get(
+      `/api/stream/hls/${media.id}/720p.m3u8?audioTrack=default&token=${token}`
+    );
+
+    expect(res.status).toBe(200);
+    const segments = res.text.split('\n').filter((line) => line.includes('.ts?'));
+    expect(segments.length).toBeGreaterThan(0);
+    for (const segment of segments) {
+      expect(segment).toContain(`token=${encodeURIComponent(token)}`);
+    }
+  });
+
+  it('leaves the URIs bare for a client that authenticated by header', async () => {
+    const { media, authHeader } = await playable();
+
+    const res = await request(app)
+      .get(`/api/stream/hls/${media.id}/master.m3u8`)
+      .set('Authorization', authHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('token=');
+  });
+
+  it('serves a segment listed in a playlist with only that token', async () => {
+    const { media, token } = await playable();
+    const playlist = await request(app).get(
+      `/api/stream/hls/${media.id}/720p.m3u8?audioTrack=default&token=${token}`
+    );
+    const segment = playlist.text.split('\n').find((line) => line.includes('.ts?'))!;
+
+    // The file behind it does not exist, so this gets as far as trying to read
+    // it — which is past the authentication that used to reject it outright.
+    const res = await request(app).get(`/api/stream/hls/${media.id}/${segment}`);
+
+    expect(res.status).not.toBe(401);
   });
 });

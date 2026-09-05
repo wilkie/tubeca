@@ -374,7 +374,7 @@ export class HlsService {
   /**
    * Generate master playlist listing all available qualities
    */
-  async generateMasterPlaylist(mediaId: string, audioTrack?: number): Promise<string> {
+  async generateMasterPlaylist(mediaId: string, audioTrack?: number, token?: string): Promise<string> {
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) {
       throw new Error('Media not found');
@@ -382,13 +382,17 @@ export class HlsService {
 
     const presets = await this.getQualityPresets();
     const audioTrackStr = audioTrack !== undefined ? audioTrack.toString() : 'default';
+    // A player that cannot set headers — Safari's native HLS, an AirPlay
+    // receiver, anything embedding the URL — follows these URIs with nothing
+    // but what they carry. Whatever authenticated this request goes with them.
+    const auth = token ? `&token=${encodeURIComponent(token)}` : '';
     const lines: string[] = ['#EXTM3U', '#EXT-X-VERSION:3'];
 
     // Add original quality (stream copy) first, when the codecs allow it
     if (await this.canDirectPlay(media.id, media.path)) {
       // For native formats, we can offer original quality
       lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=20000000,RESOLUTION=native,NAME="Original"`);
-      lines.push(`${ORIGINAL_QUALITY}.m3u8?audioTrack=${audioTrackStr}`);
+      lines.push(`${ORIGINAL_QUALITY}.m3u8?audioTrack=${audioTrackStr}${auth}`);
     }
 
     // Add transcoded quality options (highest to lowest)
@@ -397,7 +401,7 @@ export class HlsService {
       const preset = presets[quality];
       const bandwidth = (preset.videoBitrate + preset.audioBitrate) * 1000; // Convert to bps
       lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${preset.width}x${preset.height},NAME="${preset.label}"`);
-      lines.push(`${quality}.m3u8?audioTrack=${audioTrackStr}`);
+      lines.push(`${quality}.m3u8?audioTrack=${audioTrackStr}${auth}`);
     }
 
     return lines.join('\n');
@@ -407,7 +411,12 @@ export class HlsService {
    * Generate or get variant playlist for a specific quality
    * Also triggers initial segment prefetching for smoother playback start
    */
-  async generateVariantPlaylist(mediaId: string, quality: string, audioTrack: string = 'default'): Promise<string> {
+  async generateVariantPlaylist(
+    mediaId: string,
+    quality: string,
+    audioTrack: string = 'default',
+    token?: string
+  ): Promise<string> {
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) {
       throw new Error('Media not found');
@@ -429,7 +438,7 @@ export class HlsService {
       const segmentDur = Math.min(segmentDuration, duration - (i * segmentDuration));
       lines.push(`#EXTINF:${segmentDur.toFixed(3)},`);
       // Include quality in segment URL path so it resolves correctly
-      lines.push(`${quality}/${i}.ts?audioTrack=${audioTrack}`);
+      lines.push(`${quality}/${i}.ts?audioTrack=${audioTrack}${token ? `&token=${encodeURIComponent(token)}` : ''}`);
     }
 
     lines.push('#EXT-X-ENDLIST');

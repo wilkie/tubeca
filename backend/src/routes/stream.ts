@@ -9,6 +9,8 @@ import { AuthService } from '../services/authService';
 import { MediaService } from '../services/mediaService';
 import { prisma } from '../config/database';
 import { getHlsService, QUALITY_PRESETS, ORIGINAL_QUALITY } from '../services/hlsService';
+import { extractSubtitle, isTextSubtitle, subtitleCachePath } from '../services/subtitleService';
+import { getHlsCachePath } from '../config/appConfig';
 
 const router = Router();
 const mediaService = new MediaService();
@@ -291,65 +293,44 @@ router.get('/subtitles/:id', mediaAccess, async (req, res) => {
 
     // A negative index is a sidecar file next to the video rather than a
     // stream inside it.
+    const track = await prisma.mediaStream.findFirst({
+      where: { mediaId: media.id, streamIndex, streamType: 'Subtitle' },
+      select: { externalPath: true, codec: true },
+    });
+
     let sourcePath = media.path;
     let mapArgs = ['-map', `0:${streamIndex}`];
 
     if (streamIndex < 0) {
-      const external = await prisma.mediaStream.findFirst({
-        where: { mediaId: media.id, streamIndex, streamType: 'Subtitle' },
-        select: { externalPath: true },
-      });
-      if (!external?.externalPath) {
+      if (!track?.externalPath) {
         return res.status(404).json({ error: 'Subtitle track not found' });
       }
-      sourcePath = external.externalPath;
+      sourcePath = track.externalPath;
       // The sidecar holds one track, so there is nothing to select.
       mapArgs = [];
+    }
+
+    // A picture cannot become WebVTT; say so rather than returning an empty
+    // file the player will silently show nothing for.
+    if (!isTextSubtitle(track?.codec)) {
+      return res.status(415).json({
+        error: `Subtitle track ${streamIndex} is ${track?.codec}, which is an image format and cannot be converted to text`,
+      });
     }
 
     if (!fs.existsSync(sourcePath)) {
       return res.status(404).json({ error: streamIndex < 0 ? 'Subtitle file not found' : 'Video file not found' });
     }
 
+    const cachePath = subtitleCachePath(getHlsCachePath(), media.id, streamIndex);
+    const extracted = await extractSubtitle({ sourcePath, mapArgs, cachePath });
+    if ('error' in extracted) {
+      return res.status(500).json({ error: extracted.error });
+    }
+
     res.setHeader('Content-Type', 'text/vtt');
-    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-
-    // Use ffmpeg to extract and convert subtitle to WebVTT
-    const ffmpeg = spawn('ffmpeg', [
-      '-i', sourcePath,
-      ...mapArgs,
-      '-c:s', 'webvtt',
-      '-f', 'webvtt',
-      '-'
-    ]);
-
-    ffmpeg.stdout.pipe(res);
-
-    ffmpeg.stderr.on('data', (data) => {
-      // Log ffmpeg output for debugging
-      console.log(`ffmpeg subtitles: ${data}`);
-    });
-
-    ffmpeg.on('error', (err) => {
-      console.error('ffmpeg subtitle error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Subtitle extraction error' });
-      }
-    });
-
-    ffmpeg.on('close', (code) => {
-      if (code !== 0) {
-        console.error(`ffmpeg subtitles exited with code ${code}`);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to extract subtitles' });
-        }
-      }
-    });
-
-    // Handle client disconnect
-    req.on('close', () => {
-      ffmpeg.kill('SIGKILL');
-    });
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.sendFile(extracted.path);
   } catch (error) {
     console.error('Subtitle streaming error:', error);
     if (!res.headersSent) {
@@ -719,7 +700,10 @@ router.get('/hls/:id/master.m3u8', mediaAccess, async (req, res) => {
       ? parseInt(req.query.audioTrack as string, 10)
       : undefined;
 
-    const playlist = await hlsService.generateMasterPlaylist(req.params.id, audioTrack);
+    // Carried into the variant and segment URIs, so a player that cannot set
+    // an Authorization header can follow them.
+    const token = typeof req.query.token === 'string' ? req.query.token : undefined;
+    const playlist = await hlsService.generateMasterPlaylist(req.params.id, audioTrack, token);
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
@@ -784,7 +768,8 @@ router.get('/hls/:id/:quality.m3u8', mediaAccess, async (req, res) => {
       return res.status(400).json({ error: 'Invalid quality level' });
     }
 
-    const playlist = await hlsService.generateVariantPlaylist(id, quality, audioTrack);
+    const token = typeof req.query.token === 'string' ? req.query.token : undefined;
+    const playlist = await hlsService.generateVariantPlaylist(id, quality, audioTrack, token);
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
