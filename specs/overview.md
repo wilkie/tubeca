@@ -358,14 +358,13 @@ Done 2026-09-04 and 2026-09-05, after the fourth round's coverage push freed the
 
 In rough order of what it costs a user. Every item here was checked against the code on
 2026-09-05; the specs' own Opportunities and Known Limitations were reconciled the same day, and
-around a dozen entries that described work already done were removed.
+around a dozen entries that described work already done were removed. Two of the six items it
+listed were finished the same day and struck from it.
 
 - **Music**: hidden since 2026-09-03 rather than removed. Reviving it means tag reading, a music
   scraper and an audio player; the alternative is pruning the schema. This is the one open item
   that is a product decision rather than an engineering one
   ([Libraries](libraries-and-scanning.md)).
-- **The player speaks English regardless of locale**: five hard-coded strings and a bare "Off" in
-  `VideoControls`, on the one screen a viewer looks at longest ([Playback](playback.md)).
 - **Library access is all-or-nothing**: `Group` carries no capabilities, so an Editor cannot be
   restricted to particular libraries ([Auth](auth-and-users.md)).
 - **Dialogs are still desktop-sized**: the chrome and the player adapt below `sm`, the dialogs and
