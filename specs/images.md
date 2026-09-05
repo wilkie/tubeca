@@ -50,7 +50,7 @@
 1. A worker or route calls `downloadAndSaveImage(url, { imageType, <ownerId>, isPrimary, scraperId, reuseExisting })`.
 2. The owner id chooses a folder: `media/`, `collections/` or `people/` (person, showCredit and credit all share `people/`) (`imageService.ts:104-121`).
 3. With `reuseExisting` (every scrape apply path since 2026-09-03), the stored row for that owner and type is checked first: if its `sourceUrl` matches and its file is still on disk, nothing is fetched and the result comes back with `reused: true`, still routed through `saveImage` so the primary flag stays correct. This is what keeps a full scan from re-downloading artwork that has not changed.
-4. The URL is fetched with global `fetch` under a 20 s `AbortSignal.timeout`, refusing a
+4. The URL is fetched with `safeFetch` (see below) under a 20 s `AbortSignal.timeout`, refusing a
    non-`image/*` `Content-Type`, a declared or actual body over 25 MB, and an empty body: a
    scraper URL is a third party that can hang, lie or answer with something else entirely.
    The body is then fully buffered. Format is taken from `Content-Type` (`png`, `webp`, `gif`, `svg`), then from the URL extension, else `jpg` (`imageService.ts:133-149`). SVG was added in `056b695`; before that TMDB logos were written as `logo.jpg` and served as `image/jpeg`.
@@ -97,6 +97,36 @@ same ten-minute cache the scrape workers use, so opening the dialog twice asks o
 from `/movie|tv/{id}/images`, which it already fetched to pick the backdrop and logo, so the
 candidates cost no extra request; TVDB draws from the `artworks` array on the series record,
 filtered by artwork type.
+
+### Where a download is allowed to go (`utils/safeFetch.ts`)
+
+`POST /api/images/download` takes a URL from the request body and the scrape workers take one from
+whatever a provider returned, so both ask this server to make a request on somebody else's behalf.
+Until 2026-09-05 it made whatever request it was asked for. An Editor could not read an arbitrary
+response body — it has to pass the `image/*` check to be stored — but a status code and a timing
+difference are enough to map what is listening on localhost, and this server usually shares a
+machine with Redis, with its own API, and on a cloud host with a metadata service at
+`169.254.169.254`.
+
+`safeFetch` refuses two things. Any scheme but `http:` and `https:`, so `file:///etc/passwd` never
+reaches the network layer. And any address that is not on the public internet — loopback, the three
+private ranges, carrier-grade NAT, link-local, multicast, the reserved and documentation ranges,
+their IPv6 equivalents, and an IPv4 address wearing an IPv6 hat (`::ffff:127.0.0.1` reaches
+loopback exactly as `127.0.0.1` does). An address the parser cannot read counts as blocked.
+
+The address check is **at the connect layer, not in front of it**: an undici `Agent` whose `lookup`
+filters the resolver's answer, so what it returns is where the socket actually opens. Checking the
+hostname before calling `fetch` would leave two holes — a redirect to an internal address, and a
+name that resolves publicly for the check and privately for the connection — and both close when
+the refusal happens at the address the connection is about to use. A name that resolves to both a
+public and a private address keeps the public one.
+
+Undici reports a connect failure as a flat `TypeError: fetch failed` with the reason in `cause`, or
+an `AggregateError` when every address failed, and crossing a module realm can flatten that cause
+to a plain `Error` with only its message intact. `safeFetch` therefore digs for a refusal by name,
+by an `EBLOCKED` code, *and* by a marker string in the message, and re-throws it so the caller sees
+"`localhost` resolves only to addresses this server will not request (127.0.0.1)" rather than
+"fetch failed".
 
 ### Who triggers downloads
 
@@ -157,6 +187,8 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - `056b695` 2025-12-20 SVG detected on download; `Content-Type` taken from the DB `format`.
 - 2026-09-03 — Library access enforced on all image routes via `requireLibraryAccess`.
 
+- 2026-09-05 `utils/safeFetch.ts`: every download restricted to public http(s) addresses, enforced by the dispatcher's own DNS lookup so redirects and rebinding are covered too. `POST /api/images/download` had accepted any URL an Editor sent, including this server's own loopback.
+
 ## Known Limitations
 
 - Candidates only come from people: scrapers still supply one image per type, so a second candidate exists only where someone uploaded one or fetched one by URL. There is no gallery of provider alternatives to choose from.
@@ -165,7 +197,9 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - Orphaned files: a format change (`poster.jpg` then `poster.png`) and identify's `deleteMany` leave files behind; there is no sweep. (Library deletion, watcher-driven media deletion and scan reconciliation clean up through `ContentDeletionService` since 2026-09-03.)
 - No library-level authorisation on `/api/images/:id/file`; any valid token can fetch any image by UUID.
 - JWT in the query string of every image URL: it lands in server logs, browser history and any `Referer`, and the `public` cache directive makes the token-bearing URL cacheable by intermediaries. URLs also change whenever the token changes, defeating browser caching across logins.
-- The download host is not checked against the scraper's image base, so a compromised provider could still point at any host it likes.
+- The download host is not checked against the scraper's image base, so a compromised provider can
+  still point at any *public* host it likes. Since 2026-09-05 it cannot point inside (see
+  `safeFetch` above), which was the part that mattered.
 - Images are served by a Node handler with a DB lookup per request rather than a static file server or reverse proxy.
 - An upload is always stored as a `Poster` from the dialog's button; the endpoint accepts any type, but nothing in the UI offers the choice.
 - `QueuePage` ignores the landscape preference for a media item's own images (`media.images[0]`), unlike `UserCollectionPage`.
@@ -177,7 +211,9 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 - **Choose the type when uploading** (S): the dialog always uploads a `Poster`, though the endpoint takes any type. Artwork chosen from the provider does carry its own type.
 - **Candidates are collection-only** (S): a media item has no provider identity of its own (`VideoDetails` has no `scraperId`/`externalId`), so an episode still has nothing to choose from. The episode-level identity opportunity in [Metadata Scraping](metadata-scraping.md) would settle it.
-- **Validate the download host** (S) against the scraper's known image base.
+- **Validate the download host** (S) against the scraper's known image base. Reaching inside the
+  network was closed on 2026-09-05; this is the remaining, much smaller half — a compromised
+  provider pointing at an unrelated public host.
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
 - **Orphan cleanup** (S): make identify go through `ContentDeletionService.imagePathsFor`, and add an admin "prune images" job that diffs disk against `Image.path`.
 - **Cookie auth for image URLs** (M): a `SameSite` cookie would keep tokens out of URLs entirely; today they carry a short-lived media-scoped token. This would also let us drop `public` from a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.

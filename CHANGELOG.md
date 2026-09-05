@@ -75,6 +75,14 @@ All notable changes to Tubeca are recorded here. The format follows
   untouched. Files needing the picture transcoded fall from 26% to 18%. Each quality now says what it contains, so a browser that cannot
   decode it quietly picks a transcode instead of failing.
 
+### Security
+- The server no longer makes requests to itself or the network around it on a caller's say-so.
+  Saving an image from a URL — and any artwork URL a metadata provider returns — accepted whatever
+  address it was given, including `localhost`, private ranges and a cloud host's metadata service,
+  which let anyone who could edit the library probe what was listening there. Only public http and
+  https addresses are fetched now, checked where the connection is actually opened so that
+  redirects and DNS tricks are covered too.
+
 ### Fixed
 - Original quality no longer skips. Each six-second segment held about four seconds of picture,
   because the seek was placed where FFmpeg counted the part it threw away against the length asked

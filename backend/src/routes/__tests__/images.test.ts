@@ -156,3 +156,45 @@ describe('PUT /api/images/:id/primary', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('POST /api/images/download', () => {
+  function download(header: string, url: string) {
+    return request(app)
+      .post('/api/images/download')
+      .set('Authorization', header)
+      .send({ url, imageType: 'Poster', collectionId });
+  }
+
+  it('will not be pointed at this server or the network around it', async () => {
+    // An editor asking the server to fetch a URL is asking it to make a request
+    // on their behalf; without this it would happily map localhost for them.
+    for (const url of [
+      'http://127.0.0.1:6379/',
+      'http://localhost:3000/api/users',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://192.168.1.1/',
+      'http://[::1]/',
+    ]) {
+      const res = await download(editorHeader, url);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not an address this server will request|resolves only to addresses/);
+    }
+  });
+
+  it('will not read a file off the disk either', async () => {
+    const res = await download(editorHeader, 'file:///etc/passwd');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/http and https/);
+  });
+
+  it('still needs an editor and an entity to attach to', async () => {
+    expect((await download(viewerHeader, 'https://example.com/a.png')).status).toBe(403);
+
+    const noEntity = await request(app)
+      .post('/api/images/download')
+      .set('Authorization', editorHeader)
+      .send({ url: 'https://example.com/a.png', imageType: 'Poster' });
+    expect(noEntity.status).toBe(400);
+  });
+});

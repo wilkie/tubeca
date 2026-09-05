@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { prisma } from '../config/database';
 import { getImageStoragePath } from '../config/appConfig';
 import type { ImageType } from '@prisma/client';
+import { safeFetch } from '../utils/safeFetch';
 
 export interface SaveImageInput {
   imageType: ImageType
@@ -157,10 +158,12 @@ export class ImageService {
         }
       }
 
-      // Fetch the image. A scraper URL is a third party: it can hang, it can
-      // answer with a hundred megabytes, and it can answer with something that
-      // is not an image at all, so all three are bounded here.
-      const response = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+      // Fetch the image. The URL is a third party's — a scraper's answer, or a
+      // request body on the download route — so it can hang, it can answer with
+      // a hundred megabytes, it can answer with something that is not an image,
+      // and it can name this server's own loopback. All four are bounded here,
+      // the last by `safeFetch`.
+      const response = await safeFetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
       if (!response.ok) {
         return { success: false, error: `Failed to fetch image: ${response.status}` };
       }
@@ -254,7 +257,10 @@ export class ImageService {
         fileSize,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
+      // `fetch` can reject with an Error from another realm, where `instanceof`
+      // does not hold; "Unknown error" told nobody anything.
+      const message =
+        error instanceof Error ? error.message : String(error ?? 'Unknown error');
       return { success: false, error: message };
     }
   }
