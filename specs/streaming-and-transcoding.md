@@ -209,6 +209,25 @@ two speculative encodes for the position the viewer just left. Priority is read 
 a prefetch that a player has since joined (`ensureSegment` promotes it) is promoted while it waits.
 The settings value is re-read every 30 s; lowering it does not preempt running processes.
 
+### What `original` actually does
+
+`isVideoCopyable` and `isAudioCopyable` are separate questions, because they cost wildly different
+amounts to answer wrongly. The picture is copied whenever the codec is one a browser takes
+(currently H.264); the sound is copied when it is AAC or MP3 and re-encoded to stereo AAC at
+192 kbps otherwise. Re-encoding the picture to fix the sound was most of the work for none of the
+reason: on a 1080p H.264 episode with E-AC-3, one six-second segment costs 15.6 CPU-seconds fully
+transcoded and 0.5 copying the video — and the full transcode is slower than realtime on this
+machine, so a single viewer barely keeps up and two do not.
+
+On the development library of 30,014 files: 25% could already copy both streams, 48% are H.264
+with audio no browser will take (E-AC-3 6,878, AC-3 5,514, DTS 1,610, FLAC 285) and now copy the
+picture, and 26% — mpeg4, HEVC, mpeg2video — must still transcode the video.
+
+Copying depends on segment boundaries landing near keyframes, since a copied segment cannot have
+one forced. The files measured here carry a keyframe every 2.002 s, so a six-second boundary is
+within 0.03 s; a file with a long GOP would judder at the boundaries, and the viewer's remedy is
+to pick a transcoded rung, which is always offered alongside.
+
 Every player request also calls `cancelStalePrefetches`, which kills any encode for the same variant
 that is still `prefetch`, **belongs to the same viewer**, and whose index falls outside
 `[requested, requested + prefetchSegments]`. Sequential playback never triggers it, because the
@@ -397,14 +416,15 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 Trickplay sprites can be generated rather than only imported: a `trickplay` queue and worker, `POST /api/media/:id/trickplay` for an editor, and `trickplay.auto` for a library that wants them on import. Verified against real FFmpeg output, including that a partial final sheet is padded to the full grid.
 - 2026-09-04 Generated sheets carry a `manifest.json`, and the info route reports its interval and tile size rather than assuming ten seconds and opening a sheet.
 - 2026-09-04 Prefetch cancellation is per viewer: the player names its viewing, the playlists carry that name onto every segment request, and a seek abandons only the prefetches of the viewer who seeked.
+- 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
 
-- **No direct play.** Even `.mp4` sources are remuxed to MPEG-TS per segment for `original`; there
-  is no path that serves the source container to a capable browser via HLS, and the fMP4/CMAF HLS
-  variant is not used, so codecs MPEG-TS cannot carry (e.g. AV1, Opus in some players) cannot use
-  `original`.
+- **Direct play is per stream, not per file, and still a remux.** Since 2026-09-04 `original` is
+  offered whenever the *video* can be copied, re-encoding only audio a browser could not play; but
+  every segment is still remuxed into MPEG-TS, so a `.mp4` of H.264/AAC is repackaged rather than
+  served, and HEVC or AV1 cannot be offered at all. fMP4/CMAF is what would change that.
 - **The legacy `/video/:id` route still decides by extension.** Only the HLS paths use the probed
   codecs; the progressive route (used for audio and as a fallback) keeps the `.mp4`/`.webm` check.
 - **Only H.264 output, only stereo AAC audio, always letterboxed to 16:9 presets, no upscale guard,

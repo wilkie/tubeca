@@ -177,6 +177,8 @@ export const DIRECT_PLAY_AUDIO_CODECS = new Set(['aac', 'mp3']);
 export interface CodecInfo {
   streamType: string
   codec: string | null
+  /** Present when the caller knows it; needed to pick a named audio track. */
+  streamIndex?: number
 }
 
 /**
@@ -185,13 +187,35 @@ export interface CodecInfo {
  * available, only `.mp4` is trusted, since its usual H.264/AAC payload is
  * the common case and other containers routinely carry codecs HLS cannot carry.
  */
-export function isDirectPlayable(streams: CodecInfo[], filePath: string): boolean {
+/**
+ * Whether the video can be copied rather than re-encoded.
+ *
+ * This is the expensive half by a wide margin: on a 1080p episode, copying the
+ * video and encoding only the audio costs about a thirtieth of the CPU of
+ * re-encoding both. Nearly half of a real library is H.264 video with audio no
+ * browser will take — E-AC-3, AC-3, DTS — and re-encoding the picture to fix
+ * the sound is most of the work for none of the reason.
+ */
+export function isVideoCopyable(streams: CodecInfo[], filePath: string): boolean {
   const video = streams.filter((s) => s.streamType === 'Video');
-  const audio = streams.filter((s) => s.streamType === 'Audio');
   if (video.length === 0) {
     return path.extname(filePath).toLowerCase() === '.mp4';
   }
-  const videoOk = DIRECT_PLAY_VIDEO_CODECS.has((video[0].codec ?? '').toLowerCase());
-  const audioOk = audio.length === 0 || DIRECT_PLAY_AUDIO_CODECS.has((audio[0].codec ?? '').toLowerCase());
-  return videoOk && audioOk;
+  return DIRECT_PLAY_VIDEO_CODECS.has((video[0].codec ?? '').toLowerCase());
+}
+
+/** Whether the audio can be copied too, or has to be re-encoded to AAC. */
+export function isAudioCopyable(streams: CodecInfo[], audioTrack?: number): boolean {
+  const audio = streams.filter((s) => s.streamType === 'Audio');
+  if (audio.length === 0) return true;
+  const chosen =
+    audioTrack === undefined
+      ? audio[0]
+      : audio.find((s) => s.streamIndex === audioTrack) ?? audio[0];
+  return DIRECT_PLAY_AUDIO_CODECS.has((chosen.codec ?? '').toLowerCase());
+}
+
+/** Both halves: the file can be served with no encoding at all. */
+export function isDirectPlayable(streams: CodecInfo[], filePath: string): boolean {
+  return isVideoCopyable(streams, filePath) && isAudioCopyable(streams);
 }

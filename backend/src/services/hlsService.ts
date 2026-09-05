@@ -19,7 +19,8 @@ import {
   collectCacheStats,
   enforceCacheSize,
   evictMediaCache,
-  isDirectPlayable,
+  isAudioCopyable,
+  isVideoCopyable,
   sweepExpiredSegments,
 } from './hlsCache';
 import type { TranscodingSettings } from '@prisma/client';
@@ -122,6 +123,9 @@ export class HlsService {
   private cachePath: string;
   private defaultSegmentDuration: number;
   // Track in-progress segment generations to prevent concurrent generation of same segment
+  /** Whether a file's audio can be copied, by path and track; see `canCopyAudio`. */
+  private audioCopyCache = new Map<string, { copyable: boolean; expires: number }>();
+
   /** In-flight segment encodes keyed by `<variantPath>:<index>`, shared by player requests and prefetch. */
   private generatingSegments: Map<string, SegmentJob> = new Map();
   /** FFmpeg children still running, so they can be killed on shutdown. */
@@ -271,14 +275,47 @@ export class HlsService {
     return settings.segmentDuration || this.defaultSegmentDuration;
   }
 
-  /** Decide `original` eligibility from the probed stream codecs (see `isDirectPlayable`). */
+  /**
+   * Whether `original` can be offered: the video can be copied.
+   *
+   * The audio is a separate question. If it cannot be copied it is re-encoded
+   * to AAC while the picture is still copied, which costs a thirtieth of the
+   * CPU of re-encoding both and is what nearly half of a real library needs.
+   */
   async canDirectPlay(mediaId: string, filePath: string): Promise<boolean> {
-    const streams = await prisma.mediaStream.findMany({
+    return isVideoCopyable(await this.streamsOf(mediaId), filePath);
+  }
+
+  private async streamsOf(mediaId: string) {
+    return prisma.mediaStream.findMany({
       where: { mediaId },
-      select: { streamType: true, codec: true },
+      select: { streamType: true, codec: true, streamIndex: true },
       orderBy: { streamIndex: 'asc' },
     });
-    return isDirectPlayable(streams, filePath);
+  }
+
+  /**
+   * Whether the audio of this file can be copied, by the path FFmpeg reads.
+   *
+   * Answered from `Media.path`, which is unique, because the segment builder
+   * knows the file rather than the media id. Memoised briefly: it is asked once
+   * per segment and the answer only changes when a file is re-probed.
+   */
+  private async canCopyAudio(videoPath: string, audioTrack: string): Promise<boolean> {
+    const key = `${videoPath}:${audioTrack}`;
+    const cached = this.audioCopyCache.get(key);
+    if (cached && cached.expires > Date.now()) return cached.copyable;
+
+    const media = await prisma.media.findUnique({
+      where: { path: videoPath },
+      select: { id: true },
+    });
+    const streams = media ? await this.streamsOf(media.id) : [];
+    const index = audioTrack === 'default' ? undefined : Number(audioTrack);
+    const copyable = isAudioCopyable(streams, Number.isFinite(index) ? index : undefined);
+
+    this.audioCopyCache.set(key, { copyable, expires: Date.now() + 30_000 });
+    return copyable;
   }
 
   /**
@@ -776,9 +813,15 @@ export class HlsService {
     }
 
     if (isOriginal) {
-      // Stream copy for original quality
+      // The picture is copied either way: that is the whole point of this rung
+      // and the bulk of the CPU. Only the sound is re-encoded, and only when a
+      // browser could not have played it.
       ffmpegArgs.push('-c:v', 'copy');
-      ffmpegArgs.push('-c:a', 'copy');
+      if (await this.canCopyAudio(videoPath, audioTrack)) {
+        ffmpegArgs.push('-c:a', 'copy');
+      } else {
+        ffmpegArgs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
+      }
       // For stream copy, keep original timestamps and let mpegts handle them
       ffmpegArgs.push('-copyts');
       // Set the output timestamp offset to match expected segment position

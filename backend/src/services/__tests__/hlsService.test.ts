@@ -142,6 +142,88 @@ describe('HlsService playlist synthesis', () => {
       expect(await service.getAvailableQualities(mp4.id)).not.toContain(ORIGINAL_QUALITY);
       expect(await service.generateMasterPlaylist(mkv.id)).toContain(`${ORIGINAL_QUALITY}.m3u8`);
     });
+
+    it('offers Original for a picture it can copy, whatever the sound is', async () => {
+      // Nearly half of a real library: H.264 with audio no browser will take.
+      const media = await createVideoMedia({ path: '/media/eac3.mkv', duration: 100 });
+      await prisma.mediaStream.createMany({
+        data: [
+          { mediaId: media.id, streamIndex: 0, streamType: 'Video', codec: 'h264' },
+          { mediaId: media.id, streamIndex: 1, streamType: 'Audio', codec: 'eac3' },
+        ],
+      });
+
+      expect(await service.getAvailableQualities(media.id)).toContain(ORIGINAL_QUALITY);
+    });
+  });
+
+  describe('what the original rung actually encodes', () => {
+    /** The FFmpeg arguments for one original segment of this media. */
+    async function argsFor(streams: Array<{ streamType: string; codec: string }>, audioTrack = 'default') {
+      const media = await createVideoMedia({
+        path: `/media/${Math.random().toString(36).slice(2)}.mkv`,
+        duration: 100,
+      });
+      await prisma.mediaStream.createMany({
+        data: streams.map((stream, index) => ({
+          mediaId: media.id,
+          streamIndex: index,
+          streamType: stream.streamType as 'Video' | 'Audio',
+          codec: stream.codec,
+        })),
+      });
+      spawned.length = 0;
+      void service.getSegment(media.id, ORIGINAL_QUALITY, 0, audioTrack);
+      // The decision reads the database, so more than a tick may pass before
+      // FFmpeg is spawned.
+      for (let attempt = 0; attempt < 50 && spawned.length === 0; attempt++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const args = spawned[0]?.args ?? [];
+      // Let it finish: an unfinished encode holds a transcode slot, and the
+      // next case would wait behind it forever.
+      spawned[0]?.emit('close', 1);
+      await new Promise((resolve) => setImmediate(resolve));
+      return args;
+    }
+
+    /** The value FFmpeg was given for a flag, so `-c:v copy` cannot answer for `-c:a`. */
+    const valueOf = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+    it('copies both streams when the sound is already playable', async () => {
+      const args = await argsFor([
+        { streamType: 'Video', codec: 'h264' },
+        { streamType: 'Audio', codec: 'aac' },
+      ]);
+
+      expect(valueOf(args, '-c:v')).toBe('copy');
+      expect(valueOf(args, '-c:a')).toBe('copy');
+    });
+
+    it('copies the picture and re-encodes only the sound when it has to', async () => {
+      const args = await argsFor([
+        { streamType: 'Video', codec: 'h264' },
+        { streamType: 'Audio', codec: 'eac3' },
+      ]);
+
+      // The picture is the expensive half; it is still copied.
+      expect(valueOf(args, '-c:v')).toBe('copy');
+      expect(valueOf(args, '-c:a')).toBe('aac');
+    });
+
+    it('judges the track that was asked for, not merely the first', async () => {
+      const args = await argsFor(
+        [
+          { streamType: 'Video', codec: 'h264' },
+          { streamType: 'Audio', codec: 'aac' },
+          { streamType: 'Audio', codec: 'dts' },
+        ],
+        '2'
+      );
+
+      expect(valueOf(args, '-c:a')).toBe('aac');
+      expect(valueOf(args, '-c:v')).toBe('copy');
+    });
   });
 
   describe('segment generation lifecycle', () => {

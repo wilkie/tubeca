@@ -123,6 +123,10 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- A file whose picture the browser can play but whose sound it cannot — nearly half of a typical
+  library, anything with AC-3, E-AC-3 or DTS audio — is no longer re-encoded in full. The picture
+  is passed through untouched and only the sound is converted, which on a 1080p episode is about a
+  thirtieth of the work and the difference between keeping up and falling behind.
 - Both scrapers share one pooled connection and DNS cache, so TVDB gets the treatment TMDB had for
   network mounts where name lookups are slow. TVDB also keeps the top twenty credits of a title
   rather than all sixty, as TMDB does.
