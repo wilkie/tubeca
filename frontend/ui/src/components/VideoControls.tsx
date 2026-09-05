@@ -10,6 +10,8 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   PlayArrow,
@@ -228,6 +230,13 @@ export function VideoControls({
 }: VideoControlsProps) {
   const navigate = useNavigate();
   const sliderRef = useRef<HTMLDivElement>(null);
+  const theme = useTheme();
+  // The full player's control row does not fit a phone: seven icon buttons, a
+  // volume slider and a time readout want more than 360px. On a narrow screen
+  // the time moves under the progress bar and the volume slider goes, leaving
+  // the buttons the width they need. The mini player has its own `compact`
+  // treatment already and is not affected.
+  const narrow = useMediaQuery(theme.breakpoints.down('sm')) && !compact;
 
   // Audio track menu state
   const [audioMenuAnchor, setAudioMenuAnchor] = useState<null | HTMLElement>(null);
@@ -390,14 +399,19 @@ export function VideoControls({
           right: 0,
           zIndex: 10, // Above video element
           background: compact ? 'rgba(0,0,0,0.8)' : 'linear-gradient(transparent, rgba(0,0,0,0.8))',
-          padding: compact ? 1 : 2,
+          padding: compact || narrow ? 1 : 2,
           opacity: showControls ? 1 : 0,
           transition: 'opacity 0.3s',
         }}
       >
         {/* Title - not shown in compact mode */}
         {title && !compact && (
-          <Typography variant="subtitle1" sx={{ color: 'white', mb: 1 }}>
+          <Typography
+            variant={narrow ? 'body2' : 'subtitle1'}
+            noWrap
+            title={title}
+            sx={{ color: 'white', mb: narrow ? 0.5 : 1 }}
+          >
             {title}
           </Typography>
         )}
@@ -466,8 +480,20 @@ export function VideoControls({
           />
         </Box>
 
+        {/* Time, when the controls row has no space for it */}
+        {narrow && (
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+            <Typography variant="caption" sx={{ color: 'white' }}>
+              {formatTime(currentTime)}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'white' }}>
+              {formatTime(duration)}
+            </Typography>
+          </Box>
+        )}
+
         {/* Controls row */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: compact ? 0.5 : 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: compact || narrow ? 0.5 : 1 }}>
           {showSkipPrevious && onSkipPrevious && (
             <IconButton
               onClick={onSkipPrevious}
@@ -494,7 +520,7 @@ export function VideoControls({
             </IconButton>
           )}
 
-          {!compact && (
+          {!compact && !narrow && (
             <Typography variant="body2" sx={{ color: 'white', minWidth: 100 }}>
               {formatTime(currentTime)} / {formatTime(duration)}
             </Typography>
@@ -507,7 +533,7 @@ export function VideoControls({
             {isMuted ? <VolumeOff fontSize={compact ? 'small' : 'medium'} /> : <VolumeUp fontSize={compact ? 'small' : 'medium'} />}
           </IconButton>
 
-          {!compact && (
+          {!compact && !narrow && (
             <Slider
               value={isMuted ? 0 : volume}
               max={1}

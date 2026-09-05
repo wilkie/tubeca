@@ -1,4 +1,11 @@
-import { render, screen, waitFor, fireEvent } from '../../test-utils';
+import {
+  DEFAULT_VIEWPORT_WIDTH,
+  fireEvent,
+  render,
+  screen,
+  setViewportWidth,
+  waitFor,
+} from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import {
   VideoControls,
@@ -240,6 +247,60 @@ describe('VideoControls', () => {
       // In compact mode there's only the seek slider
       const sliders = container.querySelectorAll('.MuiSlider-root');
       expect(sliders.length).toBe(1); // Only seek slider
+    });
+  });
+
+  describe('on a phone-sized screen', () => {
+    const PHONE_WIDTH = 380;
+
+    afterEach(() => setViewportWidth(DEFAULT_VIEWPORT_WIDTH));
+
+    it('drops the volume slider, which the row has no room for', () => {
+      setViewportWidth(PHONE_WIDTH);
+      const { container } = render(<VideoControls {...defaultProps} />);
+
+      // The seek slider is all that is left; muting is still a button.
+      expect(container.querySelectorAll('.MuiSlider-root')).toHaveLength(1);
+      expect(screen.getByTestId('VolumeUpIcon')).toBeInTheDocument();
+    });
+
+    it('moves the time under the progress bar rather than into the row', () => {
+      setViewportWidth(PHONE_WIDTH);
+      render(<VideoControls {...defaultProps} currentTime={125} duration={3600} />);
+
+      // Two readouts rather than one "2:05 / 1:00:00".
+      expect(screen.getByText('2:05')).toBeInTheDocument();
+      expect(screen.getByText('1:00:00')).toBeInTheDocument();
+      expect(screen.queryByText('2:05 / 1:00:00')).not.toBeInTheDocument();
+    });
+
+    it('keeps the controls a phone actually needs', () => {
+      setViewportWidth(PHONE_WIDTH);
+      render(
+        <VideoControls
+          {...defaultProps}
+          audioTracks={[
+            { streamIndex: 1, language: 'eng', title: null, channels: 2, channelLayout: 'stereo', isDefault: true },
+            { streamIndex: 2, language: 'fra', title: null, channels: 2, channelLayout: 'stereo', isDefault: false },
+          ]}
+          subtitleTracks={[
+            { streamIndex: 3, language: 'eng', title: null, isDefault: false, isForced: false, url: '/s.vtt' },
+          ]}
+          showFullscreenButton
+          onFullscreenToggle={jest.fn()}
+        />
+      );
+
+      expect(screen.getByLabelText('Select subtitle track')).toBeInTheDocument();
+      expect(screen.getByLabelText('Select audio track')).toBeInTheDocument();
+      expect(screen.getByTestId('FullscreenIcon')).toBeInTheDocument();
+    });
+
+    it('leaves a desktop-width player as it was', () => {
+      const { container } = render(<VideoControls {...defaultProps} currentTime={125} duration={3600} />);
+
+      expect(container.querySelectorAll('.MuiSlider-root')).toHaveLength(2);
+      expect(screen.getByText('2:05 / 1:00:00')).toBeInTheDocument();
     });
   });
 

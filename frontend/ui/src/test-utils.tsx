@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
-import { render, type RenderOptions } from '@testing-library/react';
+import { act, render, type RenderOptions } from '@testing-library/react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { MemoryRouter } from 'react-router-dom';
 import { ScrollRestorationProvider } from './context/ScrollRestorationContext';
@@ -90,3 +90,18 @@ const customRender = (
 // Re-export everything
 export * from '@testing-library/react';
 export { customRender as render };
+
+/** jsdom's own default, and what every test starts at. */
+export const DEFAULT_VIEWPORT_WIDTH = 1024;
+
+/**
+ * Render at a given viewport width. `jest.setup.ts` answers `matchMedia` from
+ * `window.innerWidth`, so this is what makes a narrow-screen layout testable.
+ */
+export function setViewportWidth(width: number): void {
+  // Anything already rendered re-reads its media queries, which is a React
+  // update like any other.
+  act(() => {
+    (globalThis as unknown as { setViewportWidth: (w: number) => void }).setViewportWidth(width);
+  });
+}

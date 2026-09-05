@@ -38,9 +38,8 @@
 - **One controls component.** `VideoControls` is shared by the full player and the mini player
   via a `compact` flag; menus are rendered inside the player container so they work in fullscreen.
 
-What the code does *not* optimise for: a phone-shaped layout — the controls are the desktop ones at
-desktop sizes (see Known Limitations). Resume and watched state were added on 2026-09-03; touch
-input on 2026-09-04.
+Resume and watched state were added on 2026-09-03, touch input on 2026-09-04, and a phone-shaped
+layout on 2026-09-05.
 
 ## Components
 
@@ -354,6 +353,7 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - 2026-09-04 A failed progress report is retried on a backoff instead of being dropped, and search results show watched badges.
 - 2026-09-04 Watched badges extended to favourites, watch later, the queue and user collections.
 - 2026-09-04 `POST`/`DELETE /api/watch/collections/:id` mark or forget a whole subtree; "Mark all watched" on the collection menu.
+- 2026-09-05 The player fits a phone: `MiniPlayer` scales with the viewport (55% of the width, 180-320px, 16:9) and the full controls drop the volume slider and move the time under the progress bar below `sm`.
 - 2026-09-04 Player converted from mouse events to pointer events: touch drag of the mini player, scrub previews, tap-to-reveal controls.
 
 ## Known Limitations
@@ -367,10 +367,10 @@ Collections in libraries the user cannot access are omitted from the summaries e
   retries on a backoff until it lands (2026-09-04), but the `keepalive` report on `pagehide` has
   no page left to retry from, so a viewer who closes a tab exactly when the network drops still
   loses that position. Nothing is written to local storage to recover it later.
-- **The player's layout is not adapted for small screens.** Touch input works as of 2026-09-04,
-  but `MiniPlayer` is a fixed 320x180 pinned to a corner and the full player's control row is the
-  desktop one; on a phone in portrait the buttons are close together and the mini player covers a
-  large fraction of the screen.
+- **The player's chrome adapts, its menus do not.** Below `sm` the control row sheds its volume
+  slider and moves the time under the progress bar, and `MiniPlayer` scales with the viewport, but
+  the quality, audio and subtitle menus are still desktop `Menu`s anchored to small buttons rather
+  than sheets, and the mini player's four corners are the same four corners whatever the screen.
 
 - **Safari's native HLS path worked only as far as the master playlist** until 2026-09-04: the
   variant and segment URIs carried no token, and a `<video>` element cannot be given headers, so
@@ -410,9 +410,8 @@ Collections in libraries the user cannot access are omitted from the summaries e
   `initHls` and `setAudioTrack`, so stability tracking and recovery apply to audio switches too.
   Prefer `hls.audioTrack`-style switching later if the backend exposes alternate audio renditions.
 
-- **A phone layout for the player** (M): a mini player sized to the viewport rather than a fixed
-  320x180, and a control row that drops to the essentials at `xs`. Touch input itself landed
-  2026-09-04.
+- **Bottom sheets for the player's menus on a phone** (S): quality, audio and subtitle selection
+  are `Menu`s sized for a pointer. Touch input landed 2026-09-04 and the layout 2026-09-05.
 - **Cheaper continuation** (S): skip next-episode resolution until `duration - currentTime < 60`
   or when in mini mode; sort seasons by `seasonDetails.seasonNumber` once the summary carries it.
 - **Gate HLS debug logging** (S) behind `import.meta.env.DEV` or `debug: true`.

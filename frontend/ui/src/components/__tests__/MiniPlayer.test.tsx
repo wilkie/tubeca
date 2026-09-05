@@ -1,6 +1,13 @@
-import { render, screen, fireEvent, waitFor } from '../../test-utils';
+import {
+  DEFAULT_VIEWPORT_WIDTH,
+  fireEvent,
+  render,
+  screen,
+  setViewportWidth,
+  waitFor,
+} from '../../test-utils';
 import userEvent from '@testing-library/user-event';
-import { MiniPlayer } from '../MiniPlayer';
+import { MiniPlayer, miniPlayerSize } from '../MiniPlayer';
 import { usePlayer } from '../../context/PlayerContext';
 import { act, createRef } from 'react';
 
@@ -449,6 +456,33 @@ describe('MiniPlayer', () => {
 
       expect(togglePlay).toHaveBeenCalled();
       jest.useRealTimers();
+    });
+  });
+
+  describe('sizing', () => {
+    afterEach(() => setViewportWidth(DEFAULT_VIEWPORT_WIDTH));
+
+    it('fills a desktop corner at its full size', () => {
+      expect(miniPlayerSize(1440)).toEqual({ width: 320, height: 180 });
+    });
+
+    it('takes about half a phone rather than most of it', () => {
+      // 320px on a 390px screen leaves the page all but covered.
+      expect(miniPlayerSize(390)).toEqual({ width: 215, height: 121 });
+      expect(miniPlayerSize(360)).toEqual({ width: 198, height: 111 });
+    });
+
+    it('stops shrinking before the controls stop fitting', () => {
+      expect(miniPlayerSize(200)).toEqual({ width: 180, height: 101 });
+    });
+
+    it('follows the window when it changes', () => {
+      render(<MiniPlayer {...defaultProps} />);
+      expect(getPaperElement()).toHaveStyle({ width: '320px' });
+
+      setViewportWidth(390);
+
+      expect(getPaperElement()).toHaveStyle({ width: '215px' });
     });
   });
 });

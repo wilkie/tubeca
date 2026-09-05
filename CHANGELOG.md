@@ -73,6 +73,10 @@ All notable changes to Tubeca are recorded here. The format follows
 - Original quality no longer skips. Each six-second segment held about four seconds of picture,
   because the seek was placed where FFmpeg counted the part it threw away against the length asked
   for, so playback jumped forward at every segment boundary.
+- The player fits a phone. The floating mini player scales with the screen instead of sitting at a
+  fixed 320 pixels wide — which on a phone covered most of the page — and the full player's control
+  row drops the volume slider and moves the time under the progress bar, so the buttons stop
+  crowding each other.
 - The player works by touch. The mini player can be dragged with a finger, dragging along the
   progress bar shows the preview frames a mouse got on hover, and a tap brings the controls back
   instead of pausing — before this, a touch device could start something playing and then not

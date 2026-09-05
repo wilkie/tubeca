@@ -23,6 +23,48 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   },
 });
 
+// jsdom implements no matchMedia, so every `useMediaQuery` would answer "no"
+// and a component's narrow-screen layout could never be tested. This answers
+// min-width and max-width queries from `window.innerWidth`, which a test sets.
+const mediaQueryListeners = new Set<(event: MediaQueryListEvent) => void>();
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => {
+    const matches = () => {
+      const min = /\(min-width:\s*([\d.]+)px\)/.exec(query);
+      const max = /\(max-width:\s*([\d.]+)px\)/.exec(query);
+      if (min && window.innerWidth < Number(min[1])) return false;
+      if (max && window.innerWidth > Number(max[1])) return false;
+      return Boolean(min || max);
+    };
+    return {
+      get matches() {
+        return matches();
+      },
+      media: query,
+      onchange: null,
+      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) =>
+        mediaQueryListeners.add(listener),
+      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) =>
+        mediaQueryListeners.delete(listener),
+      addListener: (listener: (event: MediaQueryListEvent) => void) => mediaQueryListeners.add(listener),
+      removeListener: (listener: (event: MediaQueryListEvent) => void) =>
+        mediaQueryListeners.delete(listener),
+      dispatchEvent: () => false,
+    };
+  },
+});
+
+/** Resize the window a test is rendering into, and tell whoever is listening. */
+Object.defineProperty(globalThis, 'setViewportWidth', {
+  writable: true,
+  value: (width: number) => {
+    Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: width });
+    for (const listener of mediaQueryListeners) listener({} as MediaQueryListEvent);
+    window.dispatchEvent(new Event('resize'));
+  },
+});
+
 // jsdom implements no pointer events, but the player handles mouse, touch and
 // pen through them. A MouseEvent carrying pointerType is enough for tests.
 if (typeof (globalThis as { PointerEvent?: unknown }).PointerEvent === 'undefined') {
