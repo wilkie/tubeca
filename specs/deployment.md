@@ -317,16 +317,14 @@ the initial commit) is therefore already ignored and is simply leftover output; 
   but Node needs `--enable-source-maps` to use them; the units do not pass it).
 - **Arch-only, local-source packaging**: `source=git+file://${startdir}` only packages committed
   HEAD; there are no tags, so versions are non-monotonic across branches.
-- **No backups, no upgrade notes**: `INSTALL.md` says "the package automatically runs database
-  migrations on upgrade" but nothing snapshots `tubeca.db` first; the compose file has no backup
-  sidecar either.
+- **The compose file has no backup sidecar.** The systemd install snapshots the database before
+  every migration and runs a daily `tubeca-backup.timer` keeping seven copies (2026-09-04), but a
+  Docker deployment is on its own, and `INSTALL.md` still does not say what an upgrade does.
 - **CI and publishing are unverified on GitHub**: the workflow was written without a GitHub
   run; the Docker image was built and booted locally. The first tag push will exercise the
   GHCR publish path (it needs the repository's package visibility set as desired).
-- **Database lives under `/opt/tubeca/backend/prisma`**, mixed with code, and `post_remove`
-  leaves it there while `pacman -R` deletes the surrounding tree's ownership context.
-- `DATA_DIR` written by `systemd/install.sh` is unused by the backend; `LICENSE` referenced by
-  the PKGBUILD does not exist.
+- `DATA_DIR` (`/opt/tubeca/data`) is written into `.env` by `systemd/install.sh` and read by
+  nothing; `LICENSE`, referenced by the PKGBUILD, does not exist.
 
 ## Opportunities
 

@@ -404,8 +404,6 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - **Next-episode from Continue Watching** (S): when a completed episode has a successor, show
   the successor in the strip instead of dropping the show.
 
-
-
 - **Extract `createHls(config, events)`** (S): one config object and one event wiring for
   `initHls` and `setAudioTrack`, so stability tracking and recovery apply to audio switches too.
   Prefer `hls.audioTrack`-style switching later if the backend exposes alternate audio renditions.

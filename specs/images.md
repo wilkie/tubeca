@@ -222,11 +222,14 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 
 ## Known Limitations
 
-- Candidates only come from people: scrapers still supply one image per type, so a second candidate exists only where someone uploaded one or fetched one by URL. There is no gallery of provider alternatives to choose from.
+- Candidates come from the provider as of 2026-09-04, but a scrape still *saves* one image per
+  type, so the stored set is one deep until someone picks another from the gallery or uploads one.
 - Resizing happens on request, not on ingest: the first request for a given `?size=` writes the variant next to the original, so the very first viewer of a poster grid pays for it. Only four widths exist (`w200`, `w400`, `w780`, `w1280`) and the original is served for SVGs, for images already narrower than the request, and whenever sharp fails.
 - No dedup or hashing: the same person photo is downloaded once per entity directory. A scrape now skips the fetch when the source URL is unchanged, but any download that does happen overwrites in place, bumping `updatedAt` and `Last-Modified`; a provider that moves a URL without changing the bytes still re-downloads.
-- Orphaned files: a format change (`poster.jpg` then `poster.png`) and identify's `deleteMany` leave files behind; there is no sweep. (Library deletion, watcher-driven media deletion and scan reconciliation clean up through `ContentDeletionService` since 2026-09-03.)
-- No library-level authorisation on `/api/images/:id/file`; any valid token can fetch any image by UUID.
+- Orphaned files: a format change (`poster.jpg` then `poster.png`) leaves the old file behind, and
+  there is no sweep that diffs the disk against `Image.path`. Identify no longer contributes —
+  `deleteCollectionImages` removes the files with the rows — and library deletion, watcher-driven
+  media deletion and scan reconciliation all go through `ContentDeletionService`.
 - JWT in the query string of every image URL: it lands in server logs, browser history and any `Referer`, and the `public` cache directive makes the token-bearing URL cacheable by intermediaries. URLs also change whenever the token changes, defeating browser caching across logins.
 - **A scraper that declares no `imageHosts` disables the host check for every scraper**, since the
   list is a union and an empty union means "do not check". A third-party plugin without the field
@@ -247,7 +250,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
   TVDB's host. Keying it on the scraper that actually produced the URL means passing that down from
   `scrapeApply` rather than reading the request body's `scraperId`, which a caller controls.
 - **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
-- **Orphan cleanup** (S): make identify go through `ContentDeletionService.imagePathsFor`, and add an admin "prune images" job that diffs disk against `Image.path`.
+- **Orphan cleanup** (S): an admin "prune images" job that diffs the disk against `Image.path`, for the files a format change leaves behind. Identify was the other source and goes through `ContentDeletionService` now.
 - **Cookie auth for image URLs** (M): a `SameSite` cookie would keep tokens out of URLs entirely; today they carry a short-lived media-scoped token. This would also let us drop `public` from a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.
 - **Static serving** (S/M): expose the image directory via `express.static` behind the same auth, or document a reverse-proxy `X-Accel-Redirect` path for production.
 - **Fix `QueuePage` selection** (S) and delete the `Still` lookup on `MediaPage` or start producing `Still` images from the episode still URL.

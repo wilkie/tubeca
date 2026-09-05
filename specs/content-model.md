@@ -350,8 +350,6 @@ Commits touching the schema, migrations, the three services/routes and shared ty
   CollectionPage, MediaPage and PersonPage only.
 - Shared-type drift: `Image` lacks `filmCreditId`; `Collection.media` under-types what the detail
   endpoint returns; `PersonWithFilmography` and `Create/UpdateCollectionInput` are duplicated.
-- Dead code: `getCollectionsByLibrary`, `searchMedia`, `processMedia`, `updateMedia`,
-  `getPersonByExternalId` have no callers.
 
 ## Opportunities
 

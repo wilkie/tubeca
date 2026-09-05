@@ -225,9 +225,10 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **Scoring is title+year only**: `originalTitle` and alternative titles are not compared, so a folder named in a different language than the provider's `en-US` title scores low and is reported as no match; the threshold is a constant, not configurable.
 - **Locale is only partly configurable**: `language`, `region` and `imageSize` now reach the plugins from config, but `include_image_language=en,null` and the US certification lookup are still hard-coded in the TMDB plugin, as is TVDB's `country === 'usa'`.
 - **TVDB's films are a separate record**: `searchVideo` queries `type: 'movie'` only when asked for one, and a film's id (`movie-1305`) routes to `/movies/{id}/extended` rather than the series endpoint. A film keeps its overview in translations, like a season, so it costs a second request when one exists in the configured language.
-- **TVDB's tags are broader than TMDB's keywords**: they are categorised (`tagName`) into Sub-Genre, Geographic Location, Time Period and more, and all of them are taken as keywords, so a show arrives tagged "America / United States", "North America", "2000s" and "2010s" alongside "Dark Comedy". They are real facets and searchable, but they widen the keyword filter chips on a library page. Filtering to a few categories would be a one-line change if it becomes noise.
+- **TVDB's tags are broader than TMDB's keywords**: they are categorised (the option's `name`) into Sub-Genre, Geographic Location, Time Period and more, and all of them are taken as keywords, so a show arrives tagged "America / United States", "North America", "2000s" and "2010s" alongside "Dark Comedy". They are real facets and searchable, but they widen the keyword filter chips on a library page. Filtering to a few categories would be a one-line change if it becomes noise.
 - **Music is unimplemented**: the Artist/Album worker branches and `scrapeAudioMetadata` remain stubs, but since 2026-09-03 nothing enqueues them (`ImportService` skips Artist/Album collections and Audio media), so they only run if a job is added by hand.
-- **Status is per item, not per library**: there is no list of unmatched items or a count on the library page; refresh buttons still return before the job runs, and the page does not poll, so a user sees `Pending` until they reload. Identify still reloads the page before new data or images exist.
+- **A refresh still returns before its job runs, and the page does not poll**, so an item stays at
+  `Pending` until the user reloads. The library-level view of unmatched items landed 2026-09-05.
 - **TMDB still returns `null` for both "missing" and "error"** on by-id fetches; the worker treats both as a retryable failure for identified items, which means a genuinely deleted TMDB entry will be retried three times and then sit at `Failed`. `getVideoMetadata` is worse than that: its `try/catch` returns the movie and tv promises rather than awaiting them, so a TMDB error is thrown past the catch instead of becoming `null`. The result is the same `Failed` either way, so it is pinned by a test rather than changed; fixing it belongs with the opportunity below, which decides what a miss should mean.
 - **A failed show scrape strands its seasons**: seasons are queued from the show job's success path, so a show that ends in `NoMatch` or `Failed` leaves its seasons unscraped until the next scan, even when `ShowDetails` still holds a usable identity from an earlier run.
 - **Media rows cannot be refreshed by ID or identified**: `VideoDetails` lacks `scraperId`/`externalId`; media-level refresh re-searches by name, and there is no Identify for episodes.
@@ -236,10 +237,6 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **The response cache is per process and per worker**: nothing is shared with the API process or across a restart, and image downloads are not cached at all, so the plugin's own internal calls (`/images`, and the `/tv/{id}` lookup inside `getEpisodeMetadata`) are only deduplicated when they happen to go through a cached worker call.
 - **Sequential, non-transactional credit rewrite**: `deleteMany` then per-credit `create` (+ person lookup + photo fetch) runs outside a transaction; a crash mid-way leaves a collection with partial credits.
 - **Secrets were in history**: `tubeca.config.json` with live keys was committed early on; it was purged from history and the keys rotated on 2026-09-03, but clones from before that date still carry it.
-- **A provider error on a season is a miss, not a retry**: `scrapeSeasonMetadata` catches
-  everything `getSeasonMetadata` throws and returns `No season metadata found`, so the season is
-  recorded `NoMatch` and never retried, while the same timeout on a show or film job is recorded
-  `Failed` and retried by BullMQ. Pinned by a test on 2026-09-04.
 - **Tests**: the plugins and the loader are covered as of 2026-09-04 (a stubbed `fetch`, no fixtures on disk), the workers as of the same day (job-level tests against a captured BullMQ processor, with the scrapers, the apply helpers and the cache mocked), as are the pieces pulled out of them (`scrapeApply`, `scrapeCascade`, `scrapeCache`, `collectionScrapePlan`, `imageService`, `getScraperConfigs`, `scrapeMatching`, `scrapeResolution`, `mediaParser`). The search and identify routes were covered on the same day, which leaves nothing in this area untested.
 
 ## Opportunities
@@ -250,9 +247,6 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **Poll `scrapeStatus` after Refresh or Identify** (S) so a `Pending` row resolves without a
   reload. The library-level overview landed 2026-09-05; this is the other half of that item, and
   it belongs on the collection and media pages rather than the overview.
-- **Make a season's provider error retryable** (S): `scrapeSeasonMetadata` should return a
-  `failed` attempt for a transient error rather than swallowing it into `NoMatch`, the way the
-  show and film paths already do.
 - **Real plugin discovery** (M): scan `scrapers/*` or a configured directory for packages with `pluginType: "scraper"` instead of hard-coded imports, and expose `scraperManager.list()` in an admin UI.
 - **Music scrapers** (L): implement MusicBrainz (or similar) against the already-defined `AudioMetadata`/`ArtistMetadata`/`AlbumMetadata` shapes and the stubbed worker branches.
 - **Move `parseTitleAndYear` to a runtime shared package** (S): the frontend copy exists only because `shared-types` is types-only; a small `@tubeca/shared-utils` would remove the drift risk between the two parsers.

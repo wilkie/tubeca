@@ -297,37 +297,34 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
   keys or a `DATABASE_URL` pointing at an unmigrated file starts the server normally. Only
   `JWT_SECRET` is checked.
 - Config file changes require a restart; DB settings take up to 60 s to apply due to stacked caches.
-- Workers run inside the API process: a heavy scan or transcode competes with request handling, and
-  the API cannot be scaled or restarted independently of in-flight jobs.
+- Workers run in the API process unless `TUBECA_ROLE` splits them out, and `all` is the default, so
+  an ordinary install still has a heavy scan or transcode competing with request handling.
 - Shutdown is racy (three competing signal handlers, `server.close` not awaited) and startup
   failures are unhandled rejections.
-- `/api/health` ignores Redis, ffmpeg and worker liveness; Redis outages are only visible in logs.
+- `/api/health` checks the database, and Redis where the role uses queues, but not ffmpeg or
+  whether the workers are actually running.
 - `console.*` logging with no levels; Prisma query logging floods development output.
-- `hlsCache.maxSizeGB` is documented in the type but never enforced.
 - `swagger.servers` and the `docs:generate` output are pinned to `localhost:3000`.
 - Transcoding tab strings use inline i18n fallbacks; `en.json` only defines the six General keys.
-- Tests: no backend tests for `appConfig`, settings routes, transcoding settings or bootstrap;
-  `SettingsPage.test.tsx` covers only the General tab.
+- Tests: `appConfig`, the settings routes and `transcodingSettingsService` are covered; bootstrap
+  (`createInitialAdmin`, role startup) is not, and `SettingsPage.test.tsx` covers only the General
+  tab.
 
 ## Opportunities
 
 - Introduce a single typed config module (e.g. zod schema over env + file) that validates once at
   startup and logs the effective configuration, extending the `JWT_SECRET` check to the other
   layers. Rationale: removes the silent-default class of bugs above. (M)
-- Align `DATABASE_URL` defaults. (S)
 - Cache `loadAppConfig()` once per process (or inject the loaded config) and drop the second cache
   layer in `HlsService`, so settings apply within one TTL. (S)
 - Consolidate signal handling into `index.ts` (remove handlers from `database.ts`/`redis.ts`),
   await `server.close`, add `unhandledRejection`/`uncaughtException` handlers, and `.catch` the
   startup promise. (S)
-- Extend `/api/health` with Redis `PING`, worker `isRunning()` and ffmpeg availability; keep the
-  DB-only variant as a liveness probe. (S)
-- Add an opt-in worker/API split: guard worker construction behind a `RUN_WORKERS` env var or a
-  separate `worker.ts` entry so packaged installs can run them as a second unit. (M)
+- Extend `/api/health` with worker `isRunning()` and ffmpeg availability (S); the database and, for
+  a role that uses queues, Redis are already checked.
 - Adopt a structured logger (pino) with levels, and gate Prisma query logging behind its own flag.
   (M)
 - Expose file-backed settings (scraper keys, watcher, paths) read-only in the Settings UI, and
   consider moving scraper keys to `SCRAPER_<ID>_API_KEY` env vars so all secrets live in `.env`. (M)
-- Either enforce `hlsCache.maxSizeGB` in `HlsCacheCleanupService` or remove it from the type. (S)
-- Tests: `appConfig` path resolution and precedence, settings routes (auth matrix incl. PATCH),
-  `transcodingSettingsService` cache invalidation, and the Transcoding tab of `SettingsPage`. (M)
+- Tests: `appConfig` path resolution and precedence (the existing file covers `getScraperConfigs`
+  only), bootstrap, and the Transcoding tab of `SettingsPage`. (S)

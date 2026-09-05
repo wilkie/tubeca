@@ -144,9 +144,9 @@ remains git-ignored; see [Metadata Scraping](metadata-scraping.md) and
 ### Test coverage
 
 The backend runs on a real-SQLite scaffolding (`backend/src/test/`: a migrated template database
-per run, one copy per Jest worker, factories, and supertest for routes). As of 2026-09-04 the
-workspace has 1,940 cases across five packages — 647 backend, 1,189 frontend, 96 across the two
-scraper plugins, and 8 in the shared HTTP package. Every backend service, route, middleware, worker and
+per run, one copy per Jest worker, factories, and supertest for routes). As of 2026-09-05 the
+workspace has 2,201 cases across five packages — 841 backend, 1,249 frontend, 100 across the two
+scraper plugins, and 11 in the shared HTTP package. Every backend service, route, middleware, worker and
 plugin has tests, and so does every frontend component, page, context and hook; what is left is
 what needs a real binary or a real Redis to say anything (`ffprobe`, the BullMQ producers) and
 three frontend files that are pure wiring (`App.tsx`, `main.tsx`, `theme.ts`).
@@ -156,10 +156,10 @@ nine months because `/:id` was registered first; sorting by release date, rating
 applied per page in memory, so infinite scroll was globally unordered; four icon buttons had no
 accessible name because a MUI `Tooltip` names the wrapper around a possibly-disabled child;
 typing a collection name into the multi-select bar lost letters to a `MenuList`'s type-ahead.
-Two behaviours were pinned as tests rather than changed, because the right answer is a decision
-rather than a fix: a provider error while fetching a season is recorded as a miss and never
-retried, and TMDB's `getVideoMetadata` throws past the `catch` that was meant to turn an error
-into `null`. The pre-commit hook runs `lint && typecheck && test` across every package, so none
+Two behaviours were pinned as tests rather than changed, because the right answer was a decision
+rather than a fix. One has since been decided: a provider error while fetching a season was
+recorded as a miss and never retried, and now returns a retryable failure. The other stands —
+TMDB's `getVideoMetadata` throws past the `catch` that was meant to turn an error into `null`. The pre-commit hook runs `lint && typecheck && test` across every package, so none
 of this can silently rot the way 29 frontend cases did between December and September.
 
 ### Blocking work and lifecycles
@@ -312,7 +312,7 @@ Ordered by user-visible value per unit of risk; sizes are the specs' estimates.
 
 Deferred beyond this round: music support (product decision), multi-arch images, plugin
 discovery, per-library group permissions, fMP4/CMAF segments, and the second locale. All ten
-landed on 2026-09-03.
+landed on 2026-09-03. Of the deferred list, fMP4/CMAF landed on 2026-09-05.
 
 ### Fourth round
 
@@ -335,18 +335,45 @@ Ranked 2026-09-03 from what the third round left behind; all four landed on 2026
 4. ~~**Test coverage**~~ Done 2026-09-03 to 2026-09-04, in eight batches: see the cross-cutting
    section above.
 
+### Fifth round
+
+Done 2026-09-04 and 2026-09-05, after the fourth round's coverage push freed the time.
+
+1. ~~**Finish TVDB**~~ Shows, seasons, films, episodes and people, verified against the live v4
+   API, with the mapping checked against the published schema
+   ([Metadata Scraping](metadata-scraping.md)).
+2. ~~**Make playback work away from a desk**~~ Safari and iOS play at all; the player takes touch
+   input; the player, and then the app around it, fit a phone
+   ([Playback](playback.md), [Frontend App](frontend-app.md)).
+3. ~~**Copy the picture instead of re-encoding it**~~ `original` copies whenever the codec allows,
+   became fragmented MP4, and now carries HEVC and AV1 with a declared `CODECS`. 82% of the library
+   copies its picture, against 74% before ([Streaming](streaming-and-transcoding.md)).
+4. ~~**Say what happened to the metadata**~~ Artwork galleries, and a per-library list of what did
+   not match ([Images](images.md), [Metadata Scraping](metadata-scraping.md)).
+5. ~~**Stop the server being pointed at itself**~~ Outbound fetches restricted to public http(s)
+   addresses at the connect layer, and artwork downloads to hosts a scraper claims
+   ([Images](images.md)).
+
 ### What is open now
 
-In rough order of what it costs a user:
+In rough order of what it costs a user. Every item here was checked against the code on
+2026-09-05; the specs' own Opportunities and Known Limitations were reconciled the same day, and
+around a dozen entries that described work already done were removed.
 
-- **Scraping**: nothing outstanding from this round. TVDB does shows, seasons, films, episodes
-  and people, all verified against the live API ([Metadata Scraping](metadata-scraping.md)).
-- **Streaming**: prefetch cancellation is by position rather than by viewer, so two people
-  watching the same file interfere with each other's prefetches
-  ([Streaming](streaming-and-transcoding.md)).
-- **Music**: hidden since 2026-09-03 rather than removed. Reviving it means tag reading, a
-  music scraper and an audio player; the alternative is pruning the schema
+- **Music**: hidden since 2026-09-03 rather than removed. Reviving it means tag reading, a music
+  scraper and an audio player; the alternative is pruning the schema. This is the one open item
+  that is a product decision rather than an engineering one
   ([Libraries](libraries-and-scanning.md)).
+- **The player speaks English regardless of locale**: five hard-coded strings and a bare "Off" in
+  `VideoControls`, on the one screen a viewer looks at longest ([Playback](playback.md)).
+- **Library access is all-or-nothing**: `Group` carries no capabilities, so an Editor cannot be
+  restricted to particular libraries ([Auth](auth-and-users.md)).
+- **Dialogs are still desktop-sized**: the chrome and the player adapt below `sm`, the dialogs and
+  `CastCrewGrid` do not ([Frontend App](frontend-app.md)).
+- **Image housekeeping**: no content hashing, so an unchanged file re-downloaded is rewritten in
+  place, and no sweep for the files a format change orphans ([Images](images.md)).
+- **`VideoPlayer.tsx` is dead** — nothing renders it, and its tests are the only thing keeping it
+  compiling ([Playback](playback.md)).
 
 ## Conventions for Maintaining These Specs
 

@@ -388,10 +388,12 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 
 ## Known Limitations
 
-- **The initial bundle is still 657 kB** (205 kB gzipped) after hls.js moved out of it: MUI,
-  react-router and i18next are all eager, and nothing is split below the route level.
-- **Expired tokens are not handled.** `request()` returns the backend error text on 401; nothing
-  clears the token or redirects, so every page shows "Invalid token"-style alerts until logout.
+- **The initial bundle is 670 kB** (209 kB gzipped), measured 2026-09-05, with hls.js a further
+  522 kB in its own chunk loaded on demand: MUI, react-router and i18next are all eager, and
+  nothing is split below the route level.
+- **A rejected session signs the app out but does not say why.** `request()` clears the token and
+  fires an `UNAUTHORIZED_EVENT` on any non-`/auth/` 401, so the app returns to the login screen in
+  one step; it arrives there with no message explaining that the session expired.
 - **Single locale in practice.** i18next is configured with a language detector but only `en`
   exists; many call sites rely on inline English defaults, and the two client error strings are
   untranslated.
@@ -404,9 +406,9 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   toggles and menu openers), restoration polls up to 50 frames, and a global `setInterval` runs
   for the app's lifetime. Only two pages participate; `CollectionPage` and `PersonPage` lose
   scroll position on back.
-- **Responsiveness is grid-only.** No `useMediaQuery`; library tabs in the header do not collapse,
-  `HeroSection` assumes viewport-height backdrops, `MediaListItem` fixes a 125px image column,
-  `Sidebar` is 250px, and `body` has `min-width: 320px`.
+- **Responsiveness stops at the chrome.** `useMediaQuery` reaches `Header`, `MediaListItem`,
+  `VideoControls` and `LibraryScrapeStatusPage`, and the heroes and grids carry breakpoints, but
+  every dialog is still desktop-sized and `CastCrewGrid` keeps its desktop card.
 - **Accessibility is partial.** Hover-only rating overlays, `CardActionArea` cards without
   labels, and the global keydown capture in `useQuickSearch` (which swallows printable keys
   anywhere outside inputs) are not keyboard- or screen-reader-friendly. Icon buttons wrapped in a

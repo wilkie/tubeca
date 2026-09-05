@@ -246,7 +246,7 @@ API calls return 403.
 - `requireRole` accepts a list but always resolves to the minimum level, so exact-role restrictions (e.g. "Editor but not Admin") are impossible; the API shape is misleading.
 
 - Frontend admin routes are registered for all roles; unauthorised users see empty pages with 403 errors instead of a redirect.
-- Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` and session invalidation (supertest), the last-admin guards, self-service password change, `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; `groups.ts` (admin-only enforcement, duplicate names, and the visibility consequence of deleting the last group on a library); there are still none for the query-token middlewares, `users.ts` or the search filter. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
+- Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` and session invalidation (supertest), the last-admin guards, self-service password change, `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; `groups.ts` (admin-only enforcement, duplicate names, and the visibility consequence of deleting the last group on a library); `users.ts`; the search group filter; and `streamAuth`'s `?token=` path in `stream.test.ts`. `imageAuth`'s query-token path is the one left. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
 
 ## Opportunities
 
@@ -255,5 +255,5 @@ API calls return 403.
 - **Route `AuthService` through `users.ts`** (S): drop the duplicated `bcrypt`/`SALT_ROUNDS` and use `authService.hashPassword`.
 
 - **Role-aware frontend routing** (S): an `AdminRoute` wrapper (or `requiredRole` prop on `ProtectedRoute`) so Viewers are redirected rather than shown broken admin pages.
-- **Remaining auth tests** (S): `streamAuth`/`imageAuth` query-token middlewares, the users and groups routers, and the search group filter, on the scaffolding in `backend/src/test/`.
+- **Remaining auth tests** (S): `imageAuth`'s query-token path specifically — `streamAuth` is covered by `stream.test.ts`, and the users and groups routers and the search group filter all have their own files now.
 - **Per-library permissions on groups** (L): `Group` currently carries no capabilities; a natural extension is a per-group edit flag so Editors can be restricted to specific libraries, which the current role ladder cannot express.

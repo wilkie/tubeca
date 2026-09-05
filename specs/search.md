@@ -251,11 +251,12 @@ the index holds keyword names rather than ids.
 - **Duplication.** The rating `OR`, keyword `AND` and name `contains` clauses are hand-built
   in both `search.ts` and `getPaginatedCollections`; the MPAA order and filter-badge UI are
   copied between SearchPage and LibraryPage; `mediaService.searchMedia` is an unused copy.
-- **Tests.** `search.ts` and `searchIndexService` are covered; there are none for
-  `getPaginatedCollections` or persons search. Frontend has `SearchPage.test.tsx` (render, navigation, filter toggle only — no
-  pagination, selection, or filter-application assertions) and `KeywordFilter.test.tsx`;
-  there are no tests for `useQuickSearch`, `useDebouncedValue`, `QuickSearchOverlay`,
-  `FilterChips`, `SortControls`, or LibraryPage/CollectionPage quick-search behaviour.
+- **Tests.** `search.ts` and `searchIndexService` are covered on the backend; there are none for
+  `getPaginatedCollections` or persons search. Every frontend piece named here has its own file
+  now — `SearchPage`, `KeywordFilter`, `useQuickSearch`, `useDebouncedValue`, `QuickSearchOverlay`,
+  `FilterChips`, `SortControls` — but `SearchPage.test.tsx` still asserts render, navigation, the
+  filter toggle and the watched badges rather than pagination, selection or filter application, and
+  quick-search behaviour on `LibraryPage`/`CollectionPage` is untested.
 
 ## Opportunities
 
