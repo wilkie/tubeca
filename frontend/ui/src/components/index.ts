@@ -2,4 +2,3 @@ export { Header } from './Header';
 export { ProtectedRoute } from './ProtectedRoute';
 export { Sidebar } from './Sidebar';
 export { LibraryDialog } from './LibraryDialog';
-export { VideoPlayer, type AudioTrackInfo, type SubtitleTrackInfo } from './VideoPlayer';

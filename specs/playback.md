@@ -50,10 +50,9 @@ layout on 2026-09-05.
 | `frontend/ui/src/components/VideoControls.tsx` | Presentational controls overlay: seek/volume sliders, trickplay preview, audio/subtitle/quality menus, fullscreen/expand/close/skip buttons. Also exports `formatTime`, `formatAudioTrackLabel`, `formatSubtitleTrackLabel`. |
 | `frontend/ui/src/components/MiniPlayer.tsx` | 320x180 fixed `Paper` snapped to one of four corners, mouse-draggable, hosts the video container plus compact controls. |
 | `frontend/ui/src/components/UpNextPopup.tsx` | Countdown card shown in the last 30 s with Start/Hide; dismissal is per next-item id. |
-| `frontend/ui/src/components/VideoPlayer.tsx` | Legacy self-contained player (pre-HLS, `start=`-offset seeking). Exported from `components/index.ts` but no page imports it; only its test does. |
 | `frontend/ui/src/api/client.ts:562-651` | URL builders: `getVideoStreamUrl`, `getAudioStreamUrl`, `getSubtitleUrl`, `getHlsMasterPlaylistUrl`, `getTrickplaySpriteUrl`; fetchers `getTrickplayInfo`, `getHlsQualities` (unused), `getPlaybackQueue`. |
 | `frontend/ui/src/main.tsx:31` | Mounts `PlayerProvider` inside `BrowserRouter`/`AuthProvider` (needed because `VideoControls` calls `useNavigate`). |
-| `frontend/ui/src/components/__tests__/{VideoPlayer,VideoControls,MiniPlayer}.test.tsx`, `context/__tests__/PlayerContext.test.tsx`, `pages/__tests__/PlayPage.test.tsx` | Jest/RTL coverage (6a4f5a8, 1a2a410). |
+| `frontend/ui/src/components/__tests__/{VideoControls,MiniPlayer}.test.tsx`, `context/__tests__/PlayerContext.test.tsx`, `pages/__tests__/PlayPage.test.tsx` | Jest/RTL coverage (6a4f5a8, 1a2a410). |
 
 ## How It Works
 
@@ -149,8 +148,8 @@ Two mechanisms coexist:
   playlist is a full VOD list, so HLS.js jumps straight to the segment containing `time`; nothing
   about "start" is sent. Slider `onChange` only updates displayed time; `onChangeCommitted` seeks.
 - **Legacy `start=` path** (`getVideoStreamUrl(id, start, audioTrack)` -> `/api/stream/video/:id
-  ?token=&start=S&audioTrack=N`): used by `PlayerContext` for non-video media and by the unused
-  `VideoPlayer.tsx`. Here the element's own `currentTime` restarts at 0 so `seekOffset` is added
+  ?token=&start=S&audioTrack=N`): used by `PlayerContext` for non-video media. Here the element's
+  own `currentTime` restarts at 0 so `seekOffset` is added
   to every `timeupdate` to produce the displayed position, and playback resumes on the next
   `canplay`.
 
@@ -206,8 +205,8 @@ upper-cased instead.
 
 ### Controls, keyboard, fullscreen
 
-- Controls auto-hide after 3 s of no mouse movement while playing (`PlayPage`, `MiniPlayer`, and
-  legacy `VideoPlayer` each implement this independently); the cursor is hidden with them.
+- Controls auto-hide after 3 s of no pointer movement while playing (`PlayPage` and `MiniPlayer`
+  each implement this independently); the cursor is hidden with them.
 - `PlayPage.tsx:117-133` listens for Arrow keys, Space, Enter, Escape, `f`, `m` on `document`
   **only to re-show the controls**. None of them act: there is no play/pause, seek, volume, mute
   or fullscreen shortcut. Only the MUI sliders respond to keys when focused.
@@ -370,6 +369,7 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - 2026-09-04 A failed progress report is retried on a backoff instead of being dropped, and search results show watched badges.
 - 2026-09-04 Watched badges extended to favourites, watch later, the queue and user collections.
 - 2026-09-04 `POST`/`DELETE /api/watch/collections/:id` mark or forget a whole subtree; "Mark all watched" on the collection menu.
+- 2026-09-05 `VideoPlayer.tsx` deleted: a pre-HLS player nothing had rendered since `PlayerContext` arrived, kept compiling by its own tests. Its trickplay clamping cases moved onto `VideoControls`, which owns the preview.
 - 2026-09-05 Every string in `VideoControls` translated and every icon button given an `aria-label`; language names come from `Intl.DisplayNames` in the viewer's locale rather than a hard-coded English map.
 - 2026-09-05 The player fits a phone: `MiniPlayer` scales with the viewport (55% of the width, 180-320px, 16:9) and the full controls drop the volume slider and move the time under the progress bar below `sm`.
 - 2026-09-04 Player converted from mouse events to pointer events: touch drag of the mini player, scrub previews, tap-to-reveal controls.
@@ -402,8 +402,6 @@ Collections in libraries the user cannot access are omitted from the summaries e
   tracking and fatal recovery are only wired in the first.
 - **Verbose production logging:** every fragment/level event logs to the console.
 - `isFullscreen` is never passed from `PlayPage`, so its fullscreen icon never toggles.
-- `VideoPlayer.tsx` is dead code kept alive by its test and the barrel export; the trickplay
-  clamping tests exercise it rather than `VideoControls`.
 - Tests: `PlayerContext.test.tsx` mocks `hls.js` and now covers the queue, the next-item and
   next-season resolver and `ended` auto-advance alongside the state setters; `setAudioTrack`
   recreation, `seekCommit` on HLS and the DOM re-parenting are still untested.
@@ -428,6 +426,5 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - **Cheaper continuation** (S): skip next-episode resolution until `duration - currentTime < 60`
   or when in mini mode; sort seasons by `seasonDetails.seasonNumber` once the summary carries it.
 - **Gate HLS debug logging** (S) behind `import.meta.env.DEV` or `debug: true`.
-- **Delete `VideoPlayer.tsx`** (S) and move the clamping tests onto `VideoControls`.
 - **Tests** (S): `PlayerContext` tests for `setAudioTrack` recreation, `seekCommit` on HLS and the
   DOM re-parenting between the mini and fullscreen containers; the rest of this part is covered.

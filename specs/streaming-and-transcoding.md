@@ -420,8 +420,8 @@ The `video-processing` queue and `videoWorker.ts` (three placeholder jobs: `tran
 ### Frontend protocol summary (see playback.md)
 
 For `Video` media the player always loads the HLS master (`PlayerContext.tsx:539`); the progressive
-`/video` route is only used for `Audio` media (even though `/audio/:id` exists) and by the older
-`VideoPlayer` component's seek handler. hls.js is configured for slow servers: `startLevel` from a
+`/video` route is only used for `Audio` media (even though `/audio/:id` exists); its other caller,
+the pre-HLS `VideoPlayer` component, was deleted on 2026-09-05. hls.js is configured for slow servers: `startLevel` from a
 `localStorage` memory of the last stable level, 1 Mbps initial bandwidth estimate, 30 s fragment
 timeout with 6 retries, 60 s max buffer, and lenient stall handling. Seeking is native
 `video.currentTime`; hls.js requests the segment for that time and the server encodes it on demand.

@@ -8,6 +8,7 @@ import {
 } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import i18n from '../../i18n';
+import type { TrickplayResolution } from '../../api/client';
 import {
   languageName,
   VideoControls,
@@ -863,5 +864,108 @@ describe('every control has a name a screen reader can read', () => {
 
     expect(screen.getByRole('button', { name: 'Expand to full screen' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close player' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Ported from `VideoPlayer.test.tsx` when that component was deleted: the
+ * preview has always been `VideoControls`' own, and was only ever reached
+ * through a wrapper nothing rendered.
+ */
+describe('the trickplay preview over the progress bar', () => {
+  const SLIDER_WIDTH = 800;
+  const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+
+  const trickplay: TrickplayResolution = {
+    width: 320,
+    tileWidth: 160,
+    tileHeight: 90,
+    columns: 5,
+    rows: 5,
+    tileCount: 25,
+    interval: 10,
+    spriteCount: 10,
+  };
+
+  beforeEach(() => {
+    // jsdom has no layout, and where the preview sits is computed from the bar's.
+    Element.prototype.getBoundingClientRect = jest.fn().mockReturnValue({
+      width: SLIDER_WIDTH,
+      height: 20,
+      top: 0,
+      left: 0,
+      right: SLIDER_WIDTH,
+      bottom: 20,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+  });
+
+  afterEach(() => {
+    Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+  });
+
+  /** The Box wrapping the slider is what carries the pointer handlers. */
+  const bar = () => document.querySelector('.MuiSlider-root')!.parentElement as HTMLElement;
+
+  const previewX = (): number | null => {
+    const preview = screen.queryByTestId('trickplay-preview');
+    const x = preview?.getAttribute('data-preview-x');
+    return x ? parseFloat(x) : null;
+  };
+
+  const renderWithTrickplay = () =>
+    render(<VideoControls {...defaultProps} trickplay={trickplay} mediaId="media-123" />);
+
+  it('shows the frame under the pointer', () => {
+    renderWithTrickplay();
+
+    // Halfway along an 800px bar of a one-hour video is thirty minutes.
+    fireEvent.pointerMove(bar(), { clientX: 400 });
+
+    expect(screen.getByText('30:00')).toBeInTheDocument();
+  });
+
+  it('clears when the pointer leaves the bar', () => {
+    renderWithTrickplay();
+    fireEvent.pointerMove(bar(), { clientX: 400 });
+
+    fireEvent.pointerLeave(bar());
+
+    expect(screen.queryByText('30:00')).not.toBeInTheDocument();
+  });
+
+  it('follows a finger dragged along the bar and clears on release', () => {
+    renderWithTrickplay();
+
+    // A touch device never hovers, so scrubbing is the only way to preview.
+    fireEvent.pointerMove(bar(), { clientX: 400, pointerType: 'touch' });
+    expect(screen.getByText('30:00')).toBeInTheDocument();
+
+    fireEvent.pointerUp(bar(), { pointerType: 'touch' });
+    expect(screen.queryByText('30:00')).not.toBeInTheDocument();
+  });
+
+  describe('keeping the frame inside the bar', () => {
+    // The frame is 160px wide and centred on the pointer, so its centre cannot
+    // come within 80px of either end without hanging off.
+    const HALF = 160 / 2;
+
+    it.each([
+      ['the left edge', 0, HALF],
+      ['inside the left half-width', 50, HALF],
+      ['just past the left half-width', 100, 100],
+      ['the middle', 400, 400],
+      ['just short of the right half-width', 700, 700],
+      ['inside the right half-width', 750, SLIDER_WIDTH - HALF],
+      ['the right edge', SLIDER_WIDTH, SLIDER_WIDTH - HALF],
+    ])('at %s the frame sits at %ipx from the left', (_where, pointerAt, expected) => {
+      renderWithTrickplay();
+
+      fireEvent.pointerMove(bar(), { clientX: pointerAt });
+
+      expect(previewX()).toBe(expected);
+    });
   });
 });

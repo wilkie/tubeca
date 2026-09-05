@@ -64,6 +64,11 @@ All notable changes to Tubeca are recorded here. The format follows
   originals, which for a backdrop can be several megabytes.
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
+### Removed
+- An unused video player component that predated the current one and had not been rendered by any
+  page for months. Nothing changes for a viewer; the hover-preview tests it carried moved to the
+  controls that actually implement them.
+
 ### Changed
 - The Original quality is now served as fragmented MP4 rather than MPEG-TS. Playing a file as it
   is no longer means repacking every byte on the way out.

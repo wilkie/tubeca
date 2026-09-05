@@ -372,8 +372,6 @@ around a dozen entries that described work already done were removed.
   `CastCrewGrid` do not ([Frontend App](frontend-app.md)).
 - **Image housekeeping**: no content hashing, so an unchanged file re-downloaded is rewritten in
   place, and no sweep for the files a format change orphans ([Images](images.md)).
-- **`VideoPlayer.tsx` is dead** — nothing renders it, and its tests are the only thing keeping it
-  compiling ([Playback](playback.md)).
 
 ## Conventions for Maintaining These Specs
 
