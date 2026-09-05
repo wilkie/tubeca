@@ -102,7 +102,7 @@ Create a `backend/.env` file (see `backend/.env.example`):
 PORT=3000
 
 # Database (SQLite)
-DATABASE_URL="file:./prisma/dev.db"
+DATABASE_URL="file:./dev.db"
 
 # Redis (required for job queue)
 REDIS_HOST=localhost

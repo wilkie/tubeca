@@ -138,8 +138,11 @@ for old_db in "$INSTALL_DIR/backend/prisma/tubeca.db" "$INSTALL_DIR/backend/pris
     fi
 done
 
-# An .env from an earlier install still points at the old location.
-if grep -q '^DATABASE_URL=.*prisma/' "$INSTALL_DIR/backend/.env" 2>/dev/null; then
+# An .env from an earlier install, or one copied from .env.example, points at a
+# relative path — which is inside the install tree, and so is state that a
+# reinstall can take with it. Absolute paths are left alone: those are somebody's
+# deliberate choice.
+if grep -qE '^DATABASE_URL="?file:(\./|[^/])' "$INSTALL_DIR/backend/.env" 2>/dev/null; then
     log_info "Updating DATABASE_URL to $DB_FILE..."
     sed -i "s|^DATABASE_URL=.*|DATABASE_URL=\"file:$DB_FILE\"|" "$INSTALL_DIR/backend/.env"
 fi

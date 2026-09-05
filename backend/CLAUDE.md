@@ -285,7 +285,7 @@ See `.env.example` for all available options:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | Server port | `3000` |
-| `DATABASE_URL` | SQLite path | `file:./prisma/dev.db` |
+| `DATABASE_URL` | SQLite path | `file:./dev.db` |
 | `REDIS_HOST` | Redis host | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
 | `JWT_SECRET` | JWT signing key | (required) |

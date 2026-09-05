@@ -76,9 +76,12 @@
 is an ad-hoc `process.env.X || default` at module scope; there is no schema, no validation and no
 startup summary. Notable defaults:
 
-- `DATABASE_URL` -> `file:./dev.db` (`database.ts:6`), but `.env.example` and `prisma.config.ts`
-  expect `file:./prisma/dev.db`. Running the API without `.env` therefore opens a different SQLite
-  file than the one migrations were applied to.
+- `DATABASE_URL` -> `file:./dev.db` (`database.ts:6`), resolved against the backend working
+  directory rather than the schema directory, so the development database is `backend/dev.db`.
+  `.env.example`, the README and `backend/CLAUDE.md` said `file:./prisma/dev.db` until 2026-09-05,
+  which is why a schema-only `backend/prisma/dev.db` existed alongside the real one and stopped at
+  migration 31 while the live database reached 32. Anyone reading the two would disagree about
+  which file the library was in; they now all say `file:./dev.db`.
 - `JWT_SECRET` -> `'dev-secret-change-in-production'` with a warning, but only when `NODE_ENV`
   is not `production`; in production a missing, blank or placeholder value throws at import
   (`authService.ts`, `resolveJwtSecret()`), so the process exits before listening.
@@ -280,14 +283,13 @@ outputs are git-ignored. `pnpm build` also writes `openapi.json`, which is liste
 - 2026-09-03 `TUBECA_ROLE` (`api`/`worker`/`all`) and `FRONTEND_DIST` env vars; workers loaded lazily by role; esbuild bundle replaces `tsx` at runtime.
 - 2026-09-03 `routes/settings.ts` routed through `SettingsService` rather than its own inline find-or-create; the service's unused `updateSettings`/`resetSettings` removed; both gained tests.
 - 2026-09-04 `REDIS_DB` added so a second instance on the same Redis does not consume the first one's queued jobs.
+- 2026-09-05 `.env.example`, the README and `backend/CLAUDE.md` corrected to the code's own `file:./dev.db`; the schema-only `backend/prisma/dev.db` left over from the old convention deleted, and `systemd/install.sh` widened to rewrite any *relative* `DATABASE_URL` rather than only one containing `prisma/`, so a service install is never left reading a database inside its own install tree.
 
 ## Known Limitations
 
 - No validation of the config file or `DATABASE_URL` at startup: a typo in `tubeca.config.json`
   keys or a `DATABASE_URL` pointing at an unmigrated file starts the server normally. Only
   `JWT_SECRET` is checked.
-- `DATABASE_URL` default differs between `database.ts` (`file:./dev.db`) and `.env.example` /
-  `prisma.config.ts` (`file:./prisma/dev.db`).
 - Config file changes require a restart; DB settings take up to 60 s to apply due to stacked caches.
 - Workers run inside the API process: a heavy scan or transcode competes with request handling, and
   the API cannot be scaled or restarted independently of in-flight jobs.
