@@ -73,6 +73,10 @@ export const libraryScanWorker = new Worker(
       if (mediaQueued > 0) {
         console.log(`📋 Queued metadata scrape for ${mediaQueued} media items`);
       }
+      const previewsQueued = await importService.queueTrickplay(summary.mediaToScrape);
+      if (previewsQueued > 0) {
+        console.log(`🎞️ Queued preview generation for ${previewsQueued} media items`);
+      }
       const collectionsQueued = await importService.queueCollectionScrapes(summary.collectionsToScrape);
       if (collectionsQueued > 0) {
         console.log(`📋 Queued collection scrape for ${collectionsQueued} collections`);

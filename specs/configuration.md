@@ -128,6 +128,11 @@ through `SettingsService`, passing `'Tubeca'` as the name a fresh instance takes
 `'Tubeca Instance'` default is now only a fallback for a caller that names nothing. `instanceName`
 is only displayed on the Settings page itself; no other frontend or backend code reads it.
 
+`trickplay` (2026-09-04) controls preview sprites: `auto` (default `false`), `interval` (10 s),
+`width` (320), `columns` and `rows` (10 x 10). Only `auto` is read outside the generator — by the
+scan worker and the file watcher — and the serving route still assumes a 10 s interval, so
+changing `interval` would put previews at the wrong time.
+
 `TranscodingSettings` is created lazily with schema defaults (`veryfast`, 2 concurrent transcodes,
 6 s segments, 8000/5000/2500/1000 kbps). `transcodingSettingsService.ts` caches the row for 30 s and
 invalidates on update; `HlsService` layers its own 30 s cache on top (`hlsService.ts:105-116`), so a

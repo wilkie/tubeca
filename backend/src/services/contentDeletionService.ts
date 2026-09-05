@@ -4,6 +4,7 @@ import { prisma } from '../config/database';
 import { getImageStoragePath } from '../config/appConfig';
 import { evictMediaCache } from './hlsCache';
 import { searchIndexService } from './searchIndexService';
+import { removeTrickplay } from './trickplayService';
 
 /**
  * Remove an image file (and its directory if that leaves it empty). Errors are
@@ -101,6 +102,8 @@ export class ContentDeletionService {
     const files = await this.imagePathsFor([], [mediaId]);
     for (const file of files) deleteImageFile(this.storageRoot, file);
     evictMediaCache(mediaId);
+    // Generated preview sprites are ours, and nothing else refers to them.
+    removeTrickplay(mediaId, this.storageRoot);
     await prisma.media.delete({ where: { id: mediaId } });
     await searchIndexService.remove(mediaId);
     return true;

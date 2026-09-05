@@ -145,13 +145,19 @@ let fileWatcher: Closable | null = null;
  * API-only process never opens worker connections or starts chokidar.
  */
 async function startWorkers(appConfig: ReturnType<typeof loadAppConfig>): Promise<void> {
-  const [scan, metadata, collection, watcher] = await Promise.all([
+  const [scan, metadata, collection, trickplay, watcher] = await Promise.all([
     import('./workers/libraryScanWorker'),
     import('./workers/metadataScrapeWorker'),
     import('./workers/collectionScrapeWorker'),
+    import('./workers/trickplayWorker'),
     import('./services/fileWatcherService'),
   ]);
-  workerHandles.push(scan.libraryScanWorker, metadata.metadataScrapeWorker, collection.collectionScrapeWorker);
+  workerHandles.push(
+    scan.libraryScanWorker,
+    metadata.metadataScrapeWorker,
+    collection.collectionScrapeWorker,
+    trickplay.trickplayWorker
+  );
 
   // Environment variable takes precedence over config file
   const watcherEnabled = process.env.FILE_WATCHER_ENABLED !== undefined

@@ -462,6 +462,7 @@ class FileWatcherService {
     }
 
     console.log(`📁 Created media record: ${imported.hints.name}`);
+    await importService.queueTrickplay([imported.hints]);
     const queued = await importService.queueMediaScrapes(libraryType, [imported.hints]);
     if (queued > 0) {
       console.log(`📁 Queued metadata scrape for: ${imported.hints.name}`);

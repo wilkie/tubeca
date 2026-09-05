@@ -45,6 +45,7 @@ const importService = {
   importMediaFile: asyncMock<ImportOutcome>(),
   queueMediaScrapes: asyncMock<number>(),
   queueCollectionScrapes: asyncMock<number>(),
+  queueTrickplay: asyncMock<number>(),
   reprobeMediaFile: asyncMock<{ updated: boolean; streams: number }>(),
 };
 
@@ -58,6 +59,7 @@ function giveImportServiceItsDefaults() {
     hints: { name: 'Heat' },
   });
   importService.queueMediaScrapes.mockResolvedValue(1);
+  importService.queueTrickplay.mockResolvedValue(0);
   importService.queueCollectionScrapes.mockResolvedValue(1);
   importService.reprobeMediaFile.mockResolvedValue({ updated: true, streams: 3 });
 }

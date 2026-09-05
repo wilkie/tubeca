@@ -434,3 +434,18 @@ describe('ImportService', () => {
     });
   });
 });
+
+describe('ImportService.queueTrickplay', () => {
+  const hints = [
+    { id: 'm1', name: 'Heat', type: 'Video' as const },
+    { id: 'm2', name: 'A song', type: 'Audio' as const },
+  ];
+
+  it('asks for nothing unless the configuration wants previews', async () => {
+    const queueTrickplay = jest.fn(async () => ({ id: 'job' }) as never);
+    const service = new ImportService({ queueTrickplay });
+
+    expect(await service.queueTrickplay(hints)).toBe(0);
+    expect(queueTrickplay).not.toHaveBeenCalled();
+  });
+});

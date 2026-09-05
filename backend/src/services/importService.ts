@@ -20,6 +20,8 @@ import {
   type CollectionScrapeJobData,
   type CollectionScrapeType,
 } from '../queues/collectionScrapeQueue';
+import { addTrickplayJob } from '../queues/trickplayQueue';
+import { getTrickplayConfig, loadAppConfig } from '../config/appConfig';
 import { ContentDeletionService } from './contentDeletionService';
 import { markCollectionScrapePending, markMediaScrapePending } from './scrapeResolution';
 
@@ -81,6 +83,7 @@ export interface ImportServiceDeps {
   probe: typeof probeMediaFile
   queueMediaScrapes: typeof addBulkMetadataScrapeJobs
   queueCollectionScrapes: typeof addBulkCollectionScrapeJobs
+  queueTrickplay: typeof addTrickplayJob
   deletion: ContentDeletionService
 }
 
@@ -161,6 +164,7 @@ export class ImportService {
       probe: deps.probe ?? probeMediaFile,
       queueMediaScrapes: deps.queueMediaScrapes ?? addBulkMetadataScrapeJobs,
       queueCollectionScrapes: deps.queueCollectionScrapes ?? addBulkCollectionScrapeJobs,
+      queueTrickplay: deps.queueTrickplay ?? addTrickplayJob,
       deletion: deps.deletion ?? new ContentDeletionService(),
     };
   }
@@ -372,6 +376,22 @@ export class ImportService {
     await markMediaScrapePending(hints.map((h) => h.id));
     await this.deps.queueMediaScrapes(jobs);
     return jobs.length;
+  }
+
+  /**
+   * Queue preview generation for newly imported video, if asked to.
+   *
+   * Off unless `trickplay.auto` is set, because each item is a full decode:
+   * a first scan of a large library would spend days on it uninvited. When it
+   * is on, this is where a new file picks it up.
+   */
+  async queueTrickplay(hints: MediaHints[]): Promise<number> {
+    const video = hints.filter((h) => h.type === 'Video');
+    if (video.length === 0 || !getTrickplayConfig(loadAppConfig()).auto) return 0;
+    for (const hint of video) {
+      await this.deps.queueTrickplay({ mediaId: hint.id, mediaName: hint.name });
+    }
+    return video.length;
   }
 
   /** Queue collection scrapes, parents before children (shows, then seasons, ...). */

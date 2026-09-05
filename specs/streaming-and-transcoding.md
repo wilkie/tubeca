@@ -64,6 +64,7 @@
 | `backend/src/services/hlsService.ts` | `HlsService`: playlist synthesis, segment cache layout, per-segment FFmpeg invocation, in-flight de-duplication, transcode semaphore, prefetching, encoder/preset selection, cache stats and TTL sweep. |
 | `backend/src/services/hlsCacheCleanupService.ts` | Singleton timer: first sweep 30 s after boot, then hourly; logs freed MB. Started/stopped from `index.ts`. Covered by `__tests__/hlsCacheCleanupService.test.ts` (fake timers, `HlsService` mocked). |
 | `backend/src/services/transcodingSettingsService.ts` | Read/create/update the `TranscodingSettings` singleton row with a 30 s in-memory cache; adds detected/active encoder and preset list for the settings UI. |
+| `backend/src/services/trickplayService.ts`, `workers/trickplayWorker.ts`, `queues/trickplayQueue.ts` | Sprite generation: one FFmpeg pass per media item, one job at a time, asked for per item by an editor. |
 | `backend/src/routes/settings.ts` | `GET`/`PUT /api/settings/transcoding` (Admin only). |
 | `backend/src/utils/hwaccel.ts` | `detectBestEncoder()`/`detectBestEncoderAsync()` (run `ffmpeg -encoders` then a 1-frame `lavfi` test encode per candidate, sharing one cache), `resolvePreferredEncoder()` (verify an admin's choice), `getEncoderArgs()` (rate control, profile, scale+pad filter) and `getEncoderInputArgs()` (VAAPI's render node, which must precede `-i`). |
 | `backend/src/utils/ffprobe.ts` | `probeMediaFile()` -> `{ duration, streams[] }` from `ffprobe -print_format json -show_format -show_streams`; `getMediaDuration()` legacy helper. |
@@ -286,14 +287,29 @@ encoder, producing a 500 after headers may already have been sent.
 
 ### Trickplay
 
-Tubeca does not create sprites. The scanner records `<basename>.trickplay/` next to a video into
-`Media.thumbnails` and skips such directories when walking collections. The routes read Jellyfin's
-layout: `"{width} - {cols}x{rows}/N.jpg"`. The `interval` reported is a hardcoded 10 s; there is no
-manifest read.
+Sprites come from one of two places, and the serving routes cannot tell which. The scanner records
+`<basename>.trickplay/` next to a video into `Media.thumbnails` and skips such directories when
+walking collections; since 2026-09-04 `trickplayService` can also generate them, writing the same
+Jellyfin-shaped layout — `"{width} - {cols}x{rows}/N.jpg"` — under
+`<imageStore>/trickplay/<mediaId>` and recording that folder on the same column.
+
+Generation is one FFmpeg pass: `fps=1/interval,scale=width:-2,tile=CxR`, audio and subtitles
+skipped, sheets numbered from zero. The tile filter pads a partial final sheet to the full grid,
+so the tile size the info route derives from the first sheet's dimensions stays right for a film
+whose last sheet is half empty. Sheets are built in a `.building` folder and moved into place, so
+a killed run cannot leave a half-set that the routes would happily serve.
+
+They go to the image store rather than beside the video (a library is often a read-only mount) and
+not to the HLS cache (swept by age and size, and a sheet costs a full decode to rebuild).
+`ContentDeletionService.deleteMedia` removes them with the media.
+
+The `interval` the info route reports is still a hardcoded 10 s rather than read back from what
+generated the sheets, so a configured `trickplay.interval` other than 10 would put previews at the
+wrong time.
 
 ### The video worker
 
-The `video-processing` queue and `videoWorker.ts` (three placeholder jobs: `transcode`, `thumbnail`, `analyze`, the last of which overwrote `Media.duration` with a constant) were deleted on 2026-09-03 along with the `MediaService.queue*` helpers; nothing had enqueued to them since the legacy `/api/jobs/*` routes were removed. Trickplay sprites therefore still come only from pre-existing `.trickplay` folders.
+The `video-processing` queue and `videoWorker.ts` (three placeholder jobs: `transcode`, `thumbnail`, `analyze`, the last of which overwrote `Media.duration` with a constant) were deleted on 2026-09-03 along with the `MediaService.queue*` helpers; nothing had enqueued to them since the legacy `/api/jobs/*` routes were removed. The `thumbnail` job's actual work arrived on 2026-09-04 as a queue and worker of its own (`trickplay`), one item at a time.
 
 ### Frontend protocol summary (see playback.md)
 
@@ -368,6 +384,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-03 `hlsCacheCleanupService` tested: the startup delay, the hourly repeat, the refusal to start twice, and that a failed sweep does not stop the next one.
 - 2026-09-04 Stream route guards tested (missing media and files, subtitle stream index and sidecar rows, trickplay resolutions, the quality ladder); the part-file assertion in `hlsService.test.ts` now waits for `createWriteStream` to open rather than assuming one tick, which made the suite flake under load.
 - 2026-09-04 Playlists carry the request's token into the variant and segment URIs, so Safari and any other player that follows a playlist itself can authenticate; the native path in the player now reports an error instead of staying black. Bitmap subtitle tracks are no longer offered and answer 415, and an extracted track is cached rather than re-read from the container on every request.
+- 2026-09-04 Trickplay sprites can be generated rather than only imported: a `trickplay` queue and worker, `POST /api/media/:id/trickplay` for an editor, and `trickplay.auto` for a library that wants them on import. Verified against real FFmpeg output, including that a partial final sheet is padded to the full grid.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
@@ -408,8 +425,10 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   invalidate an extracted track, so replacing a file in place keeps the old subtitles until the
   media's cache is evicted.
 - **Probing happens once per import** (the watcher re-probes on `change`, but a scan-only setup has no other trigger); a probe failure leaves the row without streams and no retry.
-- **Trickplay is external only**; the `thumbnail` job that might have generated sprites is a stub,
-  and the reported interval is hardcoded.
+- **Trickplay generation is never automatic** unless `trickplay.auto` is set: each item is a full
+  decode, and a library of thirty thousand episodes would spend days on it uninvited. An editor
+  asks per item through `POST /api/media/:id/trickplay`; there is no "generate for this library"
+  action, and no progress beyond the job's own state.
 - **Encoder detection still costs the first playback** if it has not finished: the first segment
   request awaits it, and a machine with several unusable hardware encoders can spend tens of
   seconds there. Results are not cached across restarts.

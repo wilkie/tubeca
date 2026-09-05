@@ -66,9 +66,23 @@ export interface HlsCacheConfig {
   segmentDuration?: number // Segment duration in seconds (default: 6)
 }
 
+/** Hover-scrub preview sprites. */
+export interface TrickplayConfig {
+  /** Generate sprites for newly imported video without being asked (default: false). */
+  auto?: boolean
+  /** Seconds between frames (default: 10). */
+  interval?: number
+  /** Tile width in pixels; the height follows the source's aspect (default: 320). */
+  width?: number
+  /** Tiles per sprite sheet (default: 10 x 10). */
+  columns?: number
+  rows?: number
+}
+
 export interface AppConfig {
   imagePath?: string  // Path for storing downloaded images
   hlsCache?: HlsCacheConfig
+  trickplay?: TrickplayConfig
   fileWatcher?: FileWatcherConfig
   scrapers?: {
     tmdb?: ScraperPluginConfig
@@ -252,6 +266,25 @@ export function getHlsCachePath(appConfig?: AppConfig): string {
 /**
  * Get HLS cache configuration with defaults
  */
+/**
+ * Trickplay settings, with defaults.
+ *
+ * Generating sprites decodes the whole file, so it is off by default: a
+ * library of thirty thousand episodes would spend days on it uninvited. Ten
+ * seconds and 320px match what the serving route and the player already
+ * assume.
+ */
+export function getTrickplayConfig(appConfig?: AppConfig): Required<TrickplayConfig> {
+  const config = appConfig?.trickplay || {};
+  return {
+    auto: config.auto ?? false,
+    interval: config.interval ?? 10,
+    width: config.width ?? 320,
+    columns: config.columns ?? 10,
+    rows: config.rows ?? 10,
+  };
+}
+
 export function getHlsCacheConfig(appConfig?: AppConfig): Required<HlsCacheConfig> {
   const config = appConfig?.hlsCache || {};
   return {

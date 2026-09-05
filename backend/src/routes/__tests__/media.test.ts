@@ -20,6 +20,11 @@ jest.unstable_mockModule('../../queues/metadataScrapeQueue', () => ({
 jest.unstable_mockModule('../../plugins/scraperLoader', () => ({
   scraperManager: { list: () => [], getByMediaType: () => [], get: () => undefined },
 }));
+const addTrickplayJob = jest.fn(async () => ({ id: 'trickplay-job-1' }));
+jest.unstable_mockModule('../../queues/trickplayQueue', () => ({
+  addTrickplayJob,
+  getTrickplayJob: jest.fn(async () => undefined),
+}));
 
 const { default: mediaRoutes } = await import('../media');
 
@@ -193,5 +198,61 @@ describe('GET /api/media/scrapers/queue-status', () => {
     expect(
       (await request(app).get('/api/media/scrapers/queue-status').set('Authorization', admin.authHeader)).status
     ).toBe(200);
+  });
+});
+
+describe('POST /api/media/:id/trickplay', () => {
+  beforeEach(async () => {
+    await resetDatabase();
+    jest.clearAllMocks();
+  });
+
+  async function video() {
+    const library = await createLibrary({ libraryType: 'Film' });
+    const collection = await createCollection({ libraryId: library.id, name: 'Heat' });
+    const media = await createVideoMedia({
+      name: 'Heat',
+      path: '/films/heat.mkv',
+      duration: 10200,
+      collectionId: collection.id,
+    });
+    return { media, library };
+  }
+
+  const generate = (id: string, authHeader: string) =>
+    request(app).post(`/api/media/${id}/trickplay`).set('Authorization', authHeader);
+
+  it('is Editor only, since it spends the machine', async () => {
+    const { media } = await video();
+    const { authHeader } = await createUser({ role: 'Viewer' });
+
+    expect((await generate(media.id, authHeader)).status).toBe(403);
+  });
+
+  it('is a 404 for a media item that is not there', async () => {
+    const { authHeader } = await createUser({ role: 'Editor' });
+
+    expect((await generate('missing', authHeader)).status).toBe(404);
+  });
+
+  it('is hidden from an Editor outside the library', async () => {
+    const group = await createGroup();
+    const restricted = await createLibrary({ libraryType: 'Film', groupIds: [group.id] });
+    const collection = await createCollection({ libraryId: restricted.id, name: 'Secret' });
+    const media = await createVideoMedia({ path: '/films/secret.mkv', duration: 1, collectionId: collection.id });
+    const { authHeader } = await createUser({ role: 'Editor' });
+
+    expect((await generate(media.id, authHeader)).status).toBe(404);
+  });
+
+  it('queues one job for the video', async () => {
+    const { media } = await video();
+    const { authHeader } = await createUser({ role: 'Editor' });
+
+    const res = await generate(media.id, authHeader);
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ message: 'Preview generation queued', jobId: 'trickplay-job-1' });
+    expect(addTrickplayJob).toHaveBeenCalledWith({ mediaId: media.id, mediaName: 'Heat' });
   });
 });

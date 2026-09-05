@@ -43,6 +43,7 @@ jest.unstable_mockModule('../../services/libraryScanService', () => ({
 const importService = {
   queueMediaScrapes: asyncMock<number>(),
   queueCollectionScrapes: asyncMock<number>(),
+  queueTrickplay: asyncMock<number>(),
 };
 jest.unstable_mockModule('../../services/importService', () => ({ importService }));
 
@@ -79,6 +80,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   scan.mockResolvedValue(emptySummary);
   importService.queueMediaScrapes.mockResolvedValue(0);
+  importService.queueTrickplay.mockResolvedValue(0);
   importService.queueCollectionScrapes.mockResolvedValue(0);
   libraryScanQueue.getJob.mockResolvedValue(undefined);
 });
@@ -189,6 +191,16 @@ describe('the library scan worker', () => {
 
     expect(importService.queueMediaScrapes).toHaveBeenCalledWith(expect.anything(), []);
     expect(importService.queueCollectionScrapes).toHaveBeenCalledWith([]);
+  });
+
+  it('asks for previews of what it imported, which the config may or may not want', async () => {
+    const library = await createLibrary();
+    const mediaHints = [{ id: 'm1', name: 'Heat', type: 'Video' }];
+    scan.mockResolvedValue({ ...emptySummary, mediaToScrape: mediaHints } as ScanSummary);
+
+    await processor(job({ libraryId: library.id, libraryPath: '/media', libraryName: 'Films' }));
+
+    expect(importService.queueTrickplay).toHaveBeenCalledWith(mediaHints);
   });
 
   it('reports progress to the job', async () => {

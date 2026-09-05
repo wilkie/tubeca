@@ -4,6 +4,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { requireLibraryAccess, mediaParam } from '../middleware/libraryAccess';
 import { MediaService } from '../services/mediaService';
 import { addMetadataScrapeJob, getMetadataScrapeQueueStatus } from '../queues/metadataScrapeQueue';
+import { addTrickplayJob } from '../queues/trickplayQueue';
 import { scraperManager } from '../plugins/scraperLoader';
 
 const router = Router();
@@ -237,6 +238,51 @@ router.post('/:id/refresh-images', requireRole('Editor'), mediaAccess, async (re
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to queue image refresh';
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * @openapi
+ * /api/media/{id}/trickplay:
+ *   post:
+ *     tags:
+ *       - Media
+ *     summary: Generate hover-scrub previews
+ *     description: >
+ *       Queue sprite generation for a video (Editor or Admin only). One job per
+ *       media item, and asking twice while one is queued does not queue a
+ *       second. Generation decodes the whole file, so this is never automatic
+ *       unless `trickplay.auto` is set in the configuration.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       202:
+ *         description: Generation queued
+ *       400:
+ *         description: Not a video
+ *       403:
+ *         description: Forbidden - Editor role required
+ *       404:
+ *         description: Media not found
+ */
+router.post('/:id/trickplay', requireRole('Editor'), mediaAccess, async (req, res) => {
+  try {
+    const media = await mediaService.getVideoById(req.params.id);
+    if (!media) {
+      return res.status(404).json({ error: 'Media not found' });
+    }
+
+    const job = await addTrickplayJob({ mediaId: media.id, mediaName: media.name });
+
+    res.status(202).json({ message: 'Preview generation queued', jobId: job.id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to queue preview generation';
     res.status(500).json({ error: message });
   }
 });
