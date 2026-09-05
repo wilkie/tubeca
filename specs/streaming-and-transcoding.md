@@ -107,12 +107,27 @@ and cached by browsers.
 
 ### HLS playlist synthesis
 
-`generateMasterPlaylist` (`hlsService.ts:171`) emits `#EXT-X-VERSION:3` and one `#EXT-X-STREAM-INF`
-per rung, highest first. If `canDirectPlay` says the probed codecs are browser-safe (H.264 video
-with AAC/MP3 or no audio, per `isDirectPlayable` in `hlsCache.ts`; with no probe data only `.mp4`
-is trusted) it prepends an `Original` entry with `BANDWIDTH=20000000,RESOLUTION=native`; `native`
-is not a valid `WxH`
-value under the HLS spec, and hls.js tolerates it only because it parses leniently. Bitrates for the
+`generateMasterPlaylist` emits `#EXT-X-VERSION:3` and one `#EXT-X-STREAM-INF` per rung, highest
+first. If `canDirectPlay` says the probed video codec can be copied (H.264, HEVC or AV1 per
+`DIRECT_PLAY_VIDEO_CODECS` in `hlsCache.ts`; with no probe data only `.mp4` is trusted) it prepends
+an `Original` entry with `BANDWIDTH=20000000,RESOLUTION=native`; `native` is not a valid `WxH`
+value under the HLS spec, and hls.js tolerates it only because it parses leniently.
+
+The `Original` entry also carries `CODECS`, read from the initialisation segment's own sample
+entries by `codecStringsFromInit` — `avc1.640028`, `hvc1.2.4.L150.B0`, `av01.0.08M.10`,
+`mp4a.40.2`. A codec *name* is not enough to decide this: a browser that decodes HEVC Main may
+refuse Main 10 at level 5.1, and only the `avcC`/`hvcC`/`av1C` box says which it is. The transcode
+rungs carry no `CODECS`, which is deliberate — they are always H.264 and AAC, the level would have
+to be guessed, and a rung without the attribute is one hls.js never filters out, so there is always
+something left to play.
+
+Reading it costs the initialisation segment, which costs one FFmpeg run, so `originalCodecs`
+remembers the answer per `<mediaId>:<audioTrack>` and only *waits* for it when it decides the
+outcome. H.264 does not wait: every browser decodes it, so the playlist goes out at once, the
+header is built in the background, and the attribute appears from the next play onwards. HEVC and
+AV1 do wait, up to five seconds — an unlabelled rung of either is one hls.js on Chrome would pick
+and fail on, so if the header cannot be had in time the rung is left out and the viewer gets a
+transcode. Bitrates for the
 four rungs come from `TranscodingSettings` so the `BANDWIDTH` attribute tracks admin changes. The
 audio track selection is carried as an `?audioTrack=` query on every variant and segment URI, so
 switching audio is a full player re-init with a new master URL (`PlayerContext.tsx:620-660`), not an
@@ -473,16 +488,20 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 Prefetch cancellation is per viewer: the player names its viewing, the playlists carry that name onto every segment request, and a seek abandons only the prefetches of the viewer who seeked.
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
+- 2026-09-05 HEVC and AV1 join the `original` rung, and every `Original` entry declares `CODECS` read from its own initialisation segment, so a player that cannot decode one skips the rung instead of failing on it.
 - 2026-09-05 `original` became fragmented MP4 (CMAF): `#EXT-X-MAP`, an `init.mp4` per variant, `.m4s` segments, decode times rebased onto the file's timeline by `Fmp4Splitter`. Seeking moved before the input in the same commit, which fixed `original` segments holding about four seconds of a six-second slot.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
 
-- **The master playlist declares no `CODECS`, so HEVC and AV1 still cannot be offered.** The
-  container stopped being the obstacle on 2026-09-05 — `original` is fragmented MP4 and would carry
-  them — but a player has no way to tell whether it can decode a rung it is not told about, and
-  hls.js on Chrome or Firefox cannot decode HEVC at all. Until each rung advertises an RFC 6381
-  codec string, `DIRECT_PLAY_VIDEO_CODECS` stays at H.264.
+- **Only AAC and MP3 audio can be copied, and one reason is now the container.** FFmpeg refuses to
+  write a fragmented MP4 header before it has seen an AC-3 packet ("Set the delay_moov flag to fix
+  this"), and `delay_moov` would put the header at the end, where it is no use to a segment being
+  streamed as it encodes. Copying AC-3 or E-AC-3 into `original` would need the header built from a
+  separate probing run.
+- **The first play of an HEVC or AV1 file may not offer `original`.** The rung waits up to five
+  seconds for the header its `CODECS` is read from; on a machine whose transcode slots are all busy
+  that wait can expire, and the viewer gets a transcode until the next play.
 - **The legacy `/video/:id` route still decides by extension.** Only the HLS paths use the probed
   codecs; the progressive route (used for audio and as a fallback) keeps the `.mp4`/`.webm` check.
 - **Only H.264 output, only stereo AAC audio, always letterboxed to 16:9 presets, no upscale guard,
@@ -544,10 +563,9 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Re-probe on file change and on demand** (S): the watcher already sees modifications; expose a
   "refresh streams" action.
 
-- **Declare `CODECS` on every `#EXT-X-STREAM-INF`** (M): the last thing between the library's HEVC
-  and AV1 files and being played as they are. The reliable source is the `avcC`/`hvcC`/`av1C` box in
-  the initialisation segment, which means producing it before the master playlist is answered, or
-  storing profile and level on `MediaStream` at probe time.
+- **Store profile and level on `MediaStream` at probe time** (M), so the master playlist can name a
+  rung's codecs without building its initialisation segment first, and an HEVC file is offered on
+  its first play as surely as its second.
 - **Tests** (M): FFmpeg argument construction per encoder/quality, the semaphore, cache-path
   resolution, and `probeMediaFile` parsing against fixture JSON; route tests for `streamAuth` and
   quality validation. Playlist synthesis is covered.

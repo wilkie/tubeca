@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import {
+  codecStringsFromInit,
   Fmp4Splitter,
   readFragmentDecodeTimes,
   readTrackTimescales,
@@ -249,6 +250,104 @@ describe('Fmp4Splitter', () => {
 
     // The 208-byte mdat arrives as several writes, not one.
     expect(chunks.length).toBeGreaterThan(2);
+  });
+});
+
+describe('codecStringsFromInit', () => {
+  /** A sample description containing one entry with one configuration box. */
+  function initWith(sampleEntry: Buffer): Buffer {
+    const stsd = fullBox('stsd', 0, Buffer.concat([u32(1), sampleEntry]));
+    return Buffer.concat([
+      box('ftyp', Buffer.from('isom')),
+      box('moov', box('trak', box('mdia', box('minf', box('stbl', stsd))))),
+    ]);
+  }
+  const visual = (type: string, config: Buffer) =>
+    box(type, Buffer.concat([Buffer.alloc(78), config]));
+  const audio = (type: string, config: Buffer) =>
+    box(type, Buffer.concat([Buffer.alloc(28), config]));
+
+  it('spells H.264 as profile, constraints and level', () => {
+    // High profile (0x64), no constraints, level 4.0 (0x28)
+    const avcC = box('avcC', Buffer.from([1, 0x64, 0x00, 0x28]));
+
+    expect(codecStringsFromInit(initWith(visual('avc1', avcC)))).toEqual(['avc1.640028']);
+  });
+
+  it('spells HEVC as profile, compatibility, tier and level', () => {
+    // Main profile, main tier, compatibility flags 0x60000000, level 120 (4.0)
+    const hvcC = box(
+      'hvcC',
+      Buffer.concat([
+        Buffer.from([1, 0x01]),
+        Buffer.from([0x60, 0x00, 0x00, 0x00]),
+        Buffer.from([0xb0, 0, 0, 0, 0, 0]),
+        Buffer.from([120]),
+      ])
+    );
+
+    expect(codecStringsFromInit(initWith(visual('hvc1', hvcC)))).toEqual(['hvc1.1.6.L120.B0']);
+  });
+
+  it('marks the high tier and a Main 10 profile', () => {
+    const hvcC = box(
+      'hvcC',
+      Buffer.concat([
+        // profile_space 0, tier 1, profile 2
+        Buffer.from([1, 0x22]),
+        Buffer.from([0x20, 0x00, 0x00, 0x00]),
+        Buffer.from([0xb0, 0, 0, 0, 0, 0]),
+        Buffer.from([150]),
+      ])
+    );
+
+    expect(codecStringsFromInit(initWith(visual('hvc1', hvcC)))).toEqual(['hvc1.2.4.H150.B0']);
+  });
+
+  it('spells AV1 as profile, level, tier and bit depth', () => {
+    // seq_profile 0, seq_level_idx 8; main tier, high bit depth
+    const av1C = box('av1C', Buffer.from([0x81, 0x08, 0x40, 0x00]));
+
+    expect(codecStringsFromInit(initWith(visual('av01', av1C)))).toEqual(['av01.0.08M.10']);
+  });
+
+  it('reads an AAC track and an MP3 track from their descriptors', () => {
+    // ES_Descriptor -> DecoderConfigDescriptor -> DecoderSpecificInfo
+    const aacEsds = fullBox(
+      'esds',
+      0,
+      Buffer.concat([
+        Buffer.from([0x03, 0x19, 0x00, 0x01, 0x00]),
+        Buffer.from([0x04, 0x11, 0x40, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        // AudioSpecificConfig: object type 2 in the top five bits
+        Buffer.from([0x05, 0x02, 0x11, 0x90]),
+      ])
+    );
+    const mp3Esds = fullBox(
+      'esds',
+      0,
+      Buffer.concat([
+        Buffer.from([0x03, 0x15, 0x00, 0x01, 0x00]),
+        Buffer.from([0x04, 0x0d, 0x6b, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+      ])
+    );
+
+    expect(codecStringsFromInit(initWith(audio('mp4a', aacEsds)))).toEqual(['mp4a.40.2']);
+    expect(codecStringsFromInit(initWith(audio('mp4a', mp3Esds)))).toEqual(['mp4a.6B']);
+  });
+
+  it('names AC-3 and Opus by their sample entry alone', () => {
+    expect(codecStringsFromInit(initWith(audio('ac-3', Buffer.alloc(0))))).toEqual(['ac-3']);
+    expect(codecStringsFromInit(initWith(audio('Opus', Buffer.alloc(0))))).toEqual(['opus']);
+  });
+
+  it('leaves out a track it does not recognise rather than guessing', () => {
+    expect(codecStringsFromInit(initWith(visual('mp4v', Buffer.alloc(0))))).toEqual([]);
+    expect(codecStringsFromInit(Buffer.alloc(0))).toEqual([]);
+  });
+
+  it('says nothing when the configuration box is missing', () => {
+    expect(codecStringsFromInit(initWith(visual('avc1', Buffer.alloc(0))))).toEqual([]);
   });
 });
 

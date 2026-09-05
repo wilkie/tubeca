@@ -60,8 +60,12 @@ describe('HlsService playlist synthesis', () => {
 
   beforeEach(async () => {
     await resetDatabase();
-    // Playlist generation kicks off segment prefetch; keep ffmpeg out of tests.
+    // Playlist generation kicks off segment prefetch, and the master playlist
+    // asks for the header it reads codecs from; keep ffmpeg out of tests that
+    // are about the playlist text. The codec attribute has its own tests.
     (service as unknown as { prefetchInitialSegments: () => void }).prefetchInitialSegments = () => {};
+    (service as unknown as { originalCodecs: () => Promise<null> }).originalCodecs = async () => null;
+    spawned.length = 0;
   });
 
   afterAll(() => {
@@ -119,6 +123,109 @@ describe('HlsService playlist synthesis', () => {
     expect(lines[lines.length - 1]).toBe('#EXT-X-ENDLIST');
   });
 
+  describe('telling the player what the original rung contains', () => {
+    /** A minimal init segment describing one H.264 track. */
+    function h264Init(): Buffer {
+      const box = (type: string, payload: Buffer = Buffer.alloc(0)) => {
+        const header = Buffer.alloc(8);
+        header.writeUInt32BE(payload.length + 8, 0);
+        header.write(type, 4, 'latin1');
+        return Buffer.concat([header, payload]);
+      };
+      const full = (type: string, payload: Buffer) =>
+        box(type, Buffer.concat([Buffer.from([0, 0, 0, 0]), payload]));
+      // avcC: version, High profile, no constraints, level 4.0
+      const avcC = box('avcC', Buffer.from([1, 0x64, 0x00, 0x28]));
+      const avc1 = box('avc1', Buffer.concat([Buffer.alloc(78), avcC]));
+      const stsd = full('stsd', Buffer.concat([Buffer.from([0, 0, 0, 1]), avc1]));
+      return Buffer.concat([
+        box('ftyp', Buffer.from('isom')),
+        box('moov', box('trak', box('mdia', box('minf', box('stbl', stsd))))),
+      ]);
+    }
+
+    /** Put a header in the cache so the playlist can read codecs from it. */
+    function cacheInit(service: InstanceType<typeof HlsService>, mediaId: string) {
+      const variant = service.getVariantCachePath(mediaId, ORIGINAL_QUALITY, 'default');
+      fs.mkdirSync(variant, { recursive: true });
+      fs.writeFileSync(path.join(variant, 'init.mp4'), h264Init());
+    }
+
+    it('declares the codecs it read from the header', async () => {
+      const fresh = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/film.mp4', duration: 100 });
+      cacheInit(fresh, media.id);
+
+      const playlist = await fresh.generateMasterPlaylist(media.id);
+
+      expect(playlist).toContain('CODECS="avc1.640028"');
+    });
+
+    it('offers H.264 straight away rather than waiting for the header', async () => {
+      const fresh = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/plain.mp4', duration: 100 });
+      await prisma.mediaStream.createMany({
+        data: [{ mediaId: media.id, streamIndex: 0, streamType: 'Video', codec: 'h264' }],
+      });
+
+      // Nothing is cached and the fake FFmpeg never finishes, so waiting would
+      // mean waiting forever. Every browser decodes H.264; the rung is offered.
+      const playlist = await fresh.generateMasterPlaylist(media.id);
+
+      expect(playlist).toContain(`${ORIGINAL_QUALITY}.m3u8`);
+      expect(playlist).not.toContain('CODECS=');
+    });
+
+    it('keeps HEVC back until it can say what it is', async () => {
+      const fresh = new HlsService({ segmentTimeoutMs: 5000 });
+      (fresh as unknown as { getInitSegment: () => Promise<null> }).getInitSegment = async () => null;
+      const media = await createVideoMedia({ path: '/media/hevc.mkv', duration: 100 });
+      await prisma.mediaStream.createMany({
+        data: [
+          { mediaId: media.id, streamIndex: 0, streamType: 'Video', codec: 'hevc' },
+          { mediaId: media.id, streamIndex: 1, streamType: 'Audio', codec: 'aac' },
+        ],
+      });
+
+      // An unlabelled HEVC rung is a rung hls.js on Chrome would pick and fail
+      // on, so it is better not offered at all.
+      const playlist = await fresh.generateMasterPlaylist(media.id);
+
+      expect(playlist).not.toContain(`${ORIGINAL_QUALITY}.m3u8`);
+      expect(playlist).toContain('1080p.m3u8');
+    });
+
+    it('offers HEVC once the header exists', async () => {
+      const fresh = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/hevc2.mkv', duration: 100 });
+      await prisma.mediaStream.createMany({
+        data: [
+          { mediaId: media.id, streamIndex: 0, streamType: 'Video', codec: 'hevc' },
+          { mediaId: media.id, streamIndex: 1, streamType: 'Audio', codec: 'aac' },
+        ],
+      });
+      cacheInit(fresh, media.id);
+
+      const playlist = await fresh.generateMasterPlaylist(media.id);
+
+      expect(playlist).toContain(`${ORIGINAL_QUALITY}.m3u8`);
+      expect(playlist).toContain('CODECS="avc1.640028"');
+    });
+
+    it('reads the header once, however often the file is played', async () => {
+      const fresh = new HlsService({ segmentTimeoutMs: 5000 });
+      const media = await createVideoMedia({ path: '/media/repeat.mp4', duration: 100 });
+      cacheInit(fresh, media.id);
+
+      await fresh.generateMasterPlaylist(media.id);
+      const variant = fresh.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default');
+      fs.rmSync(path.join(variant, 'init.mp4'));
+
+      // The header is gone, but the answer was remembered.
+      expect(await fresh.generateMasterPlaylist(media.id)).toContain('CODECS="avc1.640028"');
+    });
+  });
+
   describe('the fragmented-MP4 original rung', () => {
     it('points every segment at the header they share', async () => {
       const media = await createVideoMedia({ path: '/media/film.mp4', duration: 20 });
@@ -170,12 +277,12 @@ describe('HlsService playlist synthesis', () => {
   describe('direct play', () => {
     it('offers Original from probed codecs rather than the file extension', async () => {
       const mkv = await createVideoMedia({ path: '/media/h264.mkv', duration: 100 });
-      const mp4 = await createVideoMedia({ path: '/media/hevc.mp4', duration: 100 });
+      const mp4 = await createVideoMedia({ path: '/media/mpeg4.mp4', duration: 100 });
       await prisma.mediaStream.createMany({
         data: [
           { mediaId: mkv.id, streamIndex: 0, streamType: 'Video', codec: 'h264' },
           { mediaId: mkv.id, streamIndex: 1, streamType: 'Audio', codec: 'aac' },
-          { mediaId: mp4.id, streamIndex: 0, streamType: 'Video', codec: 'hevc' },
+          { mediaId: mp4.id, streamIndex: 0, streamType: 'Video', codec: 'mpeg4' },
           { mediaId: mp4.id, streamIndex: 1, streamType: 'Audio', codec: 'aac' },
         ],
       });

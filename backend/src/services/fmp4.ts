@@ -159,6 +159,186 @@ export function shiftFragmentDecodeTimes(moof: Buffer, offsets: Map<number, numb
   }
 }
 
+/**
+ * RFC 6381 codec strings for the tracks in an initialisation segment, in track
+ * order, ready for a playlist's `CODECS` attribute.
+ *
+ * These are read from the sample entries themselves rather than derived from a
+ * codec name, because a name does not say whether a player can decode the
+ * stream: `hvc1.2.4.L150.B0` is Main 10 at level 5.0, and a browser that plays
+ * `hvc1.1.6.L120.B0` may well refuse it. A track whose sample entry is not
+ * recognised is left out rather than guessed at.
+ */
+export function codecStringsFromInit(init: Buffer): string[] {
+  const codecs: string[] = [];
+  const moov = topLevelBoxes(init).find((b) => b.type === 'moov');
+  if (!moov) return codecs;
+
+  for (const trak of childBoxes(init, moov.start + 8, moov.start + moov.size)) {
+    if (trak.type !== 'trak') continue;
+    const stsd = descend(init, trak, ['mdia', 'minf', 'stbl', 'stsd']);
+    if (!stsd) continue;
+    // stsd is a full box with an entry count before the sample entries.
+    for (const entry of childBoxes(init, stsd.start + stsd.headerSize + 8, stsd.start + stsd.size)) {
+      const codec = codecStringFor(init, entry);
+      if (codec) codecs.push(codec);
+    }
+  }
+  return codecs;
+}
+
+interface Box { type: string; start: number; size: number; headerSize: number }
+
+/** Follow a chain of box types down from a container. */
+function descend(buffer: Buffer, from: Box, path: string[]): Box | null {
+  let current: Box | null = from;
+  for (const type of path) {
+    if (!current) return null;
+    current =
+      childBoxes(buffer, current.start + current.headerSize, current.start + current.size).find(
+        (b) => b.type === type
+      ) ?? null;
+  }
+  return current;
+}
+
+/** Bytes an audio or visual sample entry reserves before its child boxes. */
+const VISUAL_SAMPLE_ENTRY_HEADER = 78;
+const AUDIO_SAMPLE_ENTRY_HEADER = 28;
+
+function codecStringFor(buffer: Buffer, entry: Box): string | null {
+  const configOf = (type: string, reserved: number) => {
+    const start = entry.start + entry.headerSize + reserved;
+    return childBoxes(buffer, start, entry.start + entry.size).find((b) => b.type === type) ?? null;
+  };
+
+  switch (entry.type) {
+    case 'avc1':
+    case 'avc3': {
+      const avcC = configOf('avcC', VISUAL_SAMPLE_ENTRY_HEADER);
+      if (!avcC) return null;
+      // configurationVersion, profile, compatibility, level
+      const at = avcC.start + avcC.headerSize + 1;
+      const hex = (offset: number) => buffer.readUInt8(at + offset).toString(16).padStart(2, '0');
+      return `${entry.type}.${hex(0)}${hex(1)}${hex(2)}`;
+    }
+    case 'hvc1':
+    case 'hev1': {
+      const hvcC = configOf('hvcC', VISUAL_SAMPLE_ENTRY_HEADER);
+      if (!hvcC) return null;
+      const at = hvcC.start + hvcC.headerSize + 1;
+      const first = buffer.readUInt8(at);
+      const profileSpace = first >> 6;
+      const tier = (first >> 5) & 1;
+      const profile = first & 0x1f;
+      // The compatibility flags are written most-significant bit first and
+      // read back as a bit-reversed integer, then printed without leading zeros.
+      const compatibility = reverseBits32(buffer.readUInt32BE(at + 1));
+      const constraints: string[] = [];
+      for (let i = 0; i < 6; i++) constraints.push(buffer.readUInt8(at + 5 + i).toString(16));
+      while (constraints.length > 0 && constraints[constraints.length - 1] === '0') constraints.pop();
+      const level = buffer.readUInt8(at + 11);
+      const space = profileSpace === 0 ? '' : String.fromCharCode('A'.charCodeAt(0) + profileSpace - 1);
+      const parts = [
+        entry.type,
+        `${space}${profile}`,
+        compatibility.toString(16).toUpperCase(),
+        `${tier ? 'H' : 'L'}${level}`,
+        ...constraints.map((c) => c.toUpperCase().padStart(2, '0')),
+      ];
+      return parts.join('.');
+    }
+    case 'av01': {
+      const av1C = configOf('av1C', VISUAL_SAMPLE_ENTRY_HEADER);
+      if (!av1C) return null;
+      const at = av1C.start + av1C.headerSize + 1;
+      const first = buffer.readUInt8(at);
+      const profile = first >> 5;
+      const level = first & 0x1f;
+      const second = buffer.readUInt8(at + 1);
+      const tier = (second >> 7) & 1;
+      const highBitDepth = (second >> 6) & 1;
+      const twelveBit = (second >> 5) & 1;
+      const depth = twelveBit ? 12 : highBitDepth ? 10 : 8;
+      return `av01.${profile}.${level.toString().padStart(2, '0')}${tier ? 'H' : 'M'}.${depth
+        .toString()
+        .padStart(2, '0')}`;
+    }
+    // An `mp4a` entry is whatever its elementary stream descriptor says it is:
+    // AAC of some profile, or an MP3 stream carried in MP4.
+    case 'mp4a': {
+      const esds = configOf('esds', AUDIO_SAMPLE_ENTRY_HEADER);
+      return esds
+        ? mp4aCodecString(buffer, esds.start + esds.headerSize + 4, esds.start + esds.size)
+        : 'mp4a.40.2';
+    }
+    case 'ac-3':
+    case 'ec-3':
+      return entry.type;
+    case 'Opus':
+      return 'opus';
+    case 'fLaC':
+      return 'flac';
+    default:
+      return null;
+  }
+}
+
+/**
+ * The codec string for an `mp4a` sample entry, read from its ES descriptor.
+ * MPEG-4 Audio (0x40) is spelled with its audio object type — 2 for AAC-LC, 5
+ * for HE-AAC — and an MP3 stream carried in MP4 by its own object type instead.
+ */
+function mp4aCodecString(buffer: Buffer, start: number, end: number): string {
+  let offset = start;
+  let objectType: number | null = null;
+
+  while (offset < end) {
+    const tag = buffer.readUInt8(offset++);
+    // Descriptor lengths are seven bits per byte, high bit meaning "more".
+    let length = 0;
+    for (let i = 0; i < 4 && offset < end; i++) {
+      const byte = buffer.readUInt8(offset++);
+      length = (length << 7) | (byte & 0x7f);
+      if ((byte & 0x80) === 0) break;
+    }
+    if (tag === 0x03) {
+      // ES_Descriptor: an id and a flags byte, then the descriptors we want.
+      // The flags may add a dependency id, a URL or an OCR id before them.
+      const flags = buffer.readUInt8(offset + 2);
+      offset += 3;
+      if (flags & 0x80) offset += 2;
+      if (flags & 0x40) offset += 1 + buffer.readUInt8(offset);
+      if (flags & 0x20) offset += 2;
+      continue;
+    }
+    if (tag === 0x04) {
+      objectType = buffer.readUInt8(offset);
+      // objectTypeIndication, streamType, buffer size, max and average bitrate
+      offset += 13;
+      continue;
+    }
+    if (tag === 0x05 && objectType === 0x40 && offset < end) {
+      const audioObjectType = buffer.readUInt8(offset) >> 3;
+      return `mp4a.40.${audioObjectType}`;
+    }
+    offset += length;
+  }
+
+  if (objectType === null) return 'mp4a.40.2';
+  return objectType === 0x40
+    ? 'mp4a.40.2'
+    : `mp4a.${objectType.toString(16).toUpperCase().padStart(2, '0')}`;
+}
+
+function reverseBits32(value: number): number {
+  let out = 0;
+  for (let i = 0; i < 32; i++) {
+    out = (out << 1) | ((value >>> i) & 1);
+  }
+  return out >>> 0;
+}
+
 export interface Fmp4SplitterOptions {
   /**
    * Where this segment starts in the file, in seconds. Every fragment's decode

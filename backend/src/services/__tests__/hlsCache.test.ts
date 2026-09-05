@@ -28,10 +28,15 @@ describe('isDirectPlayable', () => {
     expect(isDirectPlayable([{ streamType: 'Video', codec: 'h264' }], '/x.mkv')).toBe(true);
   });
 
-  it('rejects codecs HLS cannot carry even in an mp4', () => {
-    expect(isDirectPlayable([{ streamType: 'Video', codec: 'hevc' }, { streamType: 'Audio', codec: 'aac' }], '/x.mp4')).toBe(false);
+  it('accepts HEVC and AV1, which fragmented MP4 can carry', () => {
+    expect(isDirectPlayable([{ streamType: 'Video', codec: 'hevc' }, { streamType: 'Audio', codec: 'aac' }], '/x.mkv')).toBe(true);
+    expect(isDirectPlayable([{ streamType: 'Video', codec: 'av1' }, { streamType: 'Audio', codec: 'mp3' }], '/x.mkv')).toBe(true);
+  });
+
+  it('rejects codecs it would still have to transcode', () => {
     expect(isDirectPlayable([{ streamType: 'Video', codec: 'h264' }, { streamType: 'Audio', codec: 'dts' }], '/x.mp4')).toBe(false);
     expect(isDirectPlayable([{ streamType: 'Video', codec: 'vp9' }, { streamType: 'Audio', codec: 'opus' }], '/x.webm')).toBe(false);
+    expect(isDirectPlayable([{ streamType: 'Video', codec: 'mpeg4' }, { streamType: 'Audio', codec: 'aac' }], '/x.avi')).toBe(false);
   });
 
   it('falls back to trusting only .mp4 when nothing was probed', () => {

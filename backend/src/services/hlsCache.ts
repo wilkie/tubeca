@@ -174,13 +174,14 @@ export function enforceCacheSize(cacheRoot: string, maxBytes: number): { deleted
 }
 
 /**
- * Codecs the `original` rung copies rather than re-encodes. The rung became
- * fragmented MP4 in 2026-09-05, so the container no longer limits this to what
- * MPEG-TS can carry; what still does is that the master playlist does not yet
- * declare CODECS, and a player that cannot decode HEVC or AV1 has no way to
- * skip a rung offering them.
+ * Codecs the `original` rung copies rather than re-encodes. Since the rung
+ * became fragmented MP4 (2026-09-05) the container no longer limits this to
+ * what MPEG-TS can carry, and since the master playlist declares each rung's
+ * codecs a player that cannot decode HEVC or AV1 skips the rung rather than
+ * failing on it. So a Safari that plays HEVC natively gets the file's own
+ * picture, and a Chrome that does not gets a transcode.
  */
-export const DIRECT_PLAY_VIDEO_CODECS = new Set(['h264']);
+export const DIRECT_PLAY_VIDEO_CODECS = new Set(['h264', 'hevc', 'av1']);
 export const DIRECT_PLAY_AUDIO_CODECS = new Set(['aac', 'mp3']);
 
 export interface CodecInfo {

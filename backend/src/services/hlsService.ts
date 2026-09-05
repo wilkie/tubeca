@@ -25,7 +25,7 @@ import {
   sweepExpiredSegments,
 } from './hlsCache';
 import type { TranscodingSettings } from '@prisma/client';
-import { Fmp4Splitter } from './fmp4';
+import { codecStringsFromInit, Fmp4Splitter } from './fmp4';
 
 // Quality presets for transcoding (default values, overridden by settings)
 export interface QualityPreset {
@@ -69,6 +69,20 @@ export function segmentFileName(quality: string, index: number): string {
 
 /** The `#EXT-X-MAP` initialisation segment shared by every segment of a variant. */
 export const INIT_SEGMENT_NAME = 'init.mp4';
+
+/**
+ * Codecs no browser is required to decode, so a rung carrying one must say so
+ * or a player has no way to skip it.
+ */
+const NEEDS_DECLARED_CODECS = new Set(['hevc', 'av1']);
+
+/**
+ * How long a master playlist will wait for the header it reads codecs from.
+ * The header costs one FFmpeg run, which normally takes a moment but queues
+ * behind transcodes on a busy machine, and nobody should wait on the queue
+ * just to be told what a file contains.
+ */
+const CODEC_PROBE_TIMEOUT_MS = 5000;
 
 export interface SegmentInfo {
   path: string;
@@ -145,6 +159,9 @@ export class HlsService {
   private defaultSegmentDuration: number;
   // Track in-progress segment generations to prevent concurrent generation of same segment
   /** Whether a file's audio can be copied, by path and track; see `canCopyAudio`. */
+  /** `CODECS` for the original rung, keyed by `<mediaId>:<audioTrack>`. */
+  private codecStringCache = new Map<string, string | null>();
+
   private audioCopyCache = new Map<
     string,
     { copyable: boolean; codec?: string | null; expires: number }
@@ -500,9 +517,24 @@ export class HlsService {
 
     // Add original quality (stream copy) first, when the codecs allow it
     if (await this.canDirectPlay(media.id, media.path)) {
-      // For native formats, we can offer original quality
-      lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=20000000,RESOLUTION=native,NAME="Original"`);
-      lines.push(`${ORIGINAL_QUALITY}.m3u8?audioTrack=${audioTrackStr}${auth}`);
+      const videoCodec = (await this.videoCodecOf(media.path)) ?? '';
+      // A player that cannot decode HEVC or AV1 — hls.js on Chrome or Firefox,
+      // for two — can only avoid this rung if the playlist says what is in it.
+      // Without that, offering it means offering a failure, so those files wait
+      // for the header the codecs are read from. H.264 does not: every browser
+      // decodes it, so the playlist goes out at once and says so next time.
+      const needsCodecs = NEEDS_DECLARED_CODECS.has(videoCodec);
+      const codecs = await this.originalCodecs(media.id, audioTrackStr, needsCodecs);
+      if (codecs || !needsCodecs) {
+        const attributes = [
+          'BANDWIDTH=20000000',
+          'RESOLUTION=native',
+          ...(codecs ? [`CODECS="${codecs}"`] : []),
+          'NAME="Original"',
+        ];
+        lines.push(`#EXT-X-STREAM-INF:${attributes.join(',')}`);
+        lines.push(`${ORIGINAL_QUALITY}.m3u8?audioTrack=${audioTrackStr}${auth}`);
+      }
     }
 
     // Add transcoded quality options (highest to lowest)
@@ -515,6 +547,65 @@ export class HlsService {
     }
 
     return lines.join('\n');
+  }
+
+  /**
+   * The `CODECS` attribute for the original rung, or null when it cannot be
+   * had in time. Read from the initialisation segment's sample entries rather
+   * than derived from a codec name, since only the sample entry says which
+   * profile and level a player is being asked for.
+   *
+   * Producing the header means one FFmpeg run, so the answer is remembered and
+   * the wait is bounded: a machine whose transcode slots are all busy answers
+   * without the rung rather than making the viewer wait for it.
+   */
+  private async originalCodecs(
+    mediaId: string,
+    audioTrack: string,
+    wait: boolean
+  ): Promise<string | null> {
+    const key = `${mediaId}:${audioTrack}`;
+    const cached = this.codecStringCache.get(key);
+    if (cached !== undefined) return cached;
+
+    const variantPath = this.getVariantCachePath(mediaId, ORIGINAL_QUALITY, audioTrack);
+    const cachedInit = path.join(variantPath, INIT_SEGMENT_NAME);
+    const readFrom = (initPath: string): string | null => {
+      try {
+        const codecs = codecStringsFromInit(fs.readFileSync(initPath));
+        const value = codecs.length > 0 ? codecs.join(',') : null;
+        this.codecStringCache.set(key, value);
+        return value;
+      } catch {
+        return null;
+      }
+    };
+
+    try {
+      if (fs.statSync(cachedInit).size > 0) return readFrom(cachedInit);
+    } catch {
+      // Not produced yet
+    }
+
+    const pending = this.getInitSegment(mediaId, ORIGINAL_QUALITY, audioTrack);
+    if (!wait) {
+      // Nothing depends on the answer, so let the header be built in the
+      // background and say nothing about codecs this time.
+      void pending.catch(() => {});
+      return null;
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const initPath = await Promise.race([
+      pending,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), CODEC_PROBE_TIMEOUT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    // A timeout is not an answer: the encode continues, and the next play of
+    // this file will find the header cached.
+    return initPath ? readFrom(initPath) : null;
   }
 
   /**

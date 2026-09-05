@@ -61,9 +61,13 @@ All notable changes to Tubeca are recorded here. The format follows
 
 ### Changed
 - The Original quality is now served as fragmented MP4 rather than MPEG-TS. Playing a file as it
-  is no longer means repacking every byte on the way out, and it is the format that can carry HEVC
-  and AV1 — which is the next step rather than this one, since a player still has to be told what
-  a rung contains before it can decide whether it can play it.
+  is no longer means repacking every byte on the way out.
+
+### Added
+- HEVC and AV1 files can be played as they are, on a browser that can decode them — about 8% of a
+  typical library, which until now was re-encoded on every play even on hardware that would have
+  played the file untouched. Each quality now says what it contains, so a browser that cannot
+  decode it quietly picks a transcode instead of failing.
 
 ### Fixed
 - Original quality no longer skips. Each six-second segment held about four seconds of picture,
