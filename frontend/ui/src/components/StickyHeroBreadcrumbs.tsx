@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Box } from '@mui/material';
+import { FULL_BLEED_MARGIN } from '../utils/layout';
 import { CollectionBreadcrumbs, type BreadcrumbItem } from './CollectionBreadcrumbs';
 
 interface StickyHeroBreadcrumbsProps {
@@ -37,7 +38,7 @@ export function StickyHeroBreadcrumbs({
         position: 'sticky',
         top: 48, // Header height
         zIndex: 10,
-        mx: -3, // Extend to full width (counteract container padding)
+        mx: FULL_BLEED_MARGIN, // Extend to full width (counteract container padding)
         // Hero variant has negative margins to overlap with backdrop
         mt: isHero ? '-38px' : '-32px',
         mb: isHero ? -6 : 2,

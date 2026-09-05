@@ -41,6 +41,7 @@ import { WatchLaterButton } from './WatchLaterButton';
 import { CardQuickActions } from './CardQuickActions';
 import { WatchBadge } from './WatchBadge';
 import type { CollectionWatchSummary } from '../api/client';
+import { FULL_BLEED_MARGIN, PAGE_GUTTER } from '../utils/layout';
 
 interface ShowCreditWithPerson extends ShowCredit {
   person?: {
@@ -477,7 +478,17 @@ export function ShowHeroView({
       </HeroSection>
 
       {/* Content below hero with opaque background to scroll over fixed backdrop */}
-      <Box sx={{ position: 'relative', zIndex: 3, bgcolor: 'background.default', mx: -3, px: 3, pt: 3, pb: 3 }}>
+      <Box
+        sx={{
+          position: 'relative',
+          zIndex: 3,
+          bgcolor: 'background.default',
+          mx: FULL_BLEED_MARGIN,
+          px: PAGE_GUTTER,
+          pt: 3,
+          pb: 3,
+        }}
+      >
         {/* Seasons Grid */}
         {sortedSeasons.length > 0 && (
           <Box>

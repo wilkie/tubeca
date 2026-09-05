@@ -1,4 +1,4 @@
-import { render, screen } from '../../test-utils';
+import { DEFAULT_VIEWPORT_WIDTH, render, screen, setViewportWidth } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { Movie } from '@mui/icons-material';
 import { MediaListItem, MediaListItemBadge, MediaListItemMeta } from '../MediaListItem';
@@ -80,5 +80,20 @@ describe('MediaListItem', () => {
     const { container } = renderItem();
 
     expect(container.querySelector('.MuiStack-root')).toBeNull();
+  });
+
+  describe('on a narrow screen', () => {
+    afterEach(() => setViewportWidth(DEFAULT_VIEWPORT_WIDTH));
+
+    it('drops the description, which leaves the title nothing to share with', () => {
+      renderItem({ description: 'A long synopsis that would take two lines of its own.' });
+      expect(screen.getByText(/long synopsis/)).toBeInTheDocument();
+
+      setViewportWidth(400);
+
+      expect(screen.queryByText(/long synopsis/)).not.toBeInTheDocument();
+      // The title and any badges are what a row is for; they stay.
+      expect(screen.getByText('Heat')).toBeInTheDocument();
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '../../test-utils';
+import { DEFAULT_VIEWPORT_WIDTH, render, screen, setViewportWidth, waitFor } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { Header } from '../Header';
 import { useAuth } from '../../context/AuthContext';
@@ -279,6 +279,25 @@ describe('Header', () => {
         // No library buttons should be shown
         expect(screen.queryByRole('button', { name: 'Movies' })).not.toBeInTheDocument();
       });
+    });
+  });
+
+  describe('on a narrow screen', () => {
+    afterEach(() => setViewportWidth(DEFAULT_VIEWPORT_WIDTH));
+
+    it('leaves the library tabs to the drawer', async () => {
+      mockApiClient.getLibraries.mockResolvedValue({ data: { libraries: mockLibraries } });
+
+      render(<Header />);
+      expect(await screen.findByRole('button', { name: 'Movies' })).toBeInTheDocument();
+
+      setViewportWidth(400);
+
+      // The drawer lists the same libraries, so nothing becomes unreachable —
+      // and the menu button that opens it is still there.
+      expect(screen.queryByRole('button', { name: 'Movies' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'TV Shows' })).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/menu/i)).toBeInTheDocument();
     });
   });
 });

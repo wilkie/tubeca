@@ -169,12 +169,24 @@ offset alone. Only `LibraryPage` and `SearchPage` use it. `NavigationLoadingOver
 ### Layout chrome
 
 `Header` renders one tab button per library from `useLibraries()`; the active one gets a white
-underline. Favourites, watch-later and queue icons are hidden below the `md` breakpoint; the
-library tabs are not, so on narrow screens they overflow. `Sidebar` reads the same hook, so
-opening the drawer no longer re-fetches what the header already has, and shows the admin section
-only for `role === 'Admin'`. Both are
-the only responsive touches besides `Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }}` on every grid;
-there are zero `useMediaQuery` or `breakpoints.down` calls in `src/`.
+underline. Favourites, watch-later and queue icons are hidden below `md`, and since 2026-09-05 so
+are the library tabs — not with `display: none` but by not rendering them, so they are not tab
+stops; `Sidebar` lists the same libraries, so nothing becomes unreachable. `Sidebar` reads the same
+hook, so opening the drawer no longer re-fetches what the header already has, and shows the admin
+section only for `role === 'Admin'`.
+
+The rest of the responsive treatment: `Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }}` on every grid,
+`HeroSection` sized to its content below `md` rather than filling the viewport, `MediaListItem`
+with a 92px poster column, tighter padding and no description below `sm`, and the player's own
+(see [Playback](playback.md)). `useMediaQuery` is used where the change is *what renders*; plain
+`sx` breakpoint objects where it is only how it looks — emotion's rules are invisible to jsdom, so
+only the former can be tested.
+
+**Page gutters live in `utils/layout.ts`.** MUI's `Container` pads by 16px below `sm` and 24px
+above; a full-bleed section cancels that with a negative margin, and the two have to agree. Four
+places used a flat `-3` against both, so on a phone every hero reached 8px past each edge of the
+container and gave the page a horizontal scroll. `PAGE_GUTTER` and `FULL_BLEED_MARGIN` are now one
+pair, with a test asserting they cancel and that they still match what `Container` does.
 
 ### Data fetching
 
@@ -371,6 +383,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-04 `HeroSection`, `UpNextPopup`, `ViewModeMenu` and `RecentCollectionMenuItem` tested, which leaves no untested component, page, context or hook.
 - 2026-09-04 `src/i18n/__tests__/translations.test.ts` checks every `t()` key in the source against `en.json`. It found 98 of the 291 keys in use missing — every one of them rendering correctly from its inline default — and all 98 were added from those defaults. A generated pseudo-locale (`en-XA`, `?lng=en-XA`) answers the other half of the question: which strings never went through `t()` at all.
 - 2026-09-04 A search box in the header (a form submitting to `/search?q=`, the icon alone below `sm`), and excluded ratings and selected keywords persisted per library alongside the view mode and sort.
+- 2026-09-05 First responsive pass outside the player: page gutters centralised in `utils/layout.ts` after four heroes cancelled a 16px phone gutter with a 24px negative margin and scrolled the page sideways; header library tabs left to the drawer below `md`; `HeroSection` sized to its content below `md`; `MediaListItem` narrowed, tightened and stripped of its description below `sm`. `jest.setup.ts` answers `matchMedia` from `window.innerWidth` so any of this can be tested at all.
 
 ## Known Limitations
 
@@ -381,8 +394,6 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - **Single locale in practice.** i18next is configured with a language detector but only `en`
   exists; many call sites rely on inline English defaults, and the two client error strings are
   untranslated.
-- **Filters are not persisted.** View mode and sort are remembered per library, but excluded
-  ratings and selected keywords are not, so returning to a library clears them.
 - **`SettingsPage` still hand-rolls its fetches**, deliberately: they seed twelve controlled
   inputs once and gain nothing from a cache.
 - **Restoring a scrolled list depends on the query cache window.** Pages are held for five
@@ -416,8 +427,10 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   already exists at `/api-docs`. (M)
 - **Move transcoding settings types into `@tubeca/shared-types`**; they are the only API types
   declared locally in `client.ts`. (S)
-- **Mobile layout**: collapse header tabs into the drawer below `md`, shrink `HeroSection`
-  height, and make `MediaListItem` stack on `xs`. (M)
+- **Mobile layout, the rest of it** (M): dialogs are still desktop-sized (`IdentifyDialog`,
+  `ImagesDialog`, `LibraryDialog` want `fullScreen` below `sm`), `LibraryToolbar`'s sort and filter
+  controls sit on one row, and `CastCrewGrid` keeps its desktop card size. The header, heroes and
+  list rows were done 2026-09-05.
 - **Self-host the "Praise" font** in `public/` to drop the Google Fonts dependency. (S)
 - **Make `serve` mode self-sufficient** by adding `VITE_API_BASE` or an `serve.json` rewrite,
   or drop the frontend service in favour of the backend serving `dist/` (see

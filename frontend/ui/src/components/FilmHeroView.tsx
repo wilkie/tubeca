@@ -32,6 +32,7 @@ import { WatchedToggleButton } from './WatchedToggleButton';
 import { RecentCollectionMenuItem } from './RecentCollectionMenuItem';
 import { useAddToRecentCollection } from '../hooks/useAddToRecentCollection';
 import type { WatchProgress } from '../api/client';
+import { FULL_BLEED_MARGIN, PAGE_GUTTER } from '../utils/layout';
 
 interface FilmCreditWithPerson extends FilmCredit {
   person?: {
@@ -488,7 +489,17 @@ export function FilmHeroView({
       </HeroSection>
 
       {/* Content below hero with opaque background to scroll over fixed backdrop */}
-      <Box sx={{ position: 'relative', zIndex: 3, bgcolor: 'background.default', mx: -3, px: 3, pt: 3, pb: 3 }}>
+      <Box
+        sx={{
+          position: 'relative',
+          zIndex: 3,
+          bgcolor: 'background.default',
+          mx: FULL_BLEED_MARGIN,
+          px: PAGE_GUTTER,
+          pt: 3,
+          pb: 3,
+        }}
+      >
         {/* Special Features */}
         {additionalMedia.length > 0 && (
           <>

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { apiClient } from '../api/client';
+import { FULL_BLEED_MARGIN } from '../utils/layout';
 
 interface HeroSectionProps {
   backdropImageId?: string;
@@ -15,10 +16,12 @@ export function HeroSection({ backdropImageId, children }: HeroSectionProps) {
     <Box
       sx={{
         position: 'relative',
-        mx: -3,
+        mx: FULL_BLEED_MARGIN,
         mt: -4,
         mb: 0,
-        minHeight: 'calc(100vh - 48px)',
+        // A full-height hero on a phone is a screen of artwork with the
+        // episode list entirely below the fold. Let it be as tall as it needs.
+        minHeight: { xs: 'auto', md: 'calc(100vh - 48px)' },
         display: 'flex',
         flexDirection: 'column',
       }}

@@ -8,6 +8,8 @@ import {
   Typography,
   Stack,
   IconButton,
+  useMediaQuery,
+  useTheme,
   Tooltip,
 } from '@mui/material';
 import { PlayArrow } from '@mui/icons-material';
@@ -53,6 +55,8 @@ export function MediaListItem({
   actions,
 }: MediaListItemProps) {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const roomForDescription = useMediaQuery(theme.breakpoints.up('sm'));
 
   return (
     <Card sx={{ display: 'flex' }}>
@@ -64,7 +68,7 @@ export function MediaListItem({
         {/* Image - fixed width based on 2:3 aspect ratio */}
         <Box
           sx={{
-            width: 125,
+            width: { xs: 92, sm: 125 },
             flexShrink: 0,
             flexGrow: 0,
           }}
@@ -97,7 +101,7 @@ export function MediaListItem({
         </Box>
 
         {/* Details */}
-        <CardContent sx={{ py: 1.5, px: 2, flexGrow: 1 }}>
+        <CardContent sx={{ py: 1.5, px: { xs: 1.25, sm: 2 }, flexGrow: 1, minWidth: 0 }}>
           <Typography variant="subtitle1" fontWeight="medium">
             {title}
           </Typography>
@@ -107,7 +111,9 @@ export function MediaListItem({
               {metadata}
             </Stack>
           )}
-          {description && (
+          {/* Two lines of description on a phone leave the title and the badges
+              fighting for what is left; the row's own page has it. */}
+          {description && roomForDescription && (
             <Typography
               variant="body2"
               color="text.secondary"
@@ -131,7 +137,7 @@ export function MediaListItem({
             <IconButton
               color="primary"
               onClick={onPlay}
-              sx={{ width: 40, height: 56, borderRadius: 0.5 }}
+              sx={{ width: { xs: 36, sm: 40 }, height: 56, borderRadius: 0.5 }}
             >
               <PlayArrow sx={{ fontSize: 28 }} />
             </IconButton>

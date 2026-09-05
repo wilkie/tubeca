@@ -13,6 +13,8 @@ import {
   MenuItem,
   Divider,
   Button,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { Menu as MenuIcon, Search, AccountCircle, Favorite, WatchLater, QueueMusic } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
@@ -26,6 +28,8 @@ interface HeaderProps {
 
 export function Header({ onMenuClick }: HeaderProps) {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const wideEnoughForTabs = useMediaQuery(theme.breakpoints.up('md'));
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [search, setSearch] = useState('');
   const { user, logout } = useAuth();
@@ -88,9 +92,11 @@ export function Header({ onMenuClick }: HeaderProps) {
           {t('app.name')}
         </Typography>
 
-        {/* Library Navigation Buttons */}
+        {/* Library Navigation Buttons. The drawer lists the same libraries, so
+            below md they live there rather than overflowing the bar — not
+            rendered at all rather than hidden, so they are not tab stops. */}
         <Box sx={{ display: 'flex', gap: 1, mx: 2 }}>
-          {libraries.map((library) => {
+          {(wideEnoughForTabs ? libraries : []).map((library) => {
             const isActive = activeLibraryId === library.id;
             return (
               <Button
