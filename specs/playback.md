@@ -302,7 +302,11 @@ a collection has any watched or started items, and a thin progress bar for partl
 and single-item collections (films). `WatchedToggleButton` is the mark watched/unwatched control.
 They are wired into `MediaGrid` (episode cards: badge plus an overlay toggle),
 `ChildCollectionGrid` and `ShowHeroView` (season cards), `LibraryPage` (film and show cards in
-both grid and list views), `FilmHeroView` and `MediaPage` (a labelled toggle beside Play).
+both grid and list views), `SearchPage`, `FavoritesPage`, `WatchLaterPage`, `QueuePage` and
+`UserCollectionPage` (badges only — these lists mix media and collections, so each row asks for
+whichever badge fits), `FilmHeroView` and `MediaPage` (a labelled toggle beside Play).
+`SortableMediaListItem` takes `watchProgress`/`watchSummary` and draws the badge over its
+thumbnail, which is how the queue and playlist rows carry it.
 Collections in libraries the user cannot access are omitted from the summaries endpoint.
 
 ## Interactions
@@ -344,12 +348,15 @@ Collections in libraries the user cannot access are omitted from the summaries e
 - 2026-09-03 Watched badges and progress bars on library, season and episode cards; mark watched/unwatched on cards, film hero and media page; batch progress and collection summary endpoints.
 - 2026-09-03 Playback batch: real keyboard shortcuts, bounded fatal-error recovery with a visible retry, progress flushed on tab close, Up Next skips watched episodes, quality remembered by height, audio plays through the shared element, Media Session integration.
 - 2026-09-04 A failed progress report is retried on a backoff instead of being dropped, and search results show watched badges.
+- 2026-09-04 Watched badges extended to favourites, watch later, the queue and user collections.
 
 ## Known Limitations
 
-- **Watched state is not shown on user collections or the queue.** Search results carry badges as
-  of 2026-09-04, being where an episode is most often seen out of its season; the collection pages
-  still show nothing.
+- **A user collection's own card carries no roll-up.** As of 2026-09-04 every list a viewer
+  builds — search, favourites, watch later, the queue and user collections — badges the films,
+  episodes and library collections in it, but a row pointing at *another user collection*
+  (`itemUserCollection`) still shows nothing, because summaries are computed over library
+  collection subtrees rather than arbitrary item sets.
 - **Marking a whole season or show watched is one item at a time.** There is no bulk endpoint.
 - **A report sent as the page closes cannot be retried.** An ordinary failed `PUT /api/watch` now
   retries on a backoff until it lands (2026-09-04), but the `keepalive` report on `pagehide` has
@@ -382,8 +389,8 @@ Collections in libraries the user cannot access are omitted from the summaries e
 
 ## Opportunities
 
-- **Wire `useWatchState` into search, user collection and queue pages** (S) and add a
-  "mark all watched" action on seasons and shows backed by a bulk endpoint (M).
+- **Add a "mark all watched" action** on seasons and shows backed by a bulk endpoint (M).
+  Today a viewer catching up clicks through an episode at a time.
 
 
 - **Next-episode from Continue Watching** (S): when a completed episode has a successor, show

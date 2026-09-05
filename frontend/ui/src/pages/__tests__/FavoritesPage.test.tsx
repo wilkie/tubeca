@@ -7,6 +7,9 @@ import type { UserCollection, UserCollectionItem, Image } from '../../api/client
 // Mock the API client
 jest.mock('../../api/client', () => ({
   apiClient: {
+    // Rows carry watched badges.
+    getWatchProgressBatch: jest.fn().mockResolvedValue({ data: { progress: {} } }),
+    getCollectionWatchSummaries: jest.fn().mockResolvedValue({ data: { summaries: {} } }),
     getFavorites: jest.fn(),
     toggleFavorite: jest.fn(),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
@@ -21,6 +24,10 @@ jest.mock('react-router-dom', () => ({
 }));
 
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
+const mockWatch = apiClient as unknown as {
+  getWatchProgressBatch: jest.Mock;
+  getCollectionWatchSummaries: jest.Mock;
+};
 
 // Helper to create minimal Image mock
 const createMockImage = (id: string, imageType: string): Image =>
@@ -104,6 +111,9 @@ const mockFavorites: UserCollection = {
 describe('FavoritesPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // clearAllMocks drops the resolved values set at mock time.
+    mockWatch.getWatchProgressBatch.mockResolvedValue({ data: { progress: {} } });
+    mockWatch.getCollectionWatchSummaries.mockResolvedValue({ data: { summaries: {} } });
     mockApiClient.getFavorites.mockResolvedValue({ data: { userCollection: mockFavorites } });
     mockApiClient.toggleFavorite.mockResolvedValue({ data: { favorited: false } });
   });
@@ -338,6 +348,38 @@ describe('FavoritesPage', () => {
         expect(screen.queryByText('The Matrix')).not.toBeInTheDocument();
         expect(screen.getByText('Pilot')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('watch state', () => {
+    it('marks a favourite film that has been watched', async () => {
+      mockWatch.getCollectionWatchSummaries.mockResolvedValue({
+        data: { summaries: { 'col-1': { collectionId: 'col-1', total: 1, watched: 1, inProgress: 0, resume: null } } },
+      });
+
+      render(<FavoritesPage />);
+      await screen.findByText('The Matrix');
+
+      expect(await screen.findByTestId('watch-badge')).toBeInTheDocument();
+    });
+
+    it('shows how far into a favourited episode the viewer got', async () => {
+      mockWatch.getWatchProgressBatch.mockResolvedValue({
+        data: { progress: { 'media-1': { mediaId: 'media-1', position: 900, duration: 3600, completed: false } } },
+      });
+
+      render(<FavoritesPage />);
+      await screen.findByText('Pilot');
+
+      expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+    });
+
+    it('asks about exactly the films and episodes it lists', async () => {
+      render(<FavoritesPage />);
+      await screen.findByText('The Matrix');
+
+      await waitFor(() => expect(mockWatch.getWatchProgressBatch).toHaveBeenCalledWith(['media-1']));
+      expect(mockWatch.getCollectionWatchSummaries).toHaveBeenCalledWith(['col-1']);
     });
   });
 });

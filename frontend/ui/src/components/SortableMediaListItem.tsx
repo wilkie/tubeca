@@ -12,7 +12,8 @@ import {
 import { PlayArrow, DragIndicator, Clear, Delete } from '@mui/icons-material';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { UserCollectionItem } from '../api/client';
+import type { CollectionWatchSummary, UserCollectionItem, WatchProgress } from '../api/client';
+import { WatchBadge } from './WatchBadge';
 
 export interface SortableMediaListItemProps {
   item: UserCollectionItem;
@@ -25,6 +26,10 @@ export interface SortableMediaListItemProps {
   getItemSubtitle: (item: UserCollectionItem) => string;
   getItemIcon: (item: UserCollectionItem) => React.ReactNode;
   removeTooltip: string;
+  /** Watch state for this row, drawn over its thumbnail. */
+  watchProgress?: WatchProgress | null;
+  /** Roll-up for a row that points at a collection rather than a single item. */
+  watchSummary?: CollectionWatchSummary | null;
   /** Label for the play control, which is an icon and otherwise unnamed. */
   playLabel?: string;
   showDragHandle?: boolean;
@@ -44,6 +49,8 @@ export function SortableMediaListItem({
   getItemSubtitle,
   getItemIcon,
   removeTooltip,
+  watchProgress,
+  watchSummary,
   playLabel = 'Play',
   showDragHandle = true,
   showRemoveButton = true,
@@ -106,6 +113,7 @@ export function SortableMediaListItem({
             width: 125,
             flexShrink: 0,
             flexGrow: 0,
+            position: 'relative',
           }}
         >
           {imageUrl ? (
@@ -132,6 +140,11 @@ export function SortableMediaListItem({
             >
               {getItemIcon(item)}
             </Box>
+          )}
+          {watchSummary ? (
+            <WatchBadge kind="collection" summary={watchSummary} />
+          ) : (
+            <WatchBadge kind="media" progress={watchProgress} />
           )}
         </Box>
 

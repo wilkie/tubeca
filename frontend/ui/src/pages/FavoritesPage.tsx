@@ -22,6 +22,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
 import { FilterChips } from '../components/FilterChips';
+import { WatchBadge } from '../components/WatchBadge';
+import { useWatchState } from '../hooks/useWatchState';
 
 type SortField = 'name' | 'dateAdded' | 'type';
 
@@ -85,6 +87,18 @@ export function FavoritesPage() {
   ], [t]);
 
   const items = useMemo(() => favorites?.items ?? [], [favorites?.items]);
+
+  // Both lists are saved-for-later shelves, so the first question a viewer has
+  // about a card is whether they already got to it.
+  const mediaIds = useMemo(
+    () => items.map((item) => item.media?.id).filter((id): id is string => Boolean(id)),
+    [items]
+  );
+  const collectionIds = useMemo(
+    () => items.map((item) => item.collection?.id).filter((id): id is string => Boolean(id)),
+    [items]
+  );
+  const { progress: watchProgress, summaries: watchSummaries } = useWatchState({ mediaIds, collectionIds });
 
   // Extract unique item types for filtering
   const availableTypes = useMemo(() => {
@@ -353,6 +367,11 @@ export function FavoritesPage() {
                       )}
                     </CardContent>
                   </CardActionArea>
+                  {item.collection ? (
+                    <WatchBadge kind="collection" summary={watchSummaries[item.collection.id]} />
+                  ) : (
+                    <WatchBadge kind="media" progress={watchProgress[item.media?.id ?? '']} />
+                  )}
                   <Tooltip title={t('favorites.removeFromFavorites', 'Remove from Favorites')}>
                     <IconButton
                       size="small"

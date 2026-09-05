@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -26,6 +27,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { apiClient, type UserCollection, type UserCollectionItem } from '../api/client';
+import { useWatchState } from '../hooks/useWatchState';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { usePlayer } from '../context/PlayerContext';
@@ -51,7 +53,19 @@ export function QueuePage() {
     });
   };
 
-  const items = queue?.items ?? [];
+  const items = useMemo(() => queue?.items ?? [], [queue?.items]);
+
+  // The queue is a flat list of things to play next, so a row is the only place
+  // a viewer sees "have I already watched this?" before committing to it.
+  const mediaIds = useMemo(
+    () => items.map((item) => item.media?.id).filter((id): id is string => Boolean(id)),
+    [items]
+  );
+  const collectionIds = useMemo(
+    () => items.map((item) => item.collection?.id).filter((id): id is string => Boolean(id)),
+    [items]
+  );
+  const { progress: watchProgress, summaries: watchSummaries } = useWatchState({ mediaIds, collectionIds });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -284,6 +298,8 @@ export function QueuePage() {
                   getItemName={getItemName}
                   getItemSubtitle={getItemSubtitle}
                   getItemIcon={getItemIcon}
+                  watchProgress={watchProgress[item.media?.id ?? '']}
+                  watchSummary={watchSummaries[item.collection?.id ?? '']}
                   removeTooltip={t('queue.remove', 'Remove from Queue')}
                   playLabel={t('common.play', 'Play')}
                 />

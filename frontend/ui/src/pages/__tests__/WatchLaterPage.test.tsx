@@ -7,6 +7,9 @@ import type { UserCollection, UserCollectionItem, Image } from '../../api/client
 // Mock the API client
 jest.mock('../../api/client', () => ({
   apiClient: {
+    // Rows carry watched badges.
+    getWatchProgressBatch: jest.fn().mockResolvedValue({ data: { progress: {} } }),
+    getCollectionWatchSummaries: jest.fn().mockResolvedValue({ data: { summaries: {} } }),
     getWatchLater: jest.fn(),
     toggleWatchLater: jest.fn(),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
@@ -21,6 +24,10 @@ jest.mock('react-router-dom', () => ({
 }));
 
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
+const mockWatch = apiClient as unknown as {
+  getWatchProgressBatch: jest.Mock;
+  getCollectionWatchSummaries: jest.Mock;
+};
 
 // Helper to create minimal Image mock
 const createMockImage = (id: string, imageType: string): Image =>
@@ -106,6 +113,9 @@ const mockWatchLater: UserCollection = {
 describe('WatchLaterPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // clearAllMocks drops the resolved values set at mock time.
+    mockWatch.getWatchProgressBatch.mockResolvedValue({ data: { progress: {} } });
+    mockWatch.getCollectionWatchSummaries.mockResolvedValue({ data: { summaries: {} } });
     mockApiClient.getWatchLater.mockResolvedValue({ data: { userCollection: mockWatchLater } });
     mockApiClient.toggleWatchLater.mockResolvedValue({ data: { inWatchLater: false } });
   });
@@ -328,6 +338,30 @@ describe('WatchLaterPage', () => {
         expect(screen.getByText('The One Where It All Began')).toBeInTheDocument();
         expect(screen.getByText('Bohemian Rhapsody')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('watch state', () => {
+    it('marks a saved film that has been watched', async () => {
+      mockWatch.getCollectionWatchSummaries.mockResolvedValue({
+        data: { summaries: { 'col-1': { collectionId: 'col-1', total: 1, watched: 1, inProgress: 0, resume: null } } },
+      });
+
+      render(<WatchLaterPage />);
+      await screen.findByText('Inception');
+
+      expect(await screen.findByTestId('watch-badge')).toBeInTheDocument();
+    });
+
+    it('shows how far into a saved episode the viewer got', async () => {
+      mockWatch.getWatchProgressBatch.mockResolvedValue({
+        data: { progress: { 'media-1': { mediaId: 'media-1', position: 900, duration: 1800, completed: false } } },
+      });
+
+      render(<WatchLaterPage />);
+      await screen.findByText('The One Where It All Began');
+
+      expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
     });
   });
 });

@@ -7,6 +7,9 @@ import type { UserCollection, UserCollectionItem, Image } from '../../api/client
 // Mock the API client
 jest.mock('../../api/client', () => ({
   apiClient: {
+    // Rows carry watched badges.
+    getWatchProgressBatch: jest.fn().mockResolvedValue({ data: { progress: {} } }),
+    getCollectionWatchSummaries: jest.fn().mockResolvedValue({ data: { summaries: {} } }),
     getUserCollection: jest.fn(),
     updateUserCollection: jest.fn(),
     removeUserCollectionItem: jest.fn(),
@@ -55,6 +58,10 @@ jest.mock('../../context/PlayerContext', () => ({
 }));
 
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
+const mockWatch = apiClient as unknown as {
+  getWatchProgressBatch: jest.Mock;
+  getCollectionWatchSummaries: jest.Mock;
+};
 
 // Helper to create minimal Image mock
 const createMockImage = (id: string, imageType: string): Image =>
@@ -118,6 +125,9 @@ const mockUserCollection: UserCollection = {
 describe('UserCollectionPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // clearAllMocks drops the resolved values set at mock time.
+    mockWatch.getWatchProgressBatch.mockResolvedValue({ data: { progress: {} } });
+    mockWatch.getCollectionWatchSummaries.mockResolvedValue({ data: { summaries: {} } });
     mockCollectionId = 'col-1';
     mockApiClient.getUserCollection.mockResolvedValue({
       data: { userCollection: mockUserCollection },
@@ -587,6 +597,34 @@ describe('UserCollectionPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('watch state', () => {
+    it('marks a film in a set that has been watched', async () => {
+      mockWatch.getCollectionWatchSummaries.mockResolvedValue({
+        data: {
+          summaries: { 'lib-col-1': { collectionId: 'lib-col-1', total: 1, watched: 1, inProgress: 0, resume: null } },
+        },
+      });
+
+      render(<UserCollectionPage />);
+      await screen.findByText('The Matrix');
+
+      expect(await screen.findByTestId('watch-badge')).toBeInTheDocument();
+    });
+
+    it('shows progress on a playlist row', async () => {
+      const playlist: UserCollection = { ...mockUserCollection, collectionType: 'Playlist' };
+      mockApiClient.getUserCollection.mockResolvedValue({ data: { userCollection: playlist } });
+      mockWatch.getWatchProgressBatch.mockResolvedValue({
+        data: { progress: { 'media-1': { mediaId: 'media-1', position: 900, duration: 3600, completed: false } } },
+      });
+
+      render(<UserCollectionPage />);
+      await screen.findByText('Pilot');
+
+      expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
     });
   });
 });

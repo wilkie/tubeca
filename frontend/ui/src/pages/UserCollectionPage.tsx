@@ -69,6 +69,8 @@ import { usePlayer } from '../context/PlayerContext';
 import { SortControls, type SortDirection, type SortOption } from '../components/SortControls';
 import { FilterChips } from '../components/FilterChips';
 import { SortableMediaListItem } from '../components/SortableMediaListItem';
+import { WatchBadge } from '../components/WatchBadge';
+import { useWatchState } from '../hooks/useWatchState';
 
 type SortField = 'name' | 'dateAdded' | 'type';
 
@@ -251,6 +253,18 @@ export function UserCollectionPage() {
   ], [t]);
 
   const items = useMemo(() => collection?.items ?? [], [collection?.items]);
+
+  // A user collection mixes episodes, films and whole shows, so both kinds of
+  // badge can appear in the same list.
+  const mediaIds = useMemo(
+    () => items.map((item) => item.media?.id).filter((id): id is string => Boolean(id)),
+    [items]
+  );
+  const collectionIds = useMemo(
+    () => items.map((item) => item.collection?.id).filter((id): id is string => Boolean(id)),
+    [items]
+  );
+  const { progress: watchProgress, summaries: watchSummaries } = useWatchState({ mediaIds, collectionIds });
 
   // Extract unique item types for filtering
   const availableTypes = useMemo(() => {
@@ -708,6 +722,8 @@ export function UserCollectionPage() {
                     getItemName={getItemName}
                     getItemSubtitle={getItemSubtitle}
                     getItemIcon={getItemIcon}
+                    watchProgress={watchProgress[item.media?.id ?? '']}
+                    watchSummary={watchSummaries[item.collection?.id ?? '']}
                     removeTooltip={t('userCollections.removeFromCollection')}
                     showDragHandle={isOwner}
                     showRemoveButton={isOwner}
@@ -829,6 +845,11 @@ export function UserCollectionPage() {
                         </CardContent>
                       )}
                     </CardActionArea>
+                    {isCollectionItem ? (
+                      <WatchBadge kind="collection" summary={watchSummaries[item.collection?.id ?? '']} />
+                    ) : (
+                      <WatchBadge kind="media" progress={watchProgress[item.media?.id ?? '']} />
+                    )}
                   </Card>
                 </Grid>
               );

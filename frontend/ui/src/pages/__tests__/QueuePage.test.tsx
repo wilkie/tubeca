@@ -6,6 +6,9 @@ import type { UserCollection, UserCollectionItem } from '../../api/client';
 
 jest.mock('../../api/client', () => ({
   apiClient: {
+    // Rows carry watched badges.
+    getWatchProgressBatch: jest.fn().mockResolvedValue({ data: { progress: {} } }),
+    getCollectionWatchSummaries: jest.fn().mockResolvedValue({ data: { summaries: {} } }),
     getPlaybackQueue: jest.fn(),
     setPlaybackQueue: jest.fn(),
     clearPlaybackQueue: jest.fn(),
@@ -26,6 +29,10 @@ jest.mock('../../context/PlayerContext', () => ({
 }));
 
 const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+const mockWatch = apiClient as unknown as {
+  getWatchProgressBatch: jest.Mock;
+  getCollectionWatchSummaries: jest.Mock;
+};
 
 function queueItem(id: string, mediaId: string, name: string): UserCollectionItem {
   return {
@@ -45,6 +52,9 @@ const twoItems = [queueItem('item-1', 'media-1', 'First'), queueItem('item-2', '
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks drops the resolved values set at mock time.
+  mockWatch.getWatchProgressBatch.mockResolvedValue({ data: { progress: {} } });
+  mockWatch.getCollectionWatchSummaries.mockResolvedValue({ data: { summaries: {} } });
   mockApi.getPlaybackQueue.mockResolvedValue({ data: { userCollection: queueOf(twoItems) } } as never);
   mockApi.setPlaybackQueue.mockResolvedValue({ data: { userCollection: queueOf([twoItems[1]]) } } as never);
   mockApi.clearPlaybackQueue.mockResolvedValue({ data: { userCollection: queueOf([]) } } as never);
@@ -140,5 +150,27 @@ describe('QueuePage', () => {
     await user.click((await screen.findAllByText('A Film'))[0]);
 
     expect(mockNavigate).toHaveBeenCalledWith('/collection/col-9');
+  });
+
+  describe('watch state', () => {
+    it('marks a queued episode the viewer has already seen', async () => {
+      mockWatch.getWatchProgressBatch.mockResolvedValue({
+        data: { progress: { 'media-1': { mediaId: 'media-1', position: 1200, duration: 1200, completed: true } } },
+      });
+
+      render(<QueuePage />);
+      await screen.findByText('First');
+
+      expect(await screen.findByTestId('watch-badge')).toBeInTheDocument();
+    });
+
+    it('asks about exactly what it has queued', async () => {
+      render(<QueuePage />);
+      await screen.findByText('First');
+
+      await waitFor(() =>
+        expect(mockWatch.getWatchProgressBatch).toHaveBeenCalledWith(['media-1', 'media-2'])
+      );
+    });
   });
 });
