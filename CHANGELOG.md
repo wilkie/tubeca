@@ -64,9 +64,10 @@ All notable changes to Tubeca are recorded here. The format follows
   is no longer means repacking every byte on the way out.
 
 ### Added
-- HEVC and AV1 files can be played as they are, on a browser that can decode them — about 8% of a
-  typical library, which until now was re-encoded on every play even on hardware that would have
-  played the file untouched. Each quality now says what it contains, so a browser that cannot
+- HEVC and AV1 files can be played as they are, on a browser that can decode them. On the library
+  this was measured against that is 2,496 files out of 30,014 — 8.3%, essentially all of it HEVC —
+  which until now was re-encoded on every play even on hardware that would have played the file
+  untouched. Files needing the picture transcoded fall from 26% to 18%. Each quality now says what it contains, so a browser that cannot
   decode it quietly picks a transcode instead of failing.
 
 ### Fixed

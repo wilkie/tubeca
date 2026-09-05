@@ -287,9 +287,16 @@ reason: on a 1080p H.264 episode with E-AC-3, one six-second segment costs 15.6 
 transcoded and 0.5 copying the video — and the full transcode is slower than realtime on this
 machine, so a single viewer barely keeps up and two do not.
 
-On the development library of 30,014 files: 25% could already copy both streams, 48% are H.264
-with audio no browser will take (E-AC-3 6,878, AC-3 5,514, DTS 1,610, FLAC 285) and now copy the
-picture, and 26% — mpeg4, HEVC, mpeg2video — must still transcode the video.
+Measured on the development library of 30,014 files (29,991 with a video stream), after HEVC and
+AV1 joined the copyable set on 2026-09-05: 28.0% copy both streams, 53.9% copy the picture and
+re-encode only the sound, and 18.1% must still transcode the picture — mpeg4 (4,595), mpeg2video
+(527), msmpeg4v3 (232) and a tail of wmv and vp9. The change moved 2,503 files out of that last
+group, of which 2,496 are HEVC and **seven** are AV1: the AV1 half of it buys nothing on this
+library and is there because the cost of including it was one entry in a set.
+
+The first video stream by `streamIndex` is the one judged, and on this library that is never an
+embedded cover image — there are 854 mjpeg and 189 png streams, but none of them precedes a real
+video track in any file.
 
 Copying depends on segment boundaries landing near keyframes, since a copied segment cannot have
 one forced. Seeking before the input means FFmpeg starts at the keyframe at or before the slot, so
