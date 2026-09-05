@@ -58,6 +58,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - The library dialog can browse the server's folders instead of asking you to type a path.
 
 ### Fixed
+- Two people watching the same file no longer interfere with each other: a seek used to cancel
+  everyone's speculative work on that file, so two viewers a few minutes apart spent their time
+  undoing each other and re-encoding what they had just thrown away.
 - Playback works in Safari and on iOS. The playlists named their variants and segments without a
   token, and Safari plays HLS itself rather than through hls.js, so every request after the first
   was rejected and the player sat there black and silent.

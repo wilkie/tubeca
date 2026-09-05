@@ -450,6 +450,24 @@ describe('playlists a player can follow without headers', () => {
     }
   });
 
+  it('carries the viewer session through to the segments', async () => {
+    const { media, token } = await playable();
+
+    const master = await request(app).get(
+      `/api/stream/hls/${media.id}/master.m3u8?token=${token}&session=viewer-1`
+    );
+    expect(master.text).toContain('session=viewer-1');
+
+    const variant = await request(app).get(
+      `/api/stream/hls/${media.id}/720p.m3u8?audioTrack=default&token=${token}&session=viewer-1`
+    );
+    const segments = variant.text.split('\n').filter((line) => line.includes('.ts?'));
+    expect(segments.length).toBeGreaterThan(0);
+    for (const segment of segments) {
+      expect(segment).toContain('session=viewer-1');
+    }
+  });
+
   it('leaves the URIs bare for a client that authenticated by header', async () => {
     const { media, authHeader } = await playable();
 

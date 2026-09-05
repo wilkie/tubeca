@@ -210,12 +210,20 @@ a prefetch that a player has since joined (`ensureSegment` promotes it) is promo
 The settings value is re-read every 30 s; lowering it does not preempt running processes.
 
 Every player request also calls `cancelStalePrefetches`, which kills any encode for the same variant
-that is still `prefetch` and whose index falls outside `[requested, requested + prefetchSegments]`.
-Sequential playback never triggers it, because the segments being prefetched are exactly the ones
-inside that window; a seek cancels both in-flight prefetches immediately, freeing their slots for
-the segment the viewer is waiting on. A cancelled encode rejects with `SegmentCancelledError`, its
-partial file is removed, and it is not logged as a failure. Encodes a player is waiting on are never
-cancelled.
+that is still `prefetch`, **belongs to the same viewer**, and whose index falls outside
+`[requested, requested + prefetchSegments]`. Sequential playback never triggers it, because the
+segments being prefetched are exactly the ones inside that window; a seek cancels that viewer's
+in-flight prefetches immediately, freeing their slots for the segment they are waiting on. A
+cancelled encode rejects with `SegmentCancelledError`, its partial file is removed, and it is not
+logged as a failure. Encodes a player is waiting on are never cancelled.
+
+The viewer is named by the player: `initHls` mints a `crypto.randomUUID()` per viewing and puts it
+on the master playlist URL, `hlsService` repeats it in the variant and segment URIs it emits (the
+same mechanism that carries the token), and the segment route hands it to `serveSegment`. Before
+2026-09-04 cancellation was by position alone, so two people watching one film a few minutes apart
+spent their time cancelling each other's prefetches and re-encoding what they had just discarded.
+A request with no session — an older client, a direct URL — belongs to nobody and can only be
+cancelled by another such request, which is the behaviour that was there before.
 
 Each segment FFmpeg is tracked in `activeProcesses` and killed with `SIGKILL` if it exceeds
 `segmentTimeoutMs` (120 s by default, injectable for tests); a killed or failed run removes its
@@ -388,6 +396,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 Playlists carry the request's token into the variant and segment URIs, so Safari and any other player that follows a playlist itself can authenticate; the native path in the player now reports an error instead of staying black. Bitmap subtitle tracks are no longer offered and answer 415, and an extracted track is cached rather than re-read from the container on every request.
 - 2026-09-04 Trickplay sprites can be generated rather than only imported: a `trickplay` queue and worker, `POST /api/media/:id/trickplay` for an editor, and `trickplay.auto` for a library that wants them on import. Verified against real FFmpeg output, including that a partial final sheet is padded to the full grid.
 - 2026-09-04 Generated sheets carry a `manifest.json`, and the info route reports its interval and tile size rather than assuming ten seconds and opening a sheet.
+- 2026-09-04 Prefetch cancellation is per viewer: the player names its viewing, the playlists carry that name onto every segment request, and a seek abandons only the prefetches of the viewer who seeked.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
@@ -405,11 +414,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   that as a fragment load error and retries.
 - **Time to first byte still includes FFmpeg startup and the seek**, which is most of the fixed
   cost once the encoder is fast; only the encoding itself is now overlapped with delivery.
-- **Cancellation is by position, not by viewer.** A seek cancels the prefetches outside the new
-  window for that variant, but the service has no session identity, so two people watching the same
-  media at the same rung can cancel each other's prefetches; the work is re-queued on the next
-  served segment. An encode a player is already waiting on is never cancelled, and a client that
-  simply disconnects still finishes its segment.
 - **Cache eviction is `atime`-based** (patched by `touchFile` only on the read path) and each sweep
   is a full-tree `stat` walk; on `noatime` mounts the LRU order degrades to creation order.
 - **Settings edge cases.** `/hls/:id/qualities` still reports default bitrates rather than
@@ -453,9 +457,6 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   help a seek into the middle.
 - **Cache encoder detection across restarts** (S): write the result next to the HLS cache so the
   first playback after a restart never waits for test encodes.
-- **Cancel by viewer rather than by position** (S/M): carry a session id on segment requests so one
-  viewer's seek cannot cancel another's prefetches, and abandon an encode when its client
-  disconnects.
 - **Purge only what changed** (S): a `segmentDuration` change could re-encode lazily instead of
   emptying the whole cache.
 

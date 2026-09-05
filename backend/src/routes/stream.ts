@@ -715,7 +715,8 @@ router.get('/hls/:id/master.m3u8', mediaAccess, async (req, res) => {
     // Carried into the variant and segment URIs, so a player that cannot set
     // an Authorization header can follow them.
     const token = typeof req.query.token === 'string' ? req.query.token : undefined;
-    const playlist = await hlsService.generateMasterPlaylist(req.params.id, audioTrack, token);
+    const session = typeof req.query.session === 'string' ? req.query.session : undefined;
+    const playlist = await hlsService.generateMasterPlaylist(req.params.id, audioTrack, token, session);
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
@@ -781,7 +782,8 @@ router.get('/hls/:id/:quality.m3u8', mediaAccess, async (req, res) => {
     }
 
     const token = typeof req.query.token === 'string' ? req.query.token : undefined;
-    const playlist = await hlsService.generateVariantPlaylist(id, quality, audioTrack, token);
+    const session = typeof req.query.session === 'string' ? req.query.session : undefined;
+    const playlist = await hlsService.generateVariantPlaylist(id, quality, audioTrack, token, session);
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache');
@@ -863,7 +865,9 @@ router.get('/hls/:id/:quality/:segment.ts', mediaAccess, async (req, res) => {
     res.setHeader('Content-Type', 'video/mp2t');
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache segments for 1 hour
 
-    const delivery = await hlsService.serveSegment(id, quality, segmentIndex, audioTrack, res);
+    // Who is asking, so a seek only abandons this viewer's own prefetches.
+    const session = typeof req.query.session === 'string' ? req.query.session : undefined;
+    const delivery = await hlsService.serveSegment(id, quality, segmentIndex, audioTrack, res, session);
 
     if (delivery.kind === 'missing') {
       if (res.headersSent || res.destroyed) return res.end();

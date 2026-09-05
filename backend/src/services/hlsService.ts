@@ -106,6 +106,15 @@ interface SegmentJob {
   cancelled: boolean
   /** Set once FFmpeg is running, so a cancel can kill it. */
   child: ChildProcess | null
+  /**
+   * Which viewer asked for this, when they said.
+   *
+   * Two people watching one file are two viewers of the same variant, and one
+   * seeking must not throw away the other's prefetches. A request without a
+   * session belongs to nobody, and is only ever cancelled by another such
+   * request — the behaviour before sessions existed.
+   */
+  session?: string
 }
 
 export class HlsService {
@@ -286,7 +295,8 @@ export class HlsService {
     variantPath: string,
     priority: SegmentPriority = 'live',
     /** When given, the encode is written here as it is produced. */
-    sink?: Writable
+    sink?: Writable,
+    session?: string
   ): Promise<void> {
     const segmentPath = path.join(variantPath, `${segmentIndex}.ts`);
     try {
@@ -310,6 +320,7 @@ export class HlsService {
       priority,
       cancelled: false,
       child: null,
+      session,
     };
     job.promise = this.generateSegment(
       videoPath,
@@ -332,17 +343,29 @@ export class HlsService {
   }
 
   /**
-   * Abandon prefetches the player has moved away from.
+   * Abandon the prefetches this viewer has moved away from.
    *
    * Called whenever a player asks for a segment: anything still encoding for
-   * this variant outside the window the player is about to consume is work
-   * nobody will watch, and it is holding a transcode slot the seek needs.
-   * Encodes a player is waiting on are never cancelled.
+   * this viewer outside the window they are about to consume is work nobody
+   * will watch, and it is holding a transcode slot the seek needs.
+   *
+   * Only this viewer's, though. Two people watching the same file share a
+   * variant, and until 2026-09-04 either one's seek cancelled the other's
+   * prefetches — so two viewers a few minutes apart in the same film spent
+   * their time cancelling each other and re-encoding what they had just
+   * thrown away. Encodes a player is waiting on are never cancelled.
    */
-  private cancelStalePrefetches(variantPath: string, liveIndex: number, prefetchCount: number): void {
+  private cancelStalePrefetches(
+    variantPath: string,
+    liveIndex: number,
+    prefetchCount: number,
+    session?: string
+  ): void {
     for (const [key, job] of this.generatingSegments) {
       if (job.variantPath !== variantPath) continue;
       if (job.priority !== 'prefetch') continue;
+      // Someone else's work, or work from before sessions were carried.
+      if (job.session !== session) continue;
       if (job.index >= liveIndex && job.index <= liveIndex + prefetchCount) continue;
 
       job.cancelled = true;
@@ -374,7 +397,12 @@ export class HlsService {
   /**
    * Generate master playlist listing all available qualities
    */
-  async generateMasterPlaylist(mediaId: string, audioTrack?: number, token?: string): Promise<string> {
+  async generateMasterPlaylist(
+    mediaId: string,
+    audioTrack?: number,
+    token?: string,
+    session?: string
+  ): Promise<string> {
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) {
       throw new Error('Media not found');
@@ -384,8 +412,12 @@ export class HlsService {
     const audioTrackStr = audioTrack !== undefined ? audioTrack.toString() : 'default';
     // A player that cannot set headers — Safari's native HLS, an AirPlay
     // receiver, anything embedding the URL — follows these URIs with nothing
-    // but what they carry. Whatever authenticated this request goes with them.
-    const auth = token ? `&token=${encodeURIComponent(token)}` : '';
+    // but what they carry. Whatever authenticated this request goes with them,
+    // and so does the viewer session, so that segment requests say who is
+    // asking and one viewer's seek does not cancel another's prefetches.
+    const auth =
+      (token ? `&token=${encodeURIComponent(token)}` : '') +
+      (session ? `&session=${encodeURIComponent(session)}` : '');
     const lines: string[] = ['#EXTM3U', '#EXT-X-VERSION:3'];
 
     // Add original quality (stream copy) first, when the codecs allow it
@@ -415,7 +447,8 @@ export class HlsService {
     mediaId: string,
     quality: string,
     audioTrack: string = 'default',
-    token?: string
+    token?: string,
+    session?: string
   ): Promise<string> {
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) {
@@ -438,7 +471,10 @@ export class HlsService {
       const segmentDur = Math.min(segmentDuration, duration - (i * segmentDuration));
       lines.push(`#EXTINF:${segmentDur.toFixed(3)},`);
       // Include quality in segment URL path so it resolves correctly
-      lines.push(`${quality}/${i}.ts?audioTrack=${audioTrack}${token ? `&token=${encodeURIComponent(token)}` : ''}`);
+      const carried =
+        (token ? `&token=${encodeURIComponent(token)}` : '') +
+        (session ? `&session=${encodeURIComponent(session)}` : '');
+      lines.push(`${quality}/${i}.ts?audioTrack=${audioTrack}${carried}`);
     }
 
     lines.push('#EXT-X-ENDLIST');
@@ -497,7 +533,9 @@ export class HlsService {
     quality: string,
     segmentIndex: number,
     audioTrack: string,
-    sink: Writable
+    sink: Writable,
+    /** Which viewer is asking; see `cancelStalePrefetches`. */
+    session?: string
   ): Promise<SegmentDelivery> {
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) return { kind: 'missing' };
@@ -508,10 +546,18 @@ export class HlsService {
 
     // The player has told us where it is; anything still encoding behind it is
     // wasted work holding a transcode slot.
-    this.cancelStalePrefetches(variantPath, segmentIndex, settings.prefetchSegments || 2);
+    this.cancelStalePrefetches(variantPath, segmentIndex, settings.prefetchSegments || 2, session);
 
     const prefetchNext = () =>
-      this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
+      this.prefetchSegments(
+        media.path,
+        media.duration || 0,
+        quality,
+        segmentIndex,
+        audioTrack,
+        variantPath,
+        session
+      );
 
     if (fs.existsSync(segmentPath)) {
       if (fs.statSync(segmentPath).size > 0) {
@@ -624,7 +670,8 @@ export class HlsService {
     quality: string,
     currentIndex: number,
     audioTrack: string,
-    variantPath: string
+    variantPath: string,
+    session?: string
   ): Promise<void> {
     const settings = await this.getSettings();
     const prefetchCount = settings.prefetchSegments || 2;
@@ -636,7 +683,17 @@ export class HlsService {
       const nextIndex = currentIndex + i;
       if (nextIndex > maxSegment) break;
 
-      this.ensureSegment(videoPath, totalDuration, quality, nextIndex, audioTrack, variantPath, 'prefetch').catch(
+      this.ensureSegment(
+        videoPath,
+        totalDuration,
+        quality,
+        nextIndex,
+        audioTrack,
+        variantPath,
+        'prefetch',
+        undefined,
+        session
+      ).catch(
         (err) => {
           if (!isCancellation(err)) console.error(`Prefetch failed for segment ${nextIndex}:`, err);
         }

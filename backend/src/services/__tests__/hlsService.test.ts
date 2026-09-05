@@ -207,7 +207,9 @@ describe('HlsService playlist synthesis', () => {
         segmentIndex: number,
         audioTrack: string,
         variantPath: string,
-        priority?: 'live' | 'prefetch'
+        priority?: 'live' | 'prefetch',
+        sink?: unknown,
+        session?: string
       ) => Promise<void>
     };
 
@@ -467,10 +469,15 @@ describe('HlsService playlist synthesis', () => {
         segmentIndex: number,
         audioTrack: string,
         variantPath: string,
-        priority?: 'live' | 'prefetch'
+        priority?: 'live' | 'prefetch',
+        sink?: unknown,
+        session?: string
       ) => Promise<void>
     };
     const settle = () => new Promise((r) => setImmediate(r));
+
+    /** Stands in for the HTTP response a segment is streamed to. */
+    const responseSink = () => new PassThrough();
 
     beforeEach(async () => {
       await resetDatabase();
@@ -501,6 +508,50 @@ describe('HlsService playlist synthesis', () => {
       expect(target).toBeDefined();
       target!.emit('close', 1);
       await expect(seek).resolves.toBeNull();
+    });
+
+    it('leaves another viewer of the same file alone', async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const internals = service as unknown as Internals;
+      const media = await createVideoMedia({ path: '/media/shared.mkv', duration: 3600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const sink = responseSink();
+
+      // Someone is ten minutes in, prefetching ahead of themselves.
+      const theirs = internals
+        .ensureSegment(media.path, 3600, '720p', 100, 'default', variant, 'prefetch', undefined, 'them')
+        .catch(() => 'cancelled');
+      await settle();
+      const theirChild = spawned.find((c) => path.basename(c.args[c.args.length - 1]) === '100.ts');
+      expect(theirChild).toBeDefined();
+
+      // Someone else starts the same film from the beginning.
+      void service.serveSegment(media.id, '720p', 0, 'default', sink, 'us');
+      await settle();
+
+      expect(theirChild!.kill).not.toHaveBeenCalled();
+      theirChild!.emit('close', 1);
+      await expect(theirs).resolves.toBe('cancelled');
+    });
+
+    it("still abandons a viewer's own prefetches when they seek", async () => {
+      const service = new HlsService({ segmentTimeoutMs: 5000 });
+      const internals = service as unknown as Internals;
+      const media = await createVideoMedia({ path: '/media/seek.mkv', duration: 3600 });
+      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const sink = responseSink();
+
+      const stale = internals
+        .ensureSegment(media.path, 3600, '720p', 0, 'default', variant, 'prefetch', undefined, 'us')
+        .catch(() => 'cancelled');
+      await settle();
+      const staleChild = spawned[0];
+
+      void service.serveSegment(media.id, '720p', 100, 'default', sink, 'us');
+      await settle();
+
+      expect(staleChild.kill).toHaveBeenCalledWith('SIGKILL');
+      await expect(stale).resolves.toBe('cancelled');
     });
 
     it('leaves the prefetch window in front of the player alone', async () => {

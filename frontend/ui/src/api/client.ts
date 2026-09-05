@@ -740,11 +740,22 @@ class ApiClient {
   }
 
   // HLS streaming URLs
-  getHlsMasterPlaylistUrl(mediaId: string, audioTrack?: number): string {
+  /**
+   * The master playlist for one viewing.
+   *
+   * `session` names this viewer for the length of the playback. The server
+   * repeats it in the URIs it hands back, so a segment request says who is
+   * asking and a seek abandons only that viewer's prefetches — two people
+   * watching the same film at different points no longer cancel each other.
+   */
+  getHlsMasterPlaylistUrl(mediaId: string, audioTrack?: number, session?: string): string {
     const token = this.urlToken();
     let url = `${API_BASE}/stream/hls/${mediaId}/master.m3u8?token=${token}`;
     if (audioTrack !== undefined) {
       url += `&audioTrack=${audioTrack}`;
+    }
+    if (session) {
+      url += `&session=${encodeURIComponent(session)}`;
     }
     return url;
   }

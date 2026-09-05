@@ -243,6 +243,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [reportProgress]);
 
+  /** Names this viewing to the server; see `getHlsMasterPlaylistUrl`. */
+  const sessionRef = useRef<string | undefined>(undefined);
+
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -256,7 +259,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     destroyHls();
 
-    const hlsUrl = apiClient.getHlsMasterPlaylistUrl(mediaId, audioTrack);
+    // One name for this viewing, carried through the playlists onto every
+    // segment request, so the server can tell this viewer's seeks from another
+    // viewer's and cancel only our own prefetches.
+    sessionRef.current = crypto.randomUUID();
+    const hlsUrl = apiClient.getHlsMasterPlaylistUrl(mediaId, audioTrack, sessionRef.current);
     const Hls = await loadHls();
 
     // The element can be replaced while the library is on its way.
@@ -841,7 +848,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const currentLevel = hlsRef.current?.currentLevel ?? -1;
       destroyHls();
 
-      const hlsUrl = apiClient.getHlsMasterPlaylistUrl(currentMedia.id, streamIndex);
+      // Same viewing, same session: an audio-track change is not a new viewer.
+      const hlsUrl = apiClient.getHlsMasterPlaylistUrl(
+        currentMedia.id,
+        streamIndex,
+        sessionRef.current
+      );
       const Hls = await loadHls();
 
       if (Hls.isSupported()) {

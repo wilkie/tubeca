@@ -109,6 +109,8 @@ handlers are injected through `registerMouseMoveHandler` / `registerMouseDownHan
    after a jump no longer queues behind speculative work.
 5. On `MANIFEST_PARSED` the level list becomes `availableQualities` (`Auto` prepended; labels from
    the playlist `NAME` attribute) and `video.play()` is attempted (autoplay rejection swallowed).
+
+Each viewing is named: `initHls` mints a UUID and sends it with the master playlist request, and the server repeats it on every URI it hands back, so a seek abandons only that viewer's prefetches. An audio-track change keeps the same name, being the same viewing.
 6. Else if `video.canPlayType('application/vnd.apple.mpegurl')` (Safari): `video.src = hlsUrl`,
    with an `error` listener so a rejected playlist or an unplayable file says so. Otherwise
    `playback.errorUnsupported` is shown rather than a black element.
