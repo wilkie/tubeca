@@ -7,6 +7,7 @@ import { loadAppConfig, getHlsCacheConfig } from '../config/appConfig';
 import { MediaService } from './mediaService';
 import {
   detectBestEncoderAsync,
+  getDecoderInputArgs,
   getEncoderArgs,
   getEncoderInputArgs,
   resolvePreferredEncoder,
@@ -124,7 +125,10 @@ export class HlsService {
   private defaultSegmentDuration: number;
   // Track in-progress segment generations to prevent concurrent generation of same segment
   /** Whether a file's audio can be copied, by path and track; see `canCopyAudio`. */
-  private audioCopyCache = new Map<string, { copyable: boolean; expires: number }>();
+  private audioCopyCache = new Map<
+    string,
+    { copyable: boolean; codec?: string | null; expires: number }
+  >();
 
   /** In-flight segment encodes keyed by `<variantPath>:<index>`, shared by player requests and prefetch. */
   private generatingSegments: Map<string, SegmentJob> = new Map();
@@ -292,6 +296,23 @@ export class HlsService {
       select: { streamType: true, codec: true, streamIndex: true },
       orderBy: { streamIndex: 'asc' },
     });
+  }
+
+  /** The video codec of the file FFmpeg is about to read, memoised like the audio answer. */
+  private async videoCodecOf(videoPath: string): Promise<string | null> {
+    const key = `video:${videoPath}`;
+    const cached = this.audioCopyCache.get(key);
+    if (cached && cached.expires > Date.now()) return cached.codec ?? null;
+
+    const media = await prisma.media.findUnique({
+      where: { path: videoPath },
+      select: { id: true },
+    });
+    const streams = media ? await this.streamsOf(media.id) : [];
+    const codec = streams.find((stream) => stream.streamType === 'Video')?.codec ?? null;
+
+    this.audioCopyCache.set(key, { copyable: false, codec, expires: Date.now() + 30_000 });
+    return codec;
   }
 
   /**
@@ -780,9 +801,11 @@ export class HlsService {
 
     const ffmpegArgs: string[] = [];
 
-    // Anything the encoder needs before the input, such as VAAPI's render node.
+    // Anything the encoder needs before the input, such as VAAPI's render node,
+    // and the accelerator's decoder when it can take this codec.
     if (!isOriginal && qualityPreset) {
       ffmpegArgs.push(...getEncoderInputArgs(encoder));
+      ffmpegArgs.push(...getDecoderInputArgs(encoder, await this.videoCodecOf(videoPath)));
     }
 
     // For stream copy, we need accurate seeking, so use -ss after -i

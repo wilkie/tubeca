@@ -1,4 +1,5 @@
 import {
+  getDecoderInputArgs,
   getEncoderArgs,
   getEncoderInputArgs,
   listEncoderOptions,
@@ -111,5 +112,38 @@ describe('testEncodeArgs', () => {
     expect(args).toContain('lavfi');
     expect(args[args.indexOf('-frames:v') + 1]).toBe('1');
     expect(args[args.length - 1]).toBe('-');
+  });
+});
+
+describe('getDecoderInputArgs', () => {
+  const nvenc = { name: 'NVENC', encoder: 'h264_nvenc', type: 'hardware' as const, priority: 1 };
+  const vaapi = { name: 'VAAPI', encoder: 'h264_vaapi', type: 'hardware' as const, priority: 2 };
+  const software = { name: 'x264', encoder: 'libx264', type: 'software' as const, priority: 100 };
+
+  it('decodes on the card that is already encoding', () => {
+    expect(getDecoderInputArgs(nvenc, 'hevc')).toEqual(['-hwaccel', 'cuda']);
+    expect(getDecoderInputArgs(vaapi, 'h264')).toEqual(['-hwaccel', 'vaapi']);
+  });
+
+  it('leaves software encoding alone: the round trip costs more than it saves', () => {
+    expect(getDecoderInputArgs(software, 'hevc')).toEqual([]);
+  });
+
+  it('will not ask a decoder for a codec it does not have', () => {
+    // Pascal NVDEC has no VP6 or WMV1; asking fails the whole segment.
+    expect(getDecoderInputArgs(nvenc, 'wmv1')).toEqual([]);
+    expect(getDecoderInputArgs(nvenc, 'msmpeg4v3')).toEqual([]);
+    // And VAAPI's list is shorter than NVDEC's.
+    expect(getDecoderInputArgs(vaapi, 'mpeg4')).toEqual([]);
+    expect(getDecoderInputArgs(nvenc, 'mpeg4')).toEqual(['-hwaccel', 'cuda']);
+  });
+
+  it('does not mind how the codec is capitalised', () => {
+    expect(getDecoderInputArgs(nvenc, 'HEVC')).toEqual(['-hwaccel', 'cuda']);
+  });
+
+  it('asks for nothing when the codec was never probed', () => {
+    expect(getDecoderInputArgs(nvenc, null)).toEqual([]);
+    expect(getDecoderInputArgs(nvenc, undefined)).toEqual([]);
   });
 });

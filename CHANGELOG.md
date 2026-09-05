@@ -123,6 +123,9 @@ All notable changes to Tubeca are recorded here. The format follows
 - Preferred quality is remembered as a height, so it means the same thing on the next title.
 
 ### Changed
+- A machine with a GPU now decodes on it as well as encoding on it, for the files that genuinely
+  have to be converted: about a third of the processor time per segment, leaving the rest for
+  everyone else watching.
 - A file whose picture the browser can play but whose sound it cannot — nearly half of a typical
   library, anything with AC-3, E-AC-3 or DTS audio — is no longer re-encoded in full. The picture
   is passed through untouched and only the sound is converted, which on a 1080p episode is about a

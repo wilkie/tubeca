@@ -209,6 +209,23 @@ two speculative encodes for the position the viewer just left. Priority is read 
 a prefetch that a player has since joined (`ensureSegment` promotes it) is promoted while it waits.
 The settings value is re-read every 30 s; lowering it does not preempt running processes.
 
+### Decoding
+
+A transcode is two halves. Since 2026-09-04 the decoding half runs on the same card that is doing
+the encoding, when there is one: `getDecoderInputArgs` adds `-hwaccel cuda|vaapi|qsv` before the
+input if the active encoder belongs to that accelerator **and** the source codec is on that
+accelerator's allowlist. Asking a GPU for a codec it cannot decode fails the whole segment, so it
+is an allowlist rather than an attempt.
+
+Software encoding never gets hardware decode: the frames would be decoded on the card and copied
+back for the CPU to encode, which does not repay the trip, and a machine with no hardware encoder
+may have no usable GPU at all.
+
+Measured on a 1080p HEVC episode from the development library, one six-second segment with NVENC:
+3.8 CPU-seconds decoding in software against 1.1 decoding on the card, at the same wall time. The
+first invocation after boot pays a one-off CUDA warm-up of several seconds, which is why the
+figures above are steady-state.
+
 ### What `original` actually does
 
 `isVideoCopyable` and `isAudioCopyable` are separate questions, because they cost wildly different
@@ -417,6 +434,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 Generated sheets carry a `manifest.json`, and the info route reports its interval and tile size rather than assuming ten seconds and opening a sheet.
 - 2026-09-04 Prefetch cancellation is per viewer: the player names its viewing, the playlists carry that name onto every segment request, and a seek abandons only the prefetches of the viewer who seeked.
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
+- 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
 ## Known Limitations
@@ -439,8 +457,11 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Settings edge cases.** `/hls/:id/qualities` still reports default bitrates rather than
   configured ones. A `segmentDuration` change purges the whole cache, including media nobody is
   watching, which is correct but costs a re-encode for everything afterwards.
-- **VAAPI decodes in software** and assumes one render node; a box whose GPU is not
-  `/dev/dri/renderD128` needs `TUBECA_VAAPI_DEVICE` set.
+- **Hardware decode brings frames back to system memory** rather than keeping them on the card, so
+  the scale and letterbox filters stay as they are. Holding frames on the GPU would need a filter
+  chain per accelerator (`scale_cuda`, `scale_vaapi`, and padding that has no GPU equivalent
+  everywhere) for a smaller further gain, and VAAPI still assumes one render node
+  (`/dev/dri/renderD128`).
 - **Tokens appear in URLs.** Library access is enforced on every stream route
   (`requireLibraryAccess(mediaParam('id'))`, 2026-09-03), but a media-scoped token still travels in
   the query string, and since 2026-09-04 the playlists repeat it in the URIs they emit, because a

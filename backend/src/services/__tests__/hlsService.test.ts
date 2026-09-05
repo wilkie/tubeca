@@ -38,6 +38,7 @@ jest.unstable_mockModule('../../utils/hwaccel', () => ({
   detectBestEncoderAsync: async () => softwareEncoder,
   getEncoderArgs: () => [],
   getEncoderInputArgs: () => [],
+  getDecoderInputArgs: () => [],
   getEncoder: () => softwareEncoder,
   isHardwareAccelerated: () => false,
   listEncoderOptions: () => [softwareEncoder],
@@ -154,6 +155,28 @@ describe('HlsService playlist synthesis', () => {
       });
 
       expect(await service.getAvailableQualities(media.id)).toContain(ORIGINAL_QUALITY);
+    });
+  });
+
+  describe('hardware decode', () => {
+    it('asks the accelerator to decode when it is the one encoding', async () => {
+      // The mocked hwaccel reports software, so the arguments are empty here;
+      // the decision itself is covered in the hwaccel tests. What this pins is
+      // that the segment builder asks at all, with the file's own codec.
+      const media = await createVideoMedia({ path: '/media/decode.mkv', duration: 100 });
+      await prisma.mediaStream.create({
+        data: { mediaId: media.id, streamIndex: 0, streamType: 'Video', codec: 'hevc' },
+      });
+      spawned.length = 0;
+
+      void service.getSegment(media.id, '720p', 0, 'default');
+      for (let attempt = 0; attempt < 50 && spawned.length === 0; attempt++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+
+      expect(spawned).toHaveLength(1);
+      spawned[0].emit('close', 1);
+      await new Promise((resolve) => setImmediate(resolve));
     });
   });
 

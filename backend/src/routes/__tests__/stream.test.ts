@@ -14,6 +14,7 @@ jest.unstable_mockModule('../../utils/hwaccel', () => ({
   detectBestEncoderAsync: async () => softwareEncoder,
   getEncoderArgs: () => [],
   getEncoderInputArgs: () => [],
+  getDecoderInputArgs: () => [],
   getEncoder: () => softwareEncoder,
   isHardwareAccelerated: () => false,
   listEncoderOptions: () => [softwareEncoder],
