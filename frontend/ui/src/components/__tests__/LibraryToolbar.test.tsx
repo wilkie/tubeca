@@ -136,4 +136,24 @@ describe('LibraryToolbar', () => {
 
     expect(handlers.onSortDirectionChange).toHaveBeenCalledWith('desc');
   });
+
+  describe('the metadata status button', () => {
+    it('is not there when the page has nowhere to send you', () => {
+      renderToolbar();
+
+      expect(screen.queryByLabelText(/metadata status/i)).not.toBeInTheDocument();
+    });
+
+    it('opens the status page and badges what has no metadata', async () => {
+      const user = userEvent.setup();
+      const onOpenScrapeStatus = jest.fn();
+
+      renderToolbar({ onOpenScrapeStatus, unmatchedCount: 7 });
+
+      expect(screen.getByText('7')).toBeInTheDocument();
+      await user.click(screen.getByLabelText(/metadata status/i));
+
+      expect(onOpenScrapeStatus).toHaveBeenCalled();
+    });
+  });
 });

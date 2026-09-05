@@ -16,6 +16,11 @@ All notable changes to Tubeca are recorded here. The format follows
 - The images dialog now shows the other artwork the provider has for a title — usually a dozen
   posters, backdrops and logos rather than the one a scrape picked — and downloads one only when
   you choose it.
+- A metadata status page per library, reached from the icon beside the library's filters, which
+  badges how many items have none. It lists what did not match and why — with the season or show
+  each item sits under, so two files called "Pilot" can be told apart — and filters by outcome.
+  Until now the only way to find the handful of failures in a library of thirty thousand files was
+  to open them one at a time.
 - "Mark all watched" and "Mark all unwatched" on a season or show, instead of clicking through
   twenty-two episodes to record what you already saw elsewhere.
 - A search box in the header, so searching no longer means going to the search page first.

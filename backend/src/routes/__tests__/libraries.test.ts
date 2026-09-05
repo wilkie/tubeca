@@ -4,7 +4,15 @@ import request from 'supertest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { resetDatabase, createGroup, createLibrary, createUser } from '../../test/db';
+import {
+  resetDatabase,
+  createGroup,
+  createLibrary,
+  createCollection,
+  createUser,
+  createVideoMedia,
+  prisma,
+} from '../../test/db';
 
 // The router pulls in the scan queue (Redis) and the file watcher; neither is
 // wanted in a route test.
@@ -151,5 +159,121 @@ describe('GET /api/libraries/browse', () => {
     // No path given: the filesystem root, which always has a listing.
     expect(res.status).toBe(200);
     expect(res.body.parent).toBeNull();
+  });
+});
+
+describe('the scrape outcomes of a library', () => {
+  beforeEach(resetDatabase);
+
+  /** A library with one matched season, one unmatched, and a failed episode. */
+  async function fixture(groupIds: string[] = []) {
+    const library = await createLibrary({ libraryType: 'Television', groupIds });
+    const show = await createCollection({ libraryId: library.id, name: 'Show', collectionType: 'Show' });
+    const matched = await createCollection({ libraryId: library.id, name: 'Season 1', collectionType: 'Season', parentId: show.id });
+    const unmatched = await createCollection({ libraryId: library.id, name: 'Season 2', collectionType: 'Season', parentId: show.id });
+    const episode = await createVideoMedia({ name: 'Pilot', path: '/pilot.mkv', duration: 100, collectionId: matched.id });
+    await prisma.collection.update({ where: { id: matched.id }, data: { scrapeStatus: 'Matched' } });
+    await prisma.collection.update({
+      where: { id: unmatched.id },
+      data: { scrapeStatus: 'NoMatch', scrapeMessage: 'Nothing scored high enough', scrapedAt: new Date() },
+    });
+    await prisma.media.update({ where: { id: episode.id }, data: { scrapeStatus: 'Failed' } });
+    return { library, unmatched };
+  }
+
+  describe('GET /:id/scrape-status', () => {
+    it('counts what landed and what did not', async () => {
+      const { library } = await fixture();
+      const { authHeader } = await createUser();
+
+      const res = await request(app)
+        .get(`/api/libraries/${library.id}/scrape-status`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.collections).toMatchObject({ Matched: 1, NoMatch: 1, Unscraped: 1 });
+      expect(res.body.media).toMatchObject({ Failed: 1 });
+    });
+
+    it('is not there for a library the viewer cannot see', async () => {
+      const group = await createGroup();
+      const { library } = await fixture([group.id]);
+      const { authHeader } = await createUser();
+
+      const res = await request(app)
+        .get(`/api/libraries/${library.id}/scrape-status`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('needs a token', async () => {
+      const { library } = await fixture();
+
+      expect((await request(app).get(`/api/libraries/${library.id}/scrape-status`)).status).toBe(401);
+    });
+  });
+
+  describe('GET /:id/unmatched', () => {
+    it('lists the items and what went wrong with each', async () => {
+      const { library } = await fixture();
+      const { authHeader } = await createUser();
+
+      const res = await request(app)
+        .get(`/api/libraries/${library.id}/unmatched`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.items[0]).toMatchObject({
+        kind: 'collection',
+        name: 'Season 2',
+        status: 'NoMatch',
+        message: 'Nothing scored high enough',
+        parentName: 'Show',
+      });
+      // The show and the failed episode are in there too; the matched season is not.
+      expect(res.body.items.map((i: { name: string }) => i.name)).not.toContain('Season 1');
+      expect(res.body.total).toBe(3);
+    });
+
+    it('narrows to the requested statuses and kind', async () => {
+      const { library } = await fixture();
+      const { authHeader } = await createUser();
+
+      const res = await request(app)
+        .get(`/api/libraries/${library.id}/unmatched?status=Failed&kind=media`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.items.map((i: { name: string }) => i.name)).toEqual(['Pilot']);
+    });
+
+    it('refuses a status or kind it does not know', async () => {
+      const { library } = await fixture();
+      const { authHeader } = await createUser();
+
+      const bad = await request(app)
+        .get(`/api/libraries/${library.id}/unmatched?status=Sideways`)
+        .set('Authorization', authHeader);
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toContain('Sideways');
+
+      const wrongKind = await request(app)
+        .get(`/api/libraries/${library.id}/unmatched?kind=person`)
+        .set('Authorization', authHeader);
+      expect(wrongKind.status).toBe(400);
+    });
+
+    it('is not there for a library the viewer cannot see', async () => {
+      const group = await createGroup();
+      const { library } = await fixture([group.id]);
+      const { authHeader } = await createUser();
+
+      const res = await request(app)
+        .get(`/api/libraries/${library.id}/unmatched`)
+        .set('Authorization', authHeader);
+
+      expect(res.status).toBe(404);
+    });
   });
 });

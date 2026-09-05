@@ -14,6 +14,9 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ de
 const LibrariesPage = lazy(() => import('./pages/LibrariesPage').then((m) => ({ default: m.LibrariesPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })));
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then((m) => ({ default: m.LibraryPage })));
+const LibraryScrapeStatusPage = lazy(() =>
+  import('./pages/LibraryScrapeStatusPage').then((m) => ({ default: m.LibraryScrapeStatusPage }))
+);
 const CollectionPage = lazy(() => import('./pages/CollectionPage').then((m) => ({ default: m.CollectionPage })));
 const MediaPage = lazy(() => import('./pages/MediaPage').then((m) => ({ default: m.MediaPage })));
 const PlayPage = lazy(() => import('./pages/PlayPage').then((m) => ({ default: m.PlayPage })));
@@ -59,6 +62,7 @@ function App() {
 
               {/* Library browsing routes */}
               <Route path="/library/:libraryId" element={<LibraryPage />} />
+              <Route path="/library/:libraryId/metadata" element={<LibraryScrapeStatusPage />} />
               <Route path="/collection/:collectionId" element={<CollectionPage />} />
               <Route path="/media/:mediaId" element={<MediaPage />} />
               <Route path="/play/:mediaId" element={<PlayPage />} />

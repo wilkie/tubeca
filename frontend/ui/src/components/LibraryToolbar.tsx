@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, IconButton, Stack, Tooltip, Typography } from '@mui/material';
-import { CheckBox, CheckBoxOutlineBlank, Clear, FilterList } from '@mui/icons-material';
+import { CheckBox, CheckBoxOutlineBlank, Clear, FilterList, FactCheck } from '@mui/icons-material';
 import { SortControls, type SortDirection, type SortOption } from './SortControls';
 import { ViewModeMenu, type ViewMode } from './ViewModeMenu';
 
@@ -23,6 +23,10 @@ export interface LibraryToolbarProps {
   sortDirection: SortDirection;
   onSortFieldChange: (field: string) => void;
   onSortDirectionChange: (direction: SortDirection) => void;
+  /** Open the library's metadata status page. Omitted when there is nothing to look at. */
+  onOpenScrapeStatus?: () => void;
+  /** How many of the library's items have no metadata, for the badge. */
+  unmatchedCount?: number;
 }
 
 /**
@@ -81,6 +85,16 @@ export function LibraryToolbar(props: LibraryToolbarProps) {
                 <FilterList />
               </IconButton>
             </Badge>
+          </Tooltip>
+        )}
+
+        {props.onOpenScrapeStatus && (
+          <Tooltip title={t('scrapeStatus.open', 'Metadata status')}>
+            <IconButton onClick={props.onOpenScrapeStatus} aria-label={t('scrapeStatus.open', 'Metadata status')}>
+              <Badge badgeContent={props.unmatchedCount ?? 0} color="warning" max={999}>
+                <FactCheck />
+              </Badge>
+            </IconButton>
           </Tooltip>
         )}
 

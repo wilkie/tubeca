@@ -53,6 +53,24 @@
 | `frontend/ui/src/utils/parseTitle.ts` | Frontend mirror of `parseTitleAndYear` (duplicated because `shared-types` is types-only). |
 | `frontend/ui/src/components/CollectionOptionsMenu.tsx`, `pages/CollectionPage.tsx`, `pages/MediaPage.tsx` | Menu items and handlers for Identify / Refresh metadata / Refresh images. |
 
+### Finding what did not match (`scrapeOverview.ts`)
+
+Per-item status has been on the collection and media pages since 2026-09-03, which answers the
+question one item at a time. On a library of thirty thousand files that is not an answer at all —
+nobody opens thirty thousand pages to find the eleven that failed. Two queries turn it into a list:
+
+- `getScrapeOverview(libraryId)` groups `Collection` and `Media` by `scrapeStatus` and returns
+  counts, with a null status reported as the synthetic `Unscraped`.
+- `listUnmatched(libraryId, { statuses, kind, skip, take })` pages the items themselves, most
+  recent attempt first so whatever just failed is at the top; items never attempted have no
+  timestamp to rank by and follow, by name. Neither half can be paged independently of the other,
+  so both are fetched to the end of the requested window and merged.
+
+They are served by `GET /api/libraries/:id/scrape-status` and `GET /api/libraries/:id/unmatched`,
+both checking `canUserAccessLibrary` inline the way the rest of that router does.
+`LibraryScrapeStatusPage` (`/library/:libraryId/metadata`) shows the counts as filter chips over
+the list; `LibraryToolbar` carries a badge of the `NoMatch` plus `Failed` count that opens it.
+
 ## How It Works
 
 ### Plugin contract and loading
@@ -195,6 +213,7 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - 2026-09-04 TVDB finished for collections: `getSeriesMetadata` and `getSeasonMetadata` added with a translation fallback for season text, and every request given a timeout and retries. The collection worker now checks that a plugin can fetch what it can find, so a partial plugin is passed over rather than matched and then thrown on.
 - 2026-09-04 The TVDB mapping checked against the published v4 schema, which corrected three things: a season's overview is only ever in a translation (so a record with a name no longer skips that fetch), a tag's value is `name` rather than `tagName`, and the logo artwork id was 6 — a season banner a series record never carries — rather than 23.
 - 2026-09-04 Both plugins return the artwork they did not choose, so the images dialog can offer it; see [Images](images.md).
+- 2026-09-05 `scrapeOverview.ts`, `GET /api/libraries/:id/scrape-status` and `/unmatched`, and `LibraryScrapeStatusPage` behind a badge on the library toolbar: which of a library's items have no metadata, and why, without opening each one.
 - 2026-09-04 TVDB can match a film: `type=movie` search and the `/movies/{id}/extended` record, verified live. Its credits are capped at twenty like TMDB's, and both plugins now dispatch through `@tubeca/scraper-http` — the pooled agent and DNS cache TMDB had, shared rather than copied a second time.
 - 2026-09-04 A by-id miss and a by-id failure told apart: plugins return `null` only for a 404 and throw otherwise, `resolveByIdentity` records the former as `NoMatch` rather than a retried `Failed`, and the season path stopped swallowing provider errors.
 - 2026-09-04 A working v4 key arrived and the plugin was run against the live API for a show, a season and an episode. It confirmed all three schema corrections — a series record does carry season artwork (types 6 and 7), so the old logo id resolved to a season banner — and caught a fourth: `score` is a popularity count, not a rating, and was being written to the field a card shows and a library sorts by. TVDB is enabled in the developer's local config from this date.
@@ -227,7 +246,9 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - **Add an episode-level identity** (S/M): `scraperId`/`externalId` on `VideoDetails` so a media refresh fetches by id, plus an Identify for a single episode; the cascade already proves the by-id episode path works.
 - **Follow the configured region for certifications** (S): TMDB's US-only certification lookup and TVDB's `country === 'usa'` should use the `region` that now reaches the plugins, and image language should follow `language`.
 - **Score `originalTitle` too and expose scores in Identify** (S): `pickBestMatch` could take alternative titles, and `/collections/search` could return and sort by the score so the dialog's ordering matches the worker's.
-- **Library-level scrape overview** (M): an "unmatched items" filter or count per library (a `where: { scrapeStatus: 'NoMatch' }` query) and polling of `scrapeStatus` on the page after Refresh/Identify so `Pending` resolves without a reload.
+- **Poll `scrapeStatus` after Refresh or Identify** (S) so a `Pending` row resolves without a
+  reload. The library-level overview landed 2026-09-05; this is the other half of that item, and
+  it belongs on the collection and media pages rather than the overview.
 - **Make a season's provider error retryable** (S): `scrapeSeasonMetadata` should return a
   `failed` attempt for a transient error rather than swallowing it into `NoMatch`, the way the
   show and film paths already do.

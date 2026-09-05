@@ -172,6 +172,41 @@ export interface ScanStatusResponse {
   failedReason?: string
 }
 
+/**
+ * A scrape outcome. `Unscraped` is not stored — it stands for a row whose
+ * `scrapeStatus` is null, meaning nothing has been attempted for it yet.
+ */
+export type ScrapeOverviewStatus = 'Matched' | 'NoMatch' | 'Failed' | 'Pending' | 'Unscraped'
+
+export type ScrapeCounts = Record<ScrapeOverviewStatus, number>
+
+/** How a whole library's metadata turned out, from `GET /libraries/:id/scrape-status`. */
+export interface ScrapeOverviewResponse {
+  /** Shows, seasons and films */
+  collections: ScrapeCounts
+  /** Episodes and other media files */
+  media: ScrapeCounts
+}
+
+export interface UnmatchedItem {
+  id: string
+  kind: 'collection' | 'media'
+  name: string
+  /** `CollectionType` for a collection, `MediaType` for a media item */
+  type: string
+  /** The show or season this sits under, when it has one */
+  parentName: string | null
+  status: ScrapeOverviewStatus
+  /** Why it did not match, when the scraper said */
+  message: string | null
+  scrapedAt: string | null
+}
+
+export interface UnmatchedPageResponse {
+  items: UnmatchedItem[]
+  total: number
+}
+
 export interface BrowseDirectoryEntry {
   name: string
   path: string

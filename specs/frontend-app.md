@@ -383,6 +383,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-04 `HeroSection`, `UpNextPopup`, `ViewModeMenu` and `RecentCollectionMenuItem` tested, which leaves no untested component, page, context or hook.
 - 2026-09-04 `src/i18n/__tests__/translations.test.ts` checks every `t()` key in the source against `en.json`. It found 98 of the 291 keys in use missing — every one of them rendering correctly from its inline default — and all 98 were added from those defaults. A generated pseudo-locale (`en-XA`, `?lng=en-XA`) answers the other half of the question: which strings never went through `t()` at all.
 - 2026-09-04 A search box in the header (a form submitting to `/search?q=`, the icon alone below `sm`), and excluded ratings and selected keywords persisted per library alongside the view mode and sort.
+- 2026-09-05 `LibraryScrapeStatusPage` (`/library/:libraryId/metadata`): a library's scrape outcomes as filter chips over a paged list of what did not match, reached from a badge on `LibraryToolbar`.
 - 2026-09-05 First responsive pass outside the player: page gutters centralised in `utils/layout.ts` after four heroes cancelled a 16px phone gutter with a 24px negative margin and scrolled the page sideways; header library tabs left to the drawer below `md`; `HeroSection` sized to its content below `md`; `MediaListItem` narrowed, tightened and stripped of its description below `sm`. `jest.setup.ts` answers `matchMedia` from `window.innerWidth` so any of this can be tested at all.
 
 ## Known Limitations

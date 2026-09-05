@@ -401,5 +401,33 @@
     "notFound": "Person not found",
     "refreshMetadata": "Refresh Metadata",
     "shows": "Shows"
+  },
+  "scrapeStatus": {
+    "title": "Metadata status",
+    "matched": "{{count}} matched",
+    "matched_one": "{{count}} matched",
+    "allMatched": "Everything in this library has its metadata.",
+    "item": "Item",
+    "type": "Type",
+    "reason": "Reason",
+    "statusColumn": "Status",
+    "open": "Metadata status",
+    "count": {
+      "NoMatch": "{{count}} unmatched",
+      "NoMatch_one": "{{count}} unmatched",
+      "Failed": "{{count}} failed",
+      "Failed_one": "{{count}} failed",
+      "Pending": "{{count}} pending",
+      "Pending_one": "{{count}} pending",
+      "Unscraped": "{{count}} never looked up",
+      "Unscraped_one": "{{count}} never looked up"
+    },
+    "status": {
+      "Matched": "Matched",
+      "NoMatch": "No match",
+      "Failed": "Failed",
+      "Pending": "Pending",
+      "Unscraped": "Never looked up"
+    }
   }
 }

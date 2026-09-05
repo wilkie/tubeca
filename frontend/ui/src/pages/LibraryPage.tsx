@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, Box, CircularProgress, Collapse, Container, Grid, Stack, Typography } from '@mui/material';
 import { apiClient, type Collection } from '../api/client';
 import { useScrollRestoration } from '../context/ScrollRestorationContext';
+import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { AddToCollectionDialog } from '../components/AddToCollectionDialog';
 import { CollectionListCard, CollectionPosterCard } from '../components/CollectionCard';
 import { FilterChips } from '../components/FilterChips';
@@ -29,6 +30,24 @@ export function LibraryPage() {
   const { t } = useTranslation();
   const { libraryId } = useParams<{ libraryId: string }>();
   const navigate = useNavigate();
+
+  // How many items in this library have no metadata, for the toolbar badge.
+  // The page behind it is where a viewer can do anything about them.
+  const scrapeStatus = useApiQuery(
+    queryKeys.libraryScrapeStatus(libraryId ?? ''),
+    () => apiClient.getLibraryScrapeStatus(libraryId!),
+    { enabled: Boolean(libraryId) }
+  );
+  const unmatchedCount = useMemo(() => {
+    const counts = scrapeStatus.data;
+    if (!counts) return 0;
+    return (
+      counts.collections.NoMatch +
+      counts.collections.Failed +
+      counts.media.NoMatch +
+      counts.media.Failed
+    );
+  }, [scrapeStatus.data]);
 
   // Coming back with the back button restores the scroll offset; the rows
   // themselves come from the query cache.
@@ -241,6 +260,8 @@ export function LibraryPage() {
         sortDirection={sortDirection}
         onSortFieldChange={(value) => setSortField(value as SortField)}
         onSortDirectionChange={setSortDirection}
+        onOpenScrapeStatus={libraryId ? () => navigate(`/library/${libraryId}/metadata`) : undefined}
+        unmatchedCount={unmatchedCount}
       />
 
       <Collapse in={showFilters}>

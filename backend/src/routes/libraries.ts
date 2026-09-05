@@ -5,6 +5,12 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { LibraryService } from '../services/libraryService';
 import { fileWatcherService } from '../services/fileWatcherService';
 import {
+  ACTIONABLE_STATUSES,
+  getScrapeOverview,
+  listUnmatched,
+  type ScrapeOverviewStatus,
+} from '../services/scrapeOverview';
+import {
   addLibraryScanJob,
   getLibraryScanJob,
   cancelLibraryScanJob,
@@ -538,6 +544,124 @@ router.get('/:id/scan', async (req, res) => {
     });
   } catch {
     res.status(500).json({ error: 'Failed to get scan status' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/libraries/{id}/scrape-status:
+ *   get:
+ *     tags:
+ *       - Libraries
+ *     summary: Scrape outcomes across a library
+ *     description: >
+ *       Counts of collections and media by their last scrape outcome, so a library's
+ *       unmatched items can be found without opening each one.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Counts by status for collections and media
+ *       404:
+ *         description: Library not found or not accessible
+ */
+router.get('/:id/scrape-status', async (req, res) => {
+  try {
+    const canAccess = await libraryService.canUserAccessLibrary(
+      req.user!.userId,
+      req.user!.role === 'Admin',
+      req.params.id
+    );
+    if (!canAccess) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
+    res.json(await getScrapeOverview(req.params.id));
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch scrape status' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/libraries/{id}/unmatched:
+ *   get:
+ *     tags:
+ *       - Libraries
+ *     summary: Items in a library whose metadata did not land
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Comma-separated statuses (NoMatch, Failed, Pending, Unscraped). Defaults to all four.
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [collection, media]
+ *       - in: query
+ *         name: skip
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: take
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: A page of unmatched items, most recent attempt first
+ *       400:
+ *         description: Unknown status or kind
+ *       404:
+ *         description: Library not found or not accessible
+ */
+router.get('/:id/unmatched', async (req, res) => {
+  try {
+    const canAccess = await libraryService.canUserAccessLibrary(
+      req.user!.userId,
+      req.user!.role === 'Admin',
+      req.params.id
+    );
+    if (!canAccess) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
+    let statuses: ScrapeOverviewStatus[] | undefined;
+    if (typeof req.query.status === 'string' && req.query.status.length > 0) {
+      statuses = req.query.status.split(',').map((s) => s.trim()) as ScrapeOverviewStatus[];
+      const unknown = statuses.filter((s) => !ACTIONABLE_STATUSES.includes(s) && s !== 'Matched');
+      if (unknown.length > 0) {
+        return res.status(400).json({ error: `Unknown scrape status: ${unknown.join(', ')}` });
+      }
+    }
+
+    const kind = req.query.kind;
+    if (kind !== undefined && kind !== 'collection' && kind !== 'media') {
+      return res.status(400).json({ error: 'kind must be collection or media' });
+    }
+
+    const page = await listUnmatched(req.params.id, {
+      statuses,
+      kind,
+      skip: Number(req.query.skip) || 0,
+      take: Number(req.query.take) || 50,
+    });
+    res.json(page);
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch unmatched items' });
   }
 });
 

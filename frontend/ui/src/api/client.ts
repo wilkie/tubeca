@@ -24,6 +24,11 @@ import type {
   ScanStartResponse,
   ScanStatusResponse,
   ScanCancelResponse,
+  ScrapeOverviewStatus,
+  ScrapeOverviewResponse,
+  ScrapeCounts,
+  UnmatchedItem,
+  UnmatchedPageResponse,
   BrowseDirectoriesResponse,
   Collection,
   CollectionType,
@@ -128,6 +133,11 @@ export type {
   ScanStartResponse,
   ScanStatusResponse,
   ScanCancelResponse,
+  ScrapeOverviewStatus,
+  ScrapeOverviewResponse,
+  ScrapeCounts,
+  UnmatchedItem,
+  UnmatchedPageResponse,
   BrowseDirectoriesResponse,
   Collection,
   CollectionType,
@@ -537,6 +547,32 @@ class ApiClient {
 
   async getLibraryScanStatus(libraryId: string): Promise<ApiResponse<ScanStatusResponse>> {
     return this.request<ScanStatusResponse>(`/libraries/${libraryId}/scan`);
+  }
+
+  /** Counts of a library's collections and media by their last scrape outcome. */
+  async getLibraryScrapeStatus(libraryId: string): Promise<ApiResponse<ScrapeOverviewResponse>> {
+    return this.request<ScrapeOverviewResponse>(`/libraries/${libraryId}/scrape-status`);
+  }
+
+  /** A page of the library's items whose metadata did not land. */
+  async getLibraryUnmatched(
+    libraryId: string,
+    options: {
+      statuses?: ScrapeOverviewStatus[];
+      kind?: UnmatchedItem['kind'];
+      skip?: number;
+      take?: number;
+    } = {}
+  ): Promise<ApiResponse<UnmatchedPageResponse>> {
+    const params = new URLSearchParams();
+    if (options.statuses?.length) params.set('status', options.statuses.join(','));
+    if (options.kind) params.set('kind', options.kind);
+    if (options.skip) params.set('skip', String(options.skip));
+    if (options.take) params.set('take', String(options.take));
+    const query = params.toString();
+    return this.request<UnmatchedPageResponse>(
+      `/libraries/${libraryId}/unmatched${query ? `?${query}` : ''}`
+    );
   }
 
   async cancelLibraryScan(libraryId: string): Promise<ApiResponse<ScanCancelResponse>> {

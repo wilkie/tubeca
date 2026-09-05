@@ -25,6 +25,13 @@ jest.mock('../../api/client', () => ({
     markWatched: jest.fn().mockResolvedValue({ data: { progress: { completed: true } } }),
     clearWatchProgress: jest.fn().mockResolvedValue({ data: undefined }),
     getKeywordsByLibrary: jest.fn().mockResolvedValue({ data: { keywords: [] } }),
+    // The toolbar badges how much of the library has no metadata.
+    getLibraryScrapeStatus: jest.fn().mockResolvedValue({
+      data: {
+        collections: { Matched: 0, NoMatch: 0, Failed: 0, Pending: 0, Unscraped: 0 },
+        media: { Matched: 0, NoMatch: 0, Failed: 0, Pending: 0, Unscraped: 0 },
+      },
+    }),
     getImageUrl: jest.fn((id) => `http://localhost/api/images/${id}`),
     checkFavorites: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
     checkWatchLater: jest.fn().mockResolvedValue({ data: { collectionIds: [], mediaIds: [] } }),
