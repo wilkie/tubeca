@@ -23,6 +23,7 @@ import {
 import { Search, Movie, Tv } from '@mui/icons-material';
 import { apiClient } from '../api/client';
 import { parseTitleAndYear } from '../utils/parseTitle';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 interface SearchResult {
   externalId: string;
@@ -271,6 +272,9 @@ export function IdentifyDialog({
 }: IdentifyDialogProps) {
   // Key changes when dialog opens to reset content state
   const [contentKey, setContentKey] = useState(0);
+  // A dialog sized for a desktop is unusable on a phone; below `sm` it takes
+  // the screen, and its Cancel button is the way out with no backdrop to tap.
+  const narrow = useNarrowScreen();
 
   const handleClose = () => {
     onClose();
@@ -279,7 +283,13 @@ export function IdentifyDialog({
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={narrow}
+    >
       {open && (
         <IdentifyDialogContent
           key={contentKey}

@@ -27,6 +27,7 @@ import {
   type LibraryType,
   type Group,
 } from '../api/client';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 interface LibraryDialogProps {
   open: boolean;
@@ -41,6 +42,9 @@ const LIBRARY_TYPES: LibraryType[] = ['Television', 'Film'];
 
 export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogProps) {
   const { t } = useTranslation();
+  // A dialog sized for a desktop is unusable on a phone; below `sm` it takes
+  // the screen, and its Cancel button is the way out with no backdrop to tap.
+  const narrow = useNarrowScreen();
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -127,7 +131,13 @@ export function LibraryDialog({ open, library, onClose, onSave }: LibraryDialogP
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={narrow}
+    >
       <DialogTitle>
         {isEditing ? t('libraries.edit') : t('libraries.create')}
       </DialogTitle>

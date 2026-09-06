@@ -96,6 +96,10 @@ All notable changes to Tubeca are recorded here. The format follows
 - Original quality no longer skips. Each six-second segment held about four seconds of picture,
   because the seek was placed where FFmpeg counted the part it threw away against the length asked
   for, so playback jumped forward at every segment boundary.
+- Dialogs fit a phone. Choosing artwork, picking a folder, identifying a show, editing a library or
+  a user — all of them opened as a desktop-sized box on a 390-pixel screen, with their content cut
+  off at the edges. They now take the whole screen below 600 pixels wide. The short "are you sure?"
+  confirmations still open as a box, where a full screen would be worse.
 - The rest of the app follows the player onto a phone: the library tabs move into the drawer where
   they no longer overflow the bar, a show's hero is as tall as it needs to be rather than a full
   screen of artwork with the episodes below the fold, and list rows are tighter. Pages also stop

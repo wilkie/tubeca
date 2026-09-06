@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '../../test-utils';
+import { DEFAULT_VIEWPORT_WIDTH, render, screen, setViewportWidth, waitFor } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { ImagesDialog } from '../ImagesDialog';
 import { apiClient, type Image } from '../../api/client';
@@ -475,5 +475,24 @@ describe('artwork the provider offers', () => {
     await waitFor(() =>
       expect(screen.queryByText(/more artwork from the provider/i)).not.toBeInTheDocument()
     );
+  });
+});
+
+describe('ImagesDialog on a phone', () => {
+  afterEach(() => setViewportWidth(DEFAULT_VIEWPORT_WIDTH));
+
+  it('takes the whole screen, being the widest dialog there is', () => {
+    // It is maxWidth="md", so a desktop-sized box is furthest from fitting.
+    setViewportWidth(390);
+
+    render(<ImagesDialog open onClose={jest.fn()} images={[]} />);
+
+    expect(screen.getByRole('dialog')).toHaveClass('MuiDialog-paperFullScreen');
+  });
+
+  it('leaves a desktop alone', () => {
+    render(<ImagesDialog open onClose={jest.fn()} images={[]} />);
+
+    expect(screen.getByRole('dialog')).not.toHaveClass('MuiDialog-paperFullScreen');
   });
 });

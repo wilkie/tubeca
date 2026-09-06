@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '../../test-utils';
+import { DEFAULT_VIEWPORT_WIDTH, render, screen, setViewportWidth, waitFor } from '../../test-utils';
 import userEvent from '@testing-library/user-event';
 import { LibraryDialog } from '../LibraryDialog';
 import { apiClient } from '../../api/client';
@@ -302,5 +302,34 @@ describe('LibraryDialog', () => {
 
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('on a phone', () => {
+  afterEach(() => setViewportWidth(DEFAULT_VIEWPORT_WIDTH));
+
+  it('takes the whole screen rather than a desktop-sized box', () => {
+    setViewportWidth(390);
+
+    render(<LibraryDialog open library={null} onClose={jest.fn()} onSave={jest.fn()} />);
+
+    expect(screen.getByRole('dialog')).toHaveClass('MuiDialog-paperFullScreen');
+  });
+
+  it('leaves a desktop alone', () => {
+    render(<LibraryDialog open library={null} onClose={jest.fn()} onSave={jest.fn()} />);
+
+    expect(screen.getByRole('dialog')).not.toHaveClass('MuiDialog-paperFullScreen');
+  });
+
+  it('still offers a way out, since a full-screen dialog has no backdrop to tap', async () => {
+    const user = userEvent.setup();
+    setViewportWidth(390);
+    const onClose = jest.fn();
+
+    render(<LibraryDialog open library={null} onClose={onClose} onSave={jest.fn()} />);
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+
+    expect(onClose).toHaveBeenCalled();
   });
 });

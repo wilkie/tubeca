@@ -30,6 +30,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys, useApiQuery } from '../hooks/useApiQuery';
 import { UserDialog } from '../components/UserDialog';
 import { useAuth } from '../context/AuthContext';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -54,6 +55,8 @@ function TabPanel(props: TabPanelProps) {
 
 export function UsersPage() {
   const { t } = useTranslation();
+  // The group editor is a form; below `sm` it takes the screen.
+  const narrow = useNarrowScreen();
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const usersQuery = useApiQuery(queryKeys.users, () => apiClient.getUsers());
@@ -351,7 +354,13 @@ export function UsersPage() {
         onSave={handleUserDialogSave}
       />
 
-      <Dialog open={groupDialogOpen} onClose={handleGroupDialogClose} maxWidth="sm" fullWidth>
+      <Dialog
+        open={groupDialogOpen}
+        onClose={handleGroupDialogClose}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={narrow}
+      >
         <DialogTitle>
           {editingGroup ? t('users.editGroup') : t('users.createGroup')}
         </DialogTitle>

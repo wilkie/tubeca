@@ -19,6 +19,7 @@ import {
 import { ArrowUpward, Folder } from '@mui/icons-material';
 import { apiClient } from '../api/client';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 interface DirectoryPickerDialogProps {
   open: boolean;
@@ -38,6 +39,9 @@ interface DirectoryPickerDialogProps {
  */
 export function DirectoryPickerDialog({ open, initialPath, onClose, onSelect }: DirectoryPickerDialogProps) {
   const { t } = useTranslation();
+  // A dialog sized for a desktop is unusable on a phone; below `sm` it takes
+  // the screen, and its Cancel button is the way out with no backdrop to tap.
+  const narrow = useNarrowScreen();
   const [browsingPath, setBrowsingPath] = useState<string | undefined>(initialPath);
 
   const { data, isPending, errorMessage } = useApiQuery(
@@ -49,7 +53,13 @@ export function DirectoryPickerDialog({ open, initialPath, onClose, onSelect }: 
   const currentPath = data?.path ?? browsingPath ?? '';
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={narrow}
+    >
       <DialogTitle>{t('libraries.choosePath', 'Choose a folder')}</DialogTitle>
       <DialogContent dividers>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>

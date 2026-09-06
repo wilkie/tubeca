@@ -12,8 +12,6 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
-  useMediaQuery,
-  useTheme,
 } from '@mui/material';
 import {
   PlayArrow,
@@ -32,6 +30,7 @@ import {
   Hd,
 } from '@mui/icons-material';
 import { apiClient, type TrickplayResolution } from '../api/client';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 export interface AudioTrackInfo {
   streamIndex: number;
@@ -282,13 +281,12 @@ export function VideoControls({
   // screen a viewer looks at longest.
   const { t, i18n } = useTranslation();
   const trackLabels: TrackLabelContext = { t, locale: i18n.language };
-  const theme = useTheme();
   // The full player's control row does not fit a phone: seven icon buttons, a
   // volume slider and a time readout want more than 360px. On a narrow screen
   // the time moves under the progress bar and the volume slider goes, leaving
   // the buttons the width they need. The mini player has its own `compact`
   // treatment already and is not affected.
-  const narrow = useMediaQuery(theme.breakpoints.down('sm')) && !compact;
+  const narrow = useNarrowScreen() && !compact;
 
   // Audio track menu state
   const [audioMenuAnchor, setAudioMenuAnchor] = useState<null | HTMLElement>(null);

@@ -178,9 +178,9 @@ section only for `role === 'Admin'`.
 The rest of the responsive treatment: `Grid size={{ xs: 6, sm: 4, md: 3, lg: 2 }}` on every grid,
 `HeroSection` sized to its content below `md` rather than filling the viewport, `MediaListItem`
 with a 92px poster column, tighter padding and no description below `sm`, and the player's own
-(see [Playback](playback.md)). `useMediaQuery` is used where the change is *what renders*; plain
-`sx` breakpoint objects where it is only how it looks — emotion's rules are invisible to jsdom, so
-only the former can be tested.
+(see [Playback](playback.md)). `useMediaQuery` is used where the change is *what renders*; plain `sx` breakpoint objects where it
+is only how it looks — emotion's rules are invisible to jsdom, so only the former can be tested.
+The one predicate everything shares, "is this a phone", lives in `hooks/useNarrowScreen.ts`.
 
 **Page gutters live in `utils/layout.ts`.** MUI's `Container` pads by 16px below `sm` and 24px
 above; a full-bleed section cancels that with a negative margin, and the two have to agree. Four
@@ -383,6 +383,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
 - 2026-09-04 `HeroSection`, `UpNextPopup`, `ViewModeMenu` and `RecentCollectionMenuItem` tested, which leaves no untested component, page, context or hook.
 - 2026-09-04 `src/i18n/__tests__/translations.test.ts` checks every `t()` key in the source against `en.json`. It found 98 of the 291 keys in use missing — every one of them rendering correctly from its inline default — and all 98 were added from those defaults. A generated pseudo-locale (`en-XA`, `?lng=en-XA`) answers the other half of the question: which strings never went through `t()` at all.
 - 2026-09-04 A search box in the header (a form submitting to `/search?q=`, the icon alone below `sm`), and excluded ratings and selected keywords persisted per library alongside the view mode and sort.
+- 2026-09-05 Every dialog holding real content goes full screen below `sm` — eight of them, from the images gallery to the directory picker — through one `useNarrowScreen` hook that also replaced the two hand-written copies of the same media query. The four confirmation dialogs were left boxed.
 - 2026-09-05 `LibraryScrapeStatusPage` (`/library/:libraryId/metadata`): a library's scrape outcomes as filter chips over a paged list of what did not match, reached from a badge on `LibraryToolbar`.
 - 2026-09-05 First responsive pass outside the player: page gutters centralised in `utils/layout.ts` after four heroes cancelled a 16px phone gutter with a 24px negative margin and scrolled the page sideways; header library tabs left to the drawer below `md`; `HeroSection` sized to its content below `md`; `MediaListItem` narrowed, tightened and stripped of its description below `sm`. `jest.setup.ts` answers `matchMedia` from `window.innerWidth` so any of this can be tested at all.
 
@@ -406,9 +407,10 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   toggles and menu openers), restoration polls up to 50 frames, and a global `setInterval` runs
   for the app's lifetime. Only two pages participate; `CollectionPage` and `PersonPage` lose
   scroll position on back.
-- **Responsiveness stops at the chrome.** `useMediaQuery` reaches `Header`, `MediaListItem`,
-  `VideoControls` and `LibraryScrapeStatusPage`, and the heroes and grids carry breakpoints, but
-  every dialog is still desktop-sized and `CastCrewGrid` keeps its desktop card.
+- **`CastCrewGrid` keeps its desktop card** below `sm`, and the four confirmation dialogs stay
+  boxed — deliberately, since a full screen for "Are you sure?" is worse than a box. Everything
+  else adapts: the chrome, the heroes, the grids, list rows, the player, and the eight dialogs
+  that hold real content.
 - **Accessibility is partial.** Hover-only rating overlays, `CardActionArea` cards without
   labels, and the global keydown capture in `useQuickSearch` (which swallows printable keys
   anywhere outside inputs) are not keyboard- or screen-reader-friendly. Icon buttons wrapped in a
@@ -430,10 +432,7 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   already exists at `/api-docs`. (M)
 - **Move transcoding settings types into `@tubeca/shared-types`**; they are the only API types
   declared locally in `client.ts`. (S)
-- **Mobile layout, the rest of it** (M): dialogs are still desktop-sized (`IdentifyDialog`,
-  `ImagesDialog`, `LibraryDialog` want `fullScreen` below `sm`), `LibraryToolbar`'s sort and filter
-  controls sit on one row, and `CastCrewGrid` keeps its desktop card size. The header, heroes and
-  list rows were done 2026-09-05.
+- **A phone layout for `CastCrewGrid`** (S), the last component still sized for a pointer.
 - **Self-host the "Praise" font** in `public/` to drop the Google Fonts dependency. (S)
 - **Make `serve` mode self-sufficient** by adding `VITE_API_BASE` or an `serve.json` rewrite,
   or drop the frontend service in favour of the backend serving `dist/` (see

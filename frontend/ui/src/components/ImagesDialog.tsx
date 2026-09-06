@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { Check, Close, Delete, Download, Upload } from '@mui/icons-material';
 import { apiClient, type ArtworkCandidate, type Image } from '../api/client';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 interface ImagesDialogProps {
   open: boolean;
@@ -62,6 +63,9 @@ export function ImagesDialog({
   onChanged,
 }: ImagesDialogProps) {
   const { t } = useTranslation();
+  // A dialog sized for a desktop is unusable on a phone; below `sm` it takes
+  // the screen, and its Cancel button is the way out with no backdrop to tap.
+  const narrow = useNarrowScreen();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +159,14 @@ export function ImagesDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth aria-labelledby="images-dialog-title">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      aria-labelledby="images-dialog-title"
+      fullScreen={narrow}
+    >
       <DialogTitle
         id="images-dialog-title"
         sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}

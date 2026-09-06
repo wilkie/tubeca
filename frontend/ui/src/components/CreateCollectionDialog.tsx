@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { ViewModule, QueueMusic } from '@mui/icons-material';
 import type { UserCollectionType } from '../api/client';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 interface CreateCollectionDialogProps {
   open: boolean;
@@ -25,6 +26,9 @@ interface CreateCollectionDialogProps {
 
 export function CreateCollectionDialog({ open, onClose, onCreate }: CreateCollectionDialogProps) {
   const { t } = useTranslation();
+  // A dialog sized for a desktop is unusable on a phone; below `sm` it takes
+  // the screen, and its Cancel button is the way out with no backdrop to tap.
+  const narrow = useNarrowScreen();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
@@ -50,7 +54,13 @@ export function CreateCollectionDialog({ open, onClose, onCreate }: CreateCollec
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={narrow}
+    >
       <DialogTitle>{t('userCollections.create')}</DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>

@@ -24,6 +24,7 @@ import {
 } from '@mui/material';
 import { Add, FolderSpecial, SortByAlpha, Update, ArrowUpward, ArrowDownward } from '@mui/icons-material';
 import { apiClient, type UserCollection } from '../api/client';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 interface AddToCollectionDialogProps {
   open: boolean;
@@ -41,6 +42,9 @@ export function AddToCollectionDialog({
   itemName,
 }: AddToCollectionDialogProps) {
   const { t } = useTranslation();
+  // A dialog sized for a desktop is unusable on a phone; below `sm` it takes
+  // the screen, and its Cancel button is the way out with no backdrop to tap.
+  const narrow = useNarrowScreen();
   const [collections, setCollections] = useState<UserCollection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +185,13 @@ export function AddToCollectionDialog({
   });
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={narrow}
+    >
       <DialogTitle>{t('userCollections.addToCollection')}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>

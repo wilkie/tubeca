@@ -367,8 +367,6 @@ listed were finished the same day and struck from it.
   ([Libraries](libraries-and-scanning.md)).
 - **Library access is all-or-nothing**: `Group` carries no capabilities, so an Editor cannot be
   restricted to particular libraries ([Auth](auth-and-users.md)).
-- **Dialogs are still desktop-sized**: the chrome and the player adapt below `sm`, the dialogs and
-  `CastCrewGrid` do not ([Frontend App](frontend-app.md)).
 - **Image housekeeping**: no content hashing, so an unchanged file re-downloaded is rewritten in
   place, and no sweep for the files a format change orphans ([Images](images.md)).
 

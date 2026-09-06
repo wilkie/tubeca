@@ -8,12 +8,11 @@ import {
   Typography,
   Stack,
   IconButton,
-  useMediaQuery,
-  useTheme,
   Tooltip,
 } from '@mui/material';
 import { PlayArrow } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import { useNarrowScreen } from '../hooks/useNarrowScreen';
 
 export interface MediaListItemProps {
   /** URL of the image to display */
@@ -55,8 +54,7 @@ export function MediaListItem({
   actions,
 }: MediaListItemProps) {
   const { t } = useTranslation();
-  const theme = useTheme();
-  const roomForDescription = useMediaQuery(theme.breakpoints.up('sm'));
+  const roomForDescription = !useNarrowScreen();
 
   return (
     <Card sx={{ display: 'flex' }}>
