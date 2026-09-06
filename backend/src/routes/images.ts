@@ -15,6 +15,7 @@ import { getArtworkCandidatesCached } from '../services/artworkCandidates';
 import { errorResponse } from '../services/errors';
 import { ImageService } from '../services/imageService';
 import type { ImageType } from '@prisma/client';
+import { findOrphans, removeOrphans } from '../services/imagePrune';
 
 const router = Router();
 const imageService = new ImageService();
@@ -151,6 +152,52 @@ router.get('/:id/file', imageAuth, imageAccess, async (req, res) => {
 
 // All other image routes require standard authentication
 router.use(authenticate);
+
+// NOTE: registered before /:id so "orphans" is not taken as an image id.
+/**
+ * @openapi
+ * /api/images/orphans:
+ *   get:
+ *     tags:
+ *       - Images
+ *     summary: Files in the image store that no image row points at
+ *     description: >
+ *       A format change leaves the old file behind, and older versions deleted rows
+ *       without their files. Nothing else sweeps them up. Admin only; removes nothing.
+ *     responses:
+ *       200:
+ *         description: The orphaned paths, their total size, and how many files were examined
+ *   delete:
+ *     tags:
+ *       - Images
+ *     summary: Delete the files nothing points at
+ *     description: Runs the same scan and removes what it finds. Admin only.
+ *     responses:
+ *       200:
+ *         description: How many files were removed and how many bytes they held
+ */
+router.get('/orphans', requireRole('Admin'), async (_req, res) => {
+  try {
+    res.json(await findOrphans());
+  } catch (error) {
+    console.error('Failed to scan for orphaned images:', error);
+    res.status(500).json({ error: 'Failed to scan for orphaned images' });
+  }
+});
+
+router.delete('/orphans', requireRole('Admin'), async (_req, res) => {
+  try {
+    // Scanned again rather than taking a list from the caller: the caller's
+    // list could name anything, and this deletes files.
+    const report = await findOrphans();
+    const removed = removeOrphans(report.orphans);
+    res.json({ removed, bytes: report.bytes, scanned: report.scanned });
+  } catch (error) {
+    console.error('Failed to remove orphaned images:', error);
+    res.status(500).json({ error: 'Failed to remove orphaned images' });
+  }
+});
+
 
 /**
  * @openapi

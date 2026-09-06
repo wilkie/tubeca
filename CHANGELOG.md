@@ -74,6 +74,9 @@ All notable changes to Tubeca are recorded here. The format follows
   is no longer means repacking every byte on the way out.
 
 ### Added
+- An admin can find and remove image files nothing points at any more — left behind when a provider
+  changes format, or by deletions in older versions. `GET /api/images/orphans` lists them with
+  their total size; `DELETE` removes them. Cached resized copies are recognised and kept.
 - HEVC and AV1 files can be played as they are, on a browser that can decode them. On the library
   this was measured against that is 2,496 files out of 30,014 — 8.3%, essentially all of it HEVC —
   which until now was re-encoded on every play even on hardware that would have played the file
@@ -93,6 +96,11 @@ All notable changes to Tubeca are recorded here. The format follows
   list for anyone running a scraper that does not declare its own.
 
 ### Fixed
+- Artwork that has not changed is no longer rewritten. Providers re-issue image URLs without
+  changing the picture behind them, and every re-scrape was overwriting the identical file — which
+  changes its timestamp and makes every browser and proxy fetch it again for nothing.
+
+
 - Original quality no longer skips. Each six-second segment held about four seconds of picture,
   because the seek was placed where FFmpeg counted the part it threw away against the length asked
   for, so playback jumped forward at every segment boundary.

@@ -158,6 +158,38 @@ When nothing declares a host, nothing is checked. An empty list refusing
 everything is not a safer failure than not checking: it would break artwork for
 anyone running a scraper written before `imageHosts` existed.
 
+### Not rewriting what has not changed
+
+`reuseExistingImage` skips the fetch when the provider still points at the same URL. It cannot
+help when the URL moves — TMDB re-issues paths — and the picture behind it is the one already
+stored, which is the common case for a re-scrape. Since 2026-09-05 every download is hashed
+(sha256 of the buffer, on `Image.contentHash`) and compared against the stored row's hash: the
+same bytes leave the file, and its mtime, alone. The fetch still happens, because there is no way
+to know without the bytes; what is avoided is the rewrite, which would bump `updatedAt` and
+`Last-Modified` and invalidate every cached copy downstream for an identical picture.
+
+Rows written before the column existed have a null hash, fall through the comparison, and are
+written once — which is what fills it in. A candidate saved with `allowMultiple` is skipped
+entirely: it is added beside the others rather than replacing one, so there is no single row to
+compare it against.
+
+### Sweeping up files nothing points at (`services/imagePrune.ts`)
+
+Two things strand a file: a format change (a provider that served `poster.jpg` now serves
+`poster.png`, so the row moves and the old file stays) and any deletion that removed rows without
+their files, which `ContentDeletionService` handles now but older versions did not. Nothing else
+sweeps them, so the store only grows.
+
+`findOrphans` walks the store and reports every file no `Image.path` names; `removeOrphans`
+deletes a list. `GET /api/images/orphans` and `DELETE /api/images/orphans` expose them to an
+admin, the DELETE re-scanning rather than taking a list from the caller, since the caller's list
+could name anything and this deletes files. A path resolving outside the store is refused.
+
+The trap is the resize cache: `getSizedPath` writes `poster-w400.jpg` beside `poster.jpg` and no
+row points at the variant. `originalOf` strips a known size suffix before deciding, so the cache
+survives — otherwise every sweep would delete it and report thousands of false orphans. A
+candidate's own unique suffix (`poster-a1b2c3d4.jpg`) is not a size and is left alone.
+
 ### Who triggers downloads
 
 - **Collection scrape** (`collectionScrapeWorker.ts`): shows and films download Poster, Backdrop, Thumbnail and Logo concurrently with `Promise.all`; seasons download only a Poster; each credit's person gets a `Photo` only if it has none. TMDB supplies one URL per slot: poster at the configured `imageSize` (default `w500`), backdrop and logo as the top-voted `original`, thumbnail as the top-voted English backdrop (`scrapers/tmdb/src/index.ts:379-423`). TVDB picks artwork by type code (2/3/6).
@@ -218,6 +250,7 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - 2026-09-03 — Library access enforced on all image routes via `requireLibraryAccess`.
 
 - 2026-09-05 `utils/safeFetch.ts`: every download restricted to public http(s) addresses, enforced by the dispatcher's own DNS lookup so redirects and rebinding are covered too. `POST /api/images/download` had accepted any URL an Editor sent, including this server's own loopback.
+- 2026-09-05 `Image.contentHash` (migration `20260905120000_image_content_hash`): an unchanged picture under a moved URL no longer rewrites its file. `services/imagePrune.ts` and `GET`/`DELETE /api/images/orphans` sweep the files nothing points at, keeping the resize cache.
 - 2026-09-05 `services/imageHosts.ts` and `ScraperPlugin.imageHosts`: a download's host must be one an installed scraper claims, or one `images.allowedHosts` adds.
 
 ## Known Limitations
@@ -225,11 +258,11 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - Candidates come from the provider as of 2026-09-04, but a scrape still *saves* one image per
   type, so the stored set is one deep until someone picks another from the gallery or uploads one.
 - Resizing happens on request, not on ingest: the first request for a given `?size=` writes the variant next to the original, so the very first viewer of a poster grid pays for it. Only four widths exist (`w200`, `w400`, `w780`, `w1280`) and the original is served for SVGs, for images already narrower than the request, and whenever sharp fails.
-- No dedup or hashing: the same person photo is downloaded once per entity directory. A scrape now skips the fetch when the source URL is unchanged, but any download that does happen overwrites in place, bumping `updatedAt` and `Last-Modified`; a provider that moves a URL without changing the bytes still re-downloads.
-- Orphaned files: a format change (`poster.jpg` then `poster.png`) leaves the old file behind, and
-  there is no sweep that diffs the disk against `Image.path`. Identify no longer contributes —
-  `deleteCollectionImages` removes the files with the rows — and library deletion, watcher-driven
-  media deletion and scan reconciliation all go through `ContentDeletionService`.
+- No dedup across entities: the same person photo is stored once per entity directory. Hashing
+  exists per row as of 2026-09-05, but nothing compares hashes between rows, so a face credited in
+  forty films is forty files.
+- Orphan cleanup is manual: `DELETE /api/images/orphans` exists as of 2026-09-05, but nothing runs
+  it on a schedule, and an admin has to know to look.
 - JWT in the query string of every image URL: it lands in server logs, browser history and any `Referer`, and the `public` cache directive makes the token-bearing URL cacheable by intermediaries. URLs also change whenever the token changes, defeating browser caching across logins.
 - **A scraper that declares no `imageHosts` disables the host check for every scraper**, since the
   list is a union and an empty union means "do not check". A third-party plugin without the field
@@ -249,8 +282,11 @@ Scrubbing previews are not `Image` rows. `Media.thumbnails` is a path to a trick
 - **Per-scraper host checking** (S): the allowlist is a union, so TMDB artwork could arrive from
   TVDB's host. Keying it on the scraper that actually produced the URL means passing that down from
   `scrapeApply` rather than reading the request body's `scraperId`, which a caller controls.
-- **Content-hash dedup and skip-if-unchanged** (S): hash the buffer, store it on `Image`, and skip rewrite when unchanged; optionally share person photos across credits.
-- **Orphan cleanup** (S): an admin "prune images" job that diffs the disk against `Image.path`, for the files a format change leaves behind. Identify was the other source and goes through `ContentDeletionService` now.
+- **Share a photo across the credits that use it** (S): `Image.contentHash` is stored but only ever
+  compared within one row's own history. A `findFirst` on the hash would let forty credits for the
+  same face point at one file.
+- **Run the orphan sweep on a schedule** (S): the endpoints exist; a weekly job, or a line in the
+  existing cleanup timer, would mean nobody has to remember.
 - **Cookie auth for image URLs** (M): a `SameSite` cookie would keep tokens out of URLs entirely; today they carry a short-lived media-scoped token. This would also let us drop `public` from a scoped, short-TTL token (or `SameSite` cookie) and drop `public` from `Cache-Control`.
 - **Static serving** (S/M): expose the image directory via `express.static` behind the same auth, or document a reverse-proxy `X-Accel-Redirect` path for production.
 - **Fix `QueuePage` selection** (S) and delete the `Still` lookup on `MediaPage` or start producing `Still` images from the episode still URL.

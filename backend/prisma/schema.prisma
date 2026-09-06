@@ -645,6 +645,10 @@ model Image {
   // Source tracking
   sourceUrl    String?   // Original URL (for re-download if needed)
   scraperId    String?   // Which scraper provided this
+  // sha256 of the stored bytes. A provider that moves a URL without changing
+  // the picture would otherwise have the same file rewritten in place, which
+  // bumps updatedAt and Last-Modified and invalidates every cached copy.
+  contentHash  String?
 
   isPrimary    Boolean   @default(false)
 

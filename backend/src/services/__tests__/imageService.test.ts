@@ -254,3 +254,77 @@ describe('downloadAndSaveImage with reuseExisting', () => {
     expect(await prisma.image.count({ where: { collectionId } })).toBe(2);
   });
 });
+
+describe('the same picture under a new URL', () => {
+  /** When the file was last written, to the millisecond. */
+  const mtimeOf = (relative: string) => fs.statSync(path.join(storePath, relative)).mtimeMs;
+
+  it('leaves the file alone when the bytes have not changed', async () => {
+    const first = await service.downloadAndSaveImage(POSTER_URL, { imageType: 'Poster', collectionId });
+    const before = mtimeOf(first.path!);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // TMDB re-issues a path; the picture behind it is the one we already have.
+    const second = await service.downloadAndSaveImage('https://images.example/poster-v2.png', {
+      imageType: 'Poster',
+      collectionId,
+    });
+
+    expect(second.success).toBe(true);
+    expect(second.path).toBe(first.path);
+    // Rewriting it would bump Last-Modified and invalidate every cached copy.
+    expect(mtimeOf(first.path!)).toBe(before);
+  });
+
+  it('records where it came from even when nothing was written', async () => {
+    await service.downloadAndSaveImage(POSTER_URL, { imageType: 'Poster', collectionId });
+
+    await service.downloadAndSaveImage('https://images.example/poster-v2.png', {
+      imageType: 'Poster',
+      collectionId,
+    });
+
+    const row = await prisma.image.findFirstOrThrow({ where: { collectionId } });
+    expect(row.sourceUrl).toBe('https://images.example/poster-v2.png');
+  });
+
+  it('writes when the bytes really are different', async () => {
+    const first = await service.downloadAndSaveImage(POSTER_URL, { imageType: 'Poster', collectionId });
+    const before = mtimeOf(first.path!);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const other = await sharp({
+      create: { width: 4, height: 6, channels: 3, background: { r: 255, g: 0, b: 0 } },
+    })
+      .png()
+      .toBuffer();
+    fetchMock.mockImplementation(
+      async () => new Response(other, { headers: { 'content-type': 'image/png' } })
+    );
+
+    const second = await service.downloadAndSaveImage(POSTER_URL, { imageType: 'Poster', collectionId });
+
+    expect(second).toMatchObject({ width: 4, height: 6 });
+    expect(mtimeOf(second.path!)).toBeGreaterThan(before);
+  });
+
+  it('stores the hash it compared against', async () => {
+    await service.downloadAndSaveImage(POSTER_URL, { imageType: 'Poster', collectionId });
+
+    const row = await prisma.image.findFirstOrThrow({ where: { collectionId } });
+    expect(row.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('writes a row that predates hashing, which is what fills its hash in', async () => {
+    const first = await service.downloadAndSaveImage(POSTER_URL, { imageType: 'Poster', collectionId });
+    await prisma.image.updateMany({ where: { collectionId }, data: { contentHash: null } });
+    const before = mtimeOf(first.path!);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    await service.downloadAndSaveImage(POSTER_URL, { imageType: 'Poster', collectionId });
+
+    expect(mtimeOf(first.path!)).toBeGreaterThan(before);
+    const row = await prisma.image.findFirstOrThrow({ where: { collectionId } });
+    expect(row.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

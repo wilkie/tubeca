@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import sharp from 'sharp';
 import { prisma } from '../config/database';
 import { getImageStoragePath } from '../config/appConfig';
@@ -227,10 +227,19 @@ export class ImageService {
       // sits next to the others rather than overwriting one.
       const suffix = input.allowMultiple ? `-${randomUUID().slice(0, 8)}` : '';
       const filename = `${input.imageType.toLowerCase()}${suffix}.${format}`;
-      const filePath = path.join(entityDir, filename);
+      let filePath = path.join(entityDir, filename);
 
-      // Write the file
-      fs.writeFileSync(filePath, buffer);
+      // A provider that moves a URL without changing the picture is common —
+      // TMDB re-issues paths — and rewriting an identical file bumps its mtime,
+      // which invalidates every cached copy downstream for nothing. Compare the
+      // bytes we just fetched against the ones already stored.
+      const contentHash = createHash('sha256').update(buffer).digest('hex');
+      const unchanged = await this.storedWithSameBytes(input, contentHash);
+      if (unchanged) {
+        filePath = path.join(imageStoragePath, unchanged);
+      } else {
+        fs.writeFileSync(filePath, buffer);
+      }
 
       // Extract image dimensions using sharp
       let width: number | undefined;
@@ -254,6 +263,7 @@ export class ImageService {
         width,
         height,
         fileSize,
+        contentHash,
         sourceUrl: url,
       });
 
@@ -272,6 +282,41 @@ export class ImageService {
         error instanceof Error ? error.message : String(error ?? 'Unknown error');
       return { success: false, error: message };
     }
+  }
+
+  /**
+   * The stored path for this entity and type when its bytes are exactly the
+   * ones just fetched, or null when the file has to be written.
+   *
+   * This is the case `reuseExistingImage` cannot catch: it compares URLs, and a
+   * provider that re-issues the same picture under a new path defeats it. The
+   * download still happens — there is no way to know without the bytes — but
+   * the file on disk, and its mtime, are left alone.
+   */
+  private async storedWithSameBytes(
+    input: SaveImageInput,
+    contentHash: string
+  ): Promise<string | null> {
+    // A candidate is added beside the others rather than replacing one, so
+    // there is no single row to compare it against.
+    if (input.allowMultiple) return null;
+
+    const existing = await prisma.image.findFirst({
+      where: {
+        imageType: input.imageType,
+        mediaId: input.mediaId,
+        collectionId: input.collectionId,
+        personId: input.personId,
+        showCreditId: input.showCreditId,
+        creditId: input.creditId,
+      },
+      select: { path: true, contentHash: true },
+    });
+
+    if (!existing?.path || existing.contentHash !== contentHash) return null;
+    // Rows downloaded before hashing existed have no hash, so they fall through
+    // and are written once, which is what fills it in.
+    return fs.existsSync(path.join(getImageStoragePath(), existing.path)) ? existing.path : null;
   }
 
   /**
@@ -308,6 +353,7 @@ export class ImageService {
       width: existing.width ?? undefined,
       height: existing.height ?? undefined,
       fileSize: existing.fileSize ?? undefined,
+      contentHash: existing.contentHash ?? undefined,
       sourceUrl: url,
     });
 
@@ -331,6 +377,7 @@ export class ImageService {
     width?: number
     height?: number
     fileSize?: number
+    contentHash?: string
   }) {
     // If this is set as primary, unset any existing primary for this entity+type
     if (data.isPrimary) {
@@ -372,6 +419,7 @@ export class ImageService {
           width: data.width,
           height: data.height,
           fileSize: data.fileSize,
+          contentHash: data.contentHash,
           sourceUrl: data.sourceUrl,
           scraperId: data.scraperId,
           isPrimary: data.isPrimary ?? existing.isPrimary,
@@ -388,6 +436,7 @@ export class ImageService {
         width: data.width,
         height: data.height,
         fileSize: data.fileSize,
+        contentHash: data.contentHash,
         sourceUrl: data.sourceUrl,
         scraperId: data.scraperId,
         isPrimary: data.isPrimary ?? false,

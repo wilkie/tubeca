@@ -279,3 +279,52 @@ describe('POST /api/images/download with a scraper installed', () => {
     });
   });
 });
+
+describe('/api/images/orphans', () => {
+  let adminHeader: string;
+
+  beforeEach(async () => {
+    adminHeader = (await createUser({ role: 'Admin' })).authHeader;
+  });
+
+  /** Put a file in the store that no row points at. */
+  function stranded(relative: string) {
+    const full = path.join(storePath, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, Buffer.alloc(20, 1));
+    return full;
+  }
+
+  it('lists what nothing points at, without removing it', async () => {
+    const file = stranded('collections/orphan-check/poster.png');
+
+    const res = await request(app).get('/api/images/orphans').set('Authorization', adminHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body.orphans).toContain('collections/orphan-check/poster.png');
+    expect(fs.existsSync(file)).toBe(true);
+  });
+
+  it('removes them when asked, and says how many', async () => {
+    const file = stranded('collections/orphan-remove/poster.png');
+
+    const res = await request(app).delete('/api/images/orphans').set('Authorization', adminHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body.removed).toBeGreaterThanOrEqual(1);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('is for admins only', async () => {
+    expect((await request(app).get('/api/images/orphans').set('Authorization', editorHeader)).status).toBe(403);
+    expect((await request(app).delete('/api/images/orphans').set('Authorization', editorHeader)).status).toBe(403);
+  });
+
+  it('is not read as an image id', async () => {
+    // `GET /:id` is registered in the same router; "orphans" must win.
+    const res = await request(app).get('/api/images/orphans').set('Authorization', adminHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('scanned');
+  });
+});
