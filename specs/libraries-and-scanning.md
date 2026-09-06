@@ -138,6 +138,22 @@ Enabled at boot if `FILE_WATCHER_ENABLED=true` or `fileWatcher.enabled` in `tube
 
 On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` for every watched file every cycle (1 s default, and 300 ms for "binary" files because `binaryInterval` was unset). Those slow CIFS stats saturated libuv's 4-thread pool, which is also where `dns.lookup` (getaddrinfo), `fs.writeFile` and sharp run — TMDB requests were observed blocking 30-60 s on DNS while image downloads still succeeded. The fix has three parts: (1) default `pollInterval` raised to 30 s and `binaryInterval` set to the same value (`fileWatcherService.ts:164-190`); (2) `UV_THREADPOOL_SIZE=24` in the backend `dev`/`start` scripts; (3) the TMDB scraper now resolves hosts with c-ares (`dns.resolve4`, event-loop based, IPv4 only, 5-minute cache, getaddrinfo fallback) through a pooled undici agent. The trade-off is that new files on a polled mount take up to 30 s plus the 2 s stability window and 2 s debounce to appear.
 
+**It moved DNS off the threadpool; it did not save the threadpool.** Measured again on 2026-09-06,
+on the development machine (WSL2, ~30,000 files on a CIFS mount, `usePolling: true`, 30 s): the
+backend had all 24 of its `UV_THREADPOOL_SIZE` threads in uninterruptible I/O wait (`D` state),
+continuously. `GET /api/health`, which only queries SQLite, answered in 4 ms; `GET /`, which is
+`res.sendFile` of a static file, never answered at all. So the API served JSON perfectly while
+every image 404'd through the Vite proxy as `socket hang up`, nothing streamed, and a metadata
+scrape sat "active" for ten minutes without ever opening a socket — blocked before the request, on
+`sharp` or on `fs`. Setting `fileWatcher.enabled: false` took the `D`-state threads from 24 to 1,
+`GET /` from a hang to 5 ms, and the scrape queue from 39 jobs a minute to 58.
+
+The watcher starts under `runsWorkers`, so `TUBECA_ROLE=all` — the default — puts it in the same
+process as the API and lets it starve request serving. Running `TUBECA_ROLE=api` and
+`TUBECA_ROLE=worker` as two processes isolates it, which is what that split is for; a bigger
+`UV_THREADPOOL_SIZE` only buys time, because the pool is flooded once per poll cycle regardless of
+its size.
+
 ### Filename parsing details
 
 - `parseEpisodeFromFilename` requires the pattern to be delimited (`(?:^|[.\s_-])`), so "Show S01E02.mkv" and "show.s1e2.720p" match but "ShowS01E02" does not. Season/episode are capped at two digits for `SxxEyy`; `NNxNN` allows 2-3 digit episodes. It also extracts `episodeTitle` after the pattern, but the scan worker never uses it.
@@ -193,6 +209,10 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Music is hidden and import-only**: existing Music libraries get a correct tree and durations, but no tag reading (ID3/Vorbis), no scraper, and no audio player beyond the progressive route. Reviving the type means: read `format.tags` at import, a MusicBrainz-style scraper implementing `searchAudio`/`getAudioMetadata` and the Artist/Album branches of `collectionScrapeWorker`, an audio player path in `PlayerContext`, and re-adding `Music` to `LibraryDialog` and the create-route allow-list.
 - **Scan concurrency is two**, so a third library queues behind them; the number is a constant, not a setting.
 - **A dry run is a separate scan.** There is no "review then apply" flow: the report says how many rows would go, and acting on it means running a normal scan, which recomputes the set.
+- **The file watcher starves the API when they share a process.** Polling a large CIFS mount holds
+  every libuv threadpool thread, and in the default `all` role that stops image serving, streaming
+  and anything using `sharp` while leaving database queries fast — so the server looks healthy and
+  serves nothing. Splitting the roles is the fix; nothing enforces or warns about it.
 - **A new sidecar is only noticed by a scan.** The watcher filters events by media extension, so dropping a `.srt` next to a video does not import it until the next scan of that library.
 - **The directory picker shows the whole server filesystem** to an admin, who could already type any path; it lists folders only and hides dot-directories, but there is no configured root to stay inside.
 
@@ -202,5 +222,7 @@ On WSL2 with SMB-mounted libraries, polling-mode chokidar issued an `fs.stat` fo
 - **Probe a few files at once** (S): the walk is async now, but ffprobe still runs strictly serially, one process per file; a small concurrency limit would cut import time on a large library.
 - **List what a dry run would remove** (S): the counts are reported, but not the paths, so an admin cannot see which items are missing without querying the database.
 - **Watch for sidecar subtitles too** (S): the watcher ignores `.srt` events, so a subtitle added after a scan waits for the next one.
+- **Warn when the watcher and the API share a process over a polled mount** (S), or default that
+  combination to a longer interval: the failure is silent and looks like a network problem.
 - **Read audio tags with ffprobe `format.tags`** (M): the probe already runs; capturing title/artist/album/track would give the music library real names ahead of any scraper.
 
