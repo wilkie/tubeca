@@ -98,17 +98,31 @@ export function parseEpisodeFromFilename(
     }
   }
 
+  // Set directly by the patterns that already know them; otherwise derived from
+  // where the episode pattern sat in the filename, below.
+  let showName: string | undefined;
+  let episodeTitle: string | undefined;
+
   // Nothing in the filename says which season, but the folder does. Inside a
   // season folder a leading number, or a spelled-out "Episode N", is the
   // episode: there is nothing else it could be.
   if (season === undefined && options.seasonHint !== undefined) {
     const leading = filename.trim().match(/^(\d{1,3})(?:\s*[-–_.]\s*(\S.*)?|$)/);
+    // `House MD - 20 - Euphoria 1`: the show first, then the number, then the
+    // title. Both dashes are required, and the number is capped at three
+    // digits, so `Doctor Who - 2005 - Rose` is a year and not an episode.
+    const afterShowName = filename.trim().match(/^(.+?)\s+[-–]\s+(\d{1,3})\s+[-–]\s+(\S.*)$/);
     const named = filename.match(/(?:^|[^a-z0-9])(?:episodes?|ep|e)[\s._-]*(\d{1,3})(?![0-9])/i);
     if (leading) {
       season = options.seasonHint;
       episode = parseInt(leading[1], 10);
       matchIndex = 0;
       matchLength = filename.trim().length - (leading[2]?.length ?? 0);
+    } else if (afterShowName) {
+      season = options.seasonHint;
+      episode = parseInt(afterShowName[2], 10);
+      showName = afterShowName[1].trim();
+      episodeTitle = afterShowName[3].trim();
     } else if (named) {
       season = options.seasonHint;
       episode = parseInt(named[1], 10);
@@ -122,7 +136,6 @@ export function parseEpisodeFromFilename(
   }
 
   // Extract show name (everything before the episode pattern)
-  let showName: string | undefined;
   if (matchIndex !== undefined && matchIndex > 0) {
     showName = filename
       .substring(0, matchIndex)
@@ -131,7 +144,6 @@ export function parseEpisodeFromFilename(
   }
 
   // Extract episode title (everything after the episode pattern, before quality indicators)
-  let episodeTitle: string | undefined;
   if (matchIndex !== undefined && matchLength !== undefined) {
     const afterMatch = filename.substring(matchIndex + matchLength);
     // Remove quality indicators and file info

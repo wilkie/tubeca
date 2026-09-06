@@ -193,6 +193,26 @@ describe('parsing an episode the folder has to help with', () => {
     });
   });
 
+  it('reads a number between the show name and the title', () => {
+    // `House/Season 2/House MD - 20 - Euphoria 1.avi`
+    expect(parseEpisodeFromFilename('House MD - 20 - Euphoria 1', { seasonHint: 2 })).toMatchObject({
+      season: 2,
+      episode: 20,
+      showName: 'House MD',
+      episodeTitle: 'Euphoria 1',
+    });
+  });
+
+  it('does not read a year between dashes as an episode', () => {
+    // Three digits at most, so a year cannot qualify.
+    expect(parseEpisodeFromFilename('Doctor Who - 2005 - Rose', { seasonHint: 1 })).toBeNull();
+  });
+
+  it('needs both dashes, so a title with one number in it is left alone', () => {
+    expect(parseEpisodeFromFilename('X2 - Mabel\'s Guide to Stickers', { seasonHint: 1 })).toBeNull();
+    expect(parseEpisodeFromFilename('Big O [2-13] The Show Must Go On', { seasonHint: 2 })).toBeNull();
+  });
+
   it('reads a spelled-out episode number', () => {
     expect(parseEpisodeFromFilename('Episode 3', { seasonHint: 1 })).toMatchObject({
       season: 1,
