@@ -213,12 +213,36 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
 - 2026-09-04 TVDB finished for collections: `getSeriesMetadata` and `getSeasonMetadata` added with a translation fallback for season text, and every request given a timeout and retries. The collection worker now checks that a plugin can fetch what it can find, so a partial plugin is passed over rather than matched and then thrown on.
 - 2026-09-04 The TVDB mapping checked against the published v4 schema, which corrected three things: a season's overview is only ever in a translation (so a record with a name no longer skips that fetch), a tag's value is `name` rather than `tagName`, and the logo artwork id was 6 — a season banner a series record never carries — rather than 23.
 - 2026-09-04 Both plugins return the artwork they did not choose, so the images dialog can offer it; see [Images](images.md).
+- 2026-09-05 Episode numbering: the parser reads the season from the folder, three-digit episodes and `S2 - 22`; `episodeRepair.ts` and `POST /api/libraries/:id/repair-episodes` apply it to rows already imported. 39.6% of the development library's television episodes had no season or episode number and could not be scraped at all.
 - 2026-09-05 `ScraperPlugin.imageHosts`: a plugin declares the hosts its artwork comes from, and the server refuses a download from anywhere else. TMDB `image.tmdb.org`, TVDB `artworks.thetvdb.com`.
 - 2026-09-05 `scrapeOverview.ts`, `GET /api/libraries/:id/scrape-status` and `/unmatched`, and `LibraryScrapeStatusPage` behind a badge on the library toolbar: which of a library's items have no metadata, and why, without opening each one.
 - 2026-09-04 TVDB can match a film: `type=movie` search and the `/movies/{id}/extended` record, verified live. Its credits are capped at twenty like TMDB's, and both plugins now dispatch through `@tubeca/scraper-http` — the pooled agent and DNS cache TMDB had, shared rather than copied a second time.
 - 2026-09-04 A by-id miss and a by-id failure told apart: plugins return `null` only for a 404 and throw otherwise, `resolveByIdentity` records the former as `NoMatch` rather than a retried `Failed`, and the season path stopped swallowing provider errors.
 - 2026-09-04 A working v4 key arrived and the plugin was run against the live API for a show, a season and an episode. It confirmed all three schema corrections — a series record does carry season artwork (types 6 and 7), so the old logo id resolved to a season banner — and caught a fourth: `score` is a popularity count, not a rating, and was being written to the field a card shows and a library sorts by. TVDB is enabled in the developer's local config from this date.
 - 2026-09-04 A show in the real library identified as a TVDB series through the API, against a copy of the database: the show matched with backdrop, logo and poster, and all five seasons matched with their own ids, air dates and posters. A mistyped external id on the first attempt showed the by-id retry limitation for real — a series that does not exist is retried three times and settles at `Failed`.
+
+### Episodes the parser could not number
+
+An episode with no season and episode number cannot be scraped. `scrapeVideoMetadata` addresses one
+as `getEpisodeMetadata(showExternalId, season, episode)`, and with any of the three missing it falls
+back to searching the provider for the file's own name — for `14 - Karen Peralta.mkv` that can only
+ever be a `NoMatch`, however well the show itself is identified.
+
+Until 2026-09-05 `parseEpisodeFromFilename` read only `S##E##` and `##x##` from the filename and
+never looked at the folder, so `Season 3/14 - Karen Peralta.mkv` — where the episode number is in
+the name and the season only in the folder — yielded nothing. Measured on the development library:
+11,404 of 28,774 television episodes, 39.6%, had no numbers at all.
+
+The parser now takes a `seasonHint` from `parseSeasonFromFolderName` (`Season 3`, `Specials` for 0)
+and reads a leading number or a spelled-out `Episode N` against it; it also learned three-digit
+episodes (`s01e118` parsed as nothing) and a season token with the episode after a separator
+(`Ace Attorney S2 - 22`). That reads 84.5% of what it could not.
+
+`services/episodeRepair.ts` applies it to what is already imported, since nothing re-parses a row
+once written: `POST /api/libraries/:id/repair-episodes` (Admin, `?dryRun=true`, `?rescrape=false`)
+re-reads every episode with no numbers, writes them, marks the rows `Pending` and re-queues them
+with the parent show's identity attached. A dry run over the development library reports 11,727
+examined, 9,904 repaired, 1,823 still unreadable.
 
 ## Known Limitations
 
@@ -231,6 +255,10 @@ Every scrape ends in a `ScrapeAttempt`: `matched`, `nomatch` (with a human messa
   `Pending` until the user reloads. The library-level view of unmatched items landed 2026-09-05.
 - **TMDB still returns `null` for both "missing" and "error"** on by-id fetches; the worker treats both as a retryable failure for identified items, which means a genuinely deleted TMDB entry will be retried three times and then sit at `Failed`. `getVideoMetadata` is worse than that: its `try/catch` returns the movie and tv promises rather than awaiting them, so a TMDB error is thrown past the catch instead of becoming `null`. The result is the same `Failed` either way, so it is pinned by a test rather than changed; fixing it belongs with the opportunity below, which decides what a miss should mean.
 - **A failed show scrape strands its seasons**: seasons are queued from the show job's success path, so a show that ends in `NoMatch` or `Failed` leaves its seasons unscraped until the next scan, even when `ShowDetails` still holds a usable identity from an earlier run.
+- **1,823 episodes still have no numbers** on the development library: about 1,100 sit in a flat
+  folder with no season to infer, and the rest are release-group names or the `12a`/`12b` segment
+  form, where mapping both halves to episode 12 would put the wrong title on one of them. These
+  need identifying by hand.
 - **Media rows cannot be refreshed by ID or identified**: `VideoDetails` lacks `scraperId`/`externalId`; media-level refresh re-searches by name, and there is no Identify for episodes.
 - **`Media.name` is overwritten** with the scraped episode title with no record of the original filename-derived name; a wrong match renames the file's entry.
 - **Person merging by exact name** as the last resort in `findOrCreatePerson` can conflate different people with the same name across works; TMDB credits never include an IMDB ID, so the "most reliable" key is never populated.

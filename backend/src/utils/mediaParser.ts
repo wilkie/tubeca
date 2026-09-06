@@ -14,21 +14,53 @@ export interface ParsedMovie {
   year?: number
 }
 
+/** The season a folder names: "Season 3", "Season 03", or "Specials" for 0. */
+export function parseSeasonFromFolderName(name: string): number | undefined {
+  const season = /^season\s*(\d{1,3})$/i.exec(name.trim());
+  if (season) return parseInt(season[1], 10);
+  // Every scraper numbers specials as season 0.
+  if (/^specials?$/i.test(name.trim())) return 0;
+  return undefined;
+}
+
+export interface ParseEpisodeOptions {
+  /**
+   * The season the containing folder names, from `parseSeasonFromFolderName`.
+   *
+   * Two in five episodes in a real library are named `14 - Karen Peralta.mkv`
+   * inside `Season 3/`: the episode number is in the filename and the season is
+   * only in the folder. Without the folder there is nothing to match on, and
+   * the scrape falls back to searching for a show called "14 - Karen Peralta".
+   */
+  seasonHint?: number
+}
+
 /**
  * Parse TV episode information from a filename
  * Supports patterns like:
- *   - s01e01, S01E01
+ *   - s01e01, S01E01, s01e118 (three-digit episodes)
  *   - 1x01
  *   - s01e01 - Episode Title
  *   - Show Name S01E01
  *   - Show.Name.S01E01.720p
+ *   - Ace Attorney S2 - 22 (season token, episode after a separator)
+ * and, when `seasonHint` says which season the folder is:
+ *   - 14 - Karen Peralta
+ *   - Episode 14, Ep 14, E14
  */
-export function parseEpisodeFromFilename(filename: string): ParsedEpisode | null {
-  // Pattern: S##E## or S#E# (case insensitive)
-  const sePattern = /(?:^|[.\s_-])s(\d{1,2})e(\d{1,2})(?:[.\s_-]|$)/i;
+export function parseEpisodeFromFilename(
+  filename: string,
+  options: ParseEpisodeOptions = {}
+): ParsedEpisode | null {
+  // Pattern: S##E## or S#E# (case insensitive). Three digits because long-running
+  // shows number straight through: s01e118 is real, and used to parse as nothing.
+  const sePattern = /(?:^|[.\s_-])s(\d{1,2})e(\d{1,3})(?:[.\s_-]|$)/i;
 
   // Pattern: ##x## (e.g., 1x01)
   const xPattern = /(?:^|[.\s_-])(\d{1,2})x(\d{2,3})(?:[.\s_-]|$)/i;
+
+  // Pattern: a season token and the episode after a separator (Ace Attorney S2 - 22)
+  const seasonThenEpisode = /(?:^|[^a-z0-9])s(\d{1,2})\s*[-–_]\s*(\d{1,3})(?![0-9])/i;
 
   let season: number | undefined;
   let episode: number | undefined;
@@ -52,6 +84,36 @@ export function parseEpisodeFromFilename(filename: string): ParsedEpisode | null
       episode = parseInt(xMatch[2], 10);
       matchIndex = xMatch.index!;
       matchLength = xMatch[0].length;
+    }
+  }
+
+  // Season token then a separate episode number.
+  if (season === undefined) {
+    const pairMatch = filename.match(seasonThenEpisode);
+    if (pairMatch) {
+      season = parseInt(pairMatch[1], 10);
+      episode = parseInt(pairMatch[2], 10);
+      matchIndex = pairMatch.index!;
+      matchLength = pairMatch[0].length;
+    }
+  }
+
+  // Nothing in the filename says which season, but the folder does. Inside a
+  // season folder a leading number, or a spelled-out "Episode N", is the
+  // episode: there is nothing else it could be.
+  if (season === undefined && options.seasonHint !== undefined) {
+    const leading = filename.trim().match(/^(\d{1,3})(?:\s*[-–_.]\s*(\S.*)?|$)/);
+    const named = filename.match(/(?:^|[^a-z0-9])(?:episodes?|ep|e)[\s._-]*(\d{1,3})(?![0-9])/i);
+    if (leading) {
+      season = options.seasonHint;
+      episode = parseInt(leading[1], 10);
+      matchIndex = 0;
+      matchLength = filename.trim().length - (leading[2]?.length ?? 0);
+    } else if (named) {
+      season = options.seasonHint;
+      episode = parseInt(named[1], 10);
+      matchIndex = named.index!;
+      matchLength = named[0].length;
     }
   }
 

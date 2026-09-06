@@ -277,3 +277,70 @@ describe('the scrape outcomes of a library', () => {
     });
   });
 });
+
+describe('POST /:id/repair-episodes', () => {
+  beforeEach(resetDatabase);
+
+  async function library() {
+    const lib = await createLibrary({ libraryType: 'Television' });
+    const show = await createCollection({ libraryId: lib.id, name: 'Show', collectionType: 'Show' });
+    const season = await createCollection({
+      libraryId: lib.id,
+      name: 'Season 3',
+      collectionType: 'Season',
+      parentId: show.id,
+    });
+    await createVideoMedia({
+      name: '14 - Karen Peralta',
+      path: '/tv/Show/Season 3/14 - Karen Peralta.mkv',
+      duration: 1300,
+      collectionId: season.id,
+    });
+    return lib;
+  }
+
+  it('reports what it repaired', async () => {
+    const lib = await library();
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .post(`/api/libraries/${lib.id}/repair-episodes?rescrape=false`)
+      .set('Authorization', authHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ examined: 1, repaired: 1, unreadable: 0 });
+  });
+
+  it('changes nothing on a dry run', async () => {
+    const lib = await library();
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .post(`/api/libraries/${lib.id}/repair-episodes?dryRun=true`)
+      .set('Authorization', authHeader);
+
+    expect(res.body).toMatchObject({ repaired: 1, queued: 0 });
+    expect(await prisma.videoDetails.count()).toBe(0);
+  });
+
+  it('is for admins only', async () => {
+    const lib = await library();
+    const { authHeader } = await createUser({ role: 'Editor' });
+
+    const res = await request(app)
+      .post(`/api/libraries/${lib.id}/repair-episodes`)
+      .set('Authorization', authHeader);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('is a 404 for a library that is not there', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .post('/api/libraries/missing/repair-episodes')
+      .set('Authorization', authHeader);
+
+    expect(res.status).toBe(404);
+  });
+});

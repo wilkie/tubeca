@@ -8,6 +8,7 @@ import { listDirectory, matchSidecars } from '../utils/subtitleSidecars';
 import { searchIndexService } from './searchIndexService';
 import {
   parseEpisodeFromFilename,
+  parseSeasonFromFolderName,
   parseTitleAndYear,
   getShowNameFromCollectionPath,
 } from '../utils/mediaParser';
@@ -119,7 +120,11 @@ export function buildMediaHints(
 
   if (mediaType !== 'Video') return hints;
 
-  const episode = parseEpisodeFromFilename(fileBaseName);
+  // The season is often only in the folder name: `Season 3/14 - Karen Peralta.mkv`
+  // says which episode but not which season, and without both the scrape cannot
+  // address the episode by id and falls back to a search that cannot work.
+  const seasonHint = folderName ? parseSeasonFromFolderName(folderName) : undefined;
+  const episode = parseEpisodeFromFilename(fileBaseName, { seasonHint });
   if (episode) {
     hints.season = episode.season;
     hints.episode = episode.episode;

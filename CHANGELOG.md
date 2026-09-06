@@ -74,6 +74,9 @@ All notable changes to Tubeca are recorded here. The format follows
   is no longer means repacking every byte on the way out.
 
 ### Added
+- Admins can re-read season and episode numbers for a library that was imported before the parser
+  understood its naming, and re-queue the metadata for what it fixes: `POST` to
+  `/api/libraries/<id>/repair-episodes`, with `?dryRun=true` to see what it would do first.
 - A group can be made view-only. Until now an Editor could edit every library they could see; a
   group with "members can change these libraries" turned off lets them watch without being able to
   rename, delete, re-scrape or re-artwork anything in it. Existing groups keep the run of their
@@ -100,6 +103,12 @@ All notable changes to Tubeca are recorded here. The format follows
   list for anyone running a scraper that does not declare its own.
 
 ### Fixed
+- Television episodes named `14 - Karen Peralta.mkv` inside a `Season 3` folder are matched again.
+  The filename parser only understood `S03E14`-style names and never looked at the folder, so two
+  in five episodes had no season or episode number — and without those, the scraper cannot ask for
+  an episode and falls back to searching for a show called "14 - Karen Peralta", which never
+  matches. Three-digit episode numbers (`s01e118`) and names like `Ace Attorney S2 - 22` were also
+  being missed.
 - Artwork that has not changed is no longer rewritten. Providers re-issue image URLs without
   changing the picture behind them, and every re-scrape was overwriting the identical file — which
   changes its timestamp and makes every browser and proxy fetch it again for nothing.

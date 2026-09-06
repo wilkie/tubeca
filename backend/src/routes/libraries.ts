@@ -15,6 +15,7 @@ import {
   getLibraryScanJob,
   cancelLibraryScanJob,
 } from '../queues/libraryScanQueue';
+import { repairEpisodeNumbers } from '../services/episodeRepair';
 
 const router = Router();
 const libraryService = new LibraryService();
@@ -544,6 +545,62 @@ router.get('/:id/scan', async (req, res) => {
     });
   } catch {
     res.status(500).json({ error: 'Failed to get scan status' });
+  }
+});
+
+/**
+ * @openapi
+ * /api/libraries/{id}/repair-episodes:
+ *   post:
+ *     tags:
+ *       - Libraries
+ *     summary: Re-read season and episode numbers from the files
+ *     description: >
+ *       An episode with no season or episode number cannot be scraped by id and falls
+ *       back to a provider search for the file's name, which never matches. This
+ *       re-parses those files, now that the parser reads the season from the folder,
+ *       and optionally re-queues their metadata. Admin only.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: dryRun
+ *         schema:
+ *           type: boolean
+ *         description: Report what would change without writing anything
+ *       - in: query
+ *         name: rescrape
+ *         schema:
+ *           type: boolean
+ *           default: true
+ *         description: Queue a metadata scrape for each repaired episode
+ *     responses:
+ *       200:
+ *         description: How many were examined, repaired, queued and still unreadable
+ *       404:
+ *         description: Library not found
+ */
+router.post('/:id/repair-episodes', requireRole('Admin'), async (req, res) => {
+  try {
+    const library = await libraryService.getLibraryById(req.params.id);
+    if (!library) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
+    const report = await repairEpisodeNumbers(req.params.id, {
+      dryRun: req.query.dryRun === 'true',
+      // Repairing the numbers without re-queuing leaves the episodes exactly as
+      // unmatched as they were, so this is on unless it is turned off.
+      rescrape: req.query.rescrape !== 'false',
+    });
+    res.json(report);
+  } catch (error) {
+    console.error('Failed to repair episode numbers:', error);
+    res.status(500).json({ error: 'Failed to repair episode numbers' });
   }
 });
 

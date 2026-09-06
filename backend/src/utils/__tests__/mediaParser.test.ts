@@ -1,6 +1,7 @@
 import {
   getShowNameFromCollectionPath,
   parseEpisodeFromFilename,
+  parseSeasonFromFolderName,
   parseTitleAndYear,
 } from '../mediaParser';
 
@@ -152,5 +153,102 @@ describe('getShowNameFromCollectionPath', () => {
 
   it('settles for the season folder when there is nothing above it', () => {
     expect(getShowNameFromCollectionPath(['Season 1'])).toBe('Season 1');
+  });
+});
+
+describe('parseSeasonFromFolderName', () => {
+  it('reads the number a season folder names', () => {
+    expect(parseSeasonFromFolderName('Season 3')).toBe(3);
+    expect(parseSeasonFromFolderName('season 03')).toBe(3);
+    expect(parseSeasonFromFolderName('Season1')).toBe(1);
+  });
+
+  it('calls specials season zero, as every scraper numbers them', () => {
+    expect(parseSeasonFromFolderName('Specials')).toBe(0);
+    expect(parseSeasonFromFolderName('special')).toBe(0);
+  });
+
+  it('says nothing for a folder that is not a season', () => {
+    expect(parseSeasonFromFolderName('Brooklyn Nine-Nine')).toBeUndefined();
+    expect(parseSeasonFromFolderName('The Matrix (1999)')).toBeUndefined();
+    expect(parseSeasonFromFolderName('Season 08 Extras')).toBeUndefined();
+  });
+});
+
+describe('parsing an episode the folder has to help with', () => {
+  it('reads a leading number as the episode, given the season', () => {
+    // Two in five episodes in a real library are named this way.
+    expect(parseEpisodeFromFilename('14 - Karen Peralta', { seasonHint: 3 })).toMatchObject({
+      season: 3,
+      episode: 14,
+      episodeTitle: 'Karen Peralta',
+    });
+    expect(parseEpisodeFromFilename('01 - Pilot', { seasonHint: 1 })).toMatchObject({
+      season: 1,
+      episode: 1,
+    });
+    expect(parseEpisodeFromFilename('014', { seasonHint: 1 })).toMatchObject({
+      season: 1,
+      episode: 14,
+    });
+  });
+
+  it('reads a spelled-out episode number', () => {
+    expect(parseEpisodeFromFilename('Episode 3', { seasonHint: 1 })).toMatchObject({
+      season: 1,
+      episode: 3,
+    });
+    expect(parseEpisodeFromFilename('Ep 12 - The One', { seasonHint: 2 })).toMatchObject({
+      season: 2,
+      episode: 12,
+    });
+  });
+
+  it('refuses to guess without a season', () => {
+    // A leading number in a flat folder could be anything.
+    expect(parseEpisodeFromFilename('14 - Karen Peralta')).toBeNull();
+    expect(parseEpisodeFromFilename('Episode 3')).toBeNull();
+  });
+
+  it('does not mistake a title that merely starts with a number', () => {
+    expect(parseEpisodeFromFilename('12 Angry Men', { seasonHint: 1 })).toBeNull();
+    expect(parseEpisodeFromFilename('2012 - Something', { seasonHint: 1 })).toBeNull();
+  });
+
+  it('lets the filename overrule the folder when it names a season', () => {
+    // A file that says s02e05 inside a "Season 1" folder means season 2.
+    expect(parseEpisodeFromFilename('s02e05 - Title', { seasonHint: 1 })).toMatchObject({
+      season: 2,
+      episode: 5,
+    });
+  });
+});
+
+describe('episode numbers the old patterns missed', () => {
+  it('reads a three-digit episode', () => {
+    // Long-running shows number straight through; s01e118 parsed as nothing.
+    expect(parseEpisodeFromFilename('s01e118')).toMatchObject({ season: 1, episode: 118 });
+    expect(parseEpisodeFromFilename('s06e182')).toMatchObject({ season: 6, episode: 182 });
+  });
+
+  it('reads a season token with the episode after a separator', () => {
+    expect(parseEpisodeFromFilename('Ace Attorney S2 - 22')).toMatchObject({
+      season: 2,
+      episode: 22,
+    });
+    expect(parseEpisodeFromFilename('[HorribleSubs] Ace Attorney S2 - 01 [1080p]')).toMatchObject({
+      season: 2,
+      episode: 1,
+    });
+  });
+
+  it('still reads everything it read before', () => {
+    expect(parseEpisodeFromFilename('s08e03 - Chaotic Collabs')).toMatchObject({ season: 8, episode: 3 });
+    expect(parseEpisodeFromFilename('Show.Name.S01E05.720p')).toMatchObject({ season: 1, episode: 5 });
+    expect(parseEpisodeFromFilename('1x01')).toMatchObject({ season: 1, episode: 1 });
+    expect(parseEpisodeFromFilename('aaf-murdoch.mysteries.s05e11.720p.bluray.x264')).toMatchObject({
+      season: 5,
+      episode: 11,
+    });
   });
 });
