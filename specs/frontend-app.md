@@ -407,10 +407,9 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   toggles and menu openers), restoration polls up to 50 frames, and a global `setInterval` runs
   for the app's lifetime. Only two pages participate; `CollectionPage` and `PersonPage` lose
   scroll position on back.
-- **`CastCrewGrid` keeps its desktop card** below `sm`, and the four confirmation dialogs stay
-  boxed — deliberately, since a full screen for "Are you sure?" is worse than a box. Everything
-  else adapts: the chrome, the heroes, the grids, list rows, the player, and the eight dialogs
-  that hold real content.
+- **The four confirmation dialogs stay boxed** below `sm`, deliberately: a full screen for "Are you
+  sure?" is worse than a box. Everything else adapts — the chrome, the heroes, the grids, list
+  rows, the player, and the eight dialogs that hold real content.
 - **Accessibility is partial.** Hover-only rating overlays, `CardActionArea` cards without
   labels, and the global keydown capture in `useQuickSearch` (which swallows printable keys
   anywhere outside inputs) are not keyboard- or screen-reader-friendly. Icon buttons wrapped in a
@@ -432,7 +431,6 @@ pattern for form state, and deep MUI type imports. `LibraryPage` carries three e
   already exists at `/api-docs`. (M)
 - **Move transcoding settings types into `@tubeca/shared-types`**; they are the only API types
   declared locally in `client.ts`. (S)
-- **A phone layout for `CastCrewGrid`** (S), the last component still sized for a pointer.
 - **Self-host the "Praise" font** in `public/` to drop the Google Fonts dependency. (S)
 - **Make `serve` mode self-sufficient** by adding `VITE_API_BASE` or an `serve.json` rewrite,
   or drop the frontend service in favour of the backend serving `dist/` (see

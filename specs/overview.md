@@ -343,8 +343,8 @@ Done 2026-09-04 and 2026-09-05, after the fourth round's coverage push freed the
    API, with the mapping checked against the published schema
    ([Metadata Scraping](metadata-scraping.md)).
 2. ~~**Make playback work away from a desk**~~ Safari and iOS play at all; the player takes touch
-   input; the player, and then the app around it, fit a phone
-   ([Playback](playback.md), [Frontend App](frontend-app.md)).
+   input; the player, the app around it and its dialogs fit a phone. Only the four confirmation
+   dialogs stay boxed, deliberately ([Playback](playback.md), [Frontend App](frontend-app.md)).
 3. ~~**Copy the picture instead of re-encoding it**~~ `original` copies whenever the codec allows,
    became fragmented MP4, and now carries HEVC and AV1 with a declared `CODECS`. 82% of the library
    copies its picture, against 74% before ([Streaming](streaming-and-transcoding.md)).
