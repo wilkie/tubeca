@@ -74,6 +74,10 @@ All notable changes to Tubeca are recorded here. The format follows
   is no longer means repacking every byte on the way out.
 
 ### Added
+- A group can be made view-only. Until now an Editor could edit every library they could see; a
+  group with "members can change these libraries" turned off lets them watch without being able to
+  rename, delete, re-scrape or re-artwork anything in it. Existing groups keep the run of their
+  libraries, as before.
 - An admin can find and remove image files nothing points at any more — left behind when a provider
   changes format, or by deletions in older versions. `GET /api/images/orphans` lists them with
   their total size; `DELETE` removes them. Cached resized copies are recognised and kept.

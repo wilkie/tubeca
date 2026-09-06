@@ -14,6 +14,9 @@ import {
   TableRow,
   IconButton,
   CircularProgress,
+  FormControlLabel,
+  FormHelperText,
+  Switch,
   Alert,
   Chip,
   Tabs,
@@ -85,6 +88,7 @@ export function UsersPage() {
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [groupName, setGroupName] = useState('');
+  const [groupCanEdit, setGroupCanEdit] = useState(true);
   const [isGroupSaving, setIsGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
 
@@ -133,6 +137,7 @@ export function UsersPage() {
   const handleCreateGroup = () => {
     setEditingGroup(null);
     setGroupName('');
+    setGroupCanEdit(true);
     setGroupError(null);
     setGroupDialogOpen(true);
   };
@@ -140,6 +145,7 @@ export function UsersPage() {
   const handleEditGroup = (group: Group) => {
     setEditingGroup(group);
     setGroupName(group.name);
+    setGroupCanEdit(group.canEdit);
     setGroupError(null);
     setGroupDialogOpen(true);
   };
@@ -163,6 +169,7 @@ export function UsersPage() {
     setGroupDialogOpen(false);
     setEditingGroup(null);
     setGroupName('');
+    setGroupCanEdit(true);
     setGroupError(null);
   };
 
@@ -176,8 +183,8 @@ export function UsersPage() {
     setGroupError(null);
 
     const result = editingGroup
-      ? await apiClient.updateGroup(editingGroup.id, { name: groupName.trim() })
-      : await apiClient.createGroup({ name: groupName.trim() });
+      ? await apiClient.updateGroup(editingGroup.id, { name: groupName.trim(), canEdit: groupCanEdit })
+      : await apiClient.createGroup({ name: groupName.trim(), canEdit: groupCanEdit });
 
     setIsGroupSaving(false);
 
@@ -379,6 +386,19 @@ export function UsersPage() {
             autoFocus
             sx={{ mt: 1 }}
           />
+          <FormControlLabel
+            sx={{ mt: 2 }}
+            control={
+              <Switch checked={groupCanEdit} onChange={(e) => setGroupCanEdit(e.target.checked)} />
+            }
+            label={t('users.groupCanEdit', 'Members with the Editor role can change these libraries')}
+          />
+          <FormHelperText sx={{ ml: 0 }}>
+            {t(
+              'users.groupCanEditHelp',
+              'Turn this off for a view-only group: members still see the libraries it grants, but cannot edit them.'
+            )}
+          </FormHelperText>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleGroupDialogClose} disabled={isGroupSaving}>

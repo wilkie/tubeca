@@ -232,6 +232,25 @@ API calls return 403.
 - 2026-09-03 Person filmographies and user-collection items scoped to accessible libraries (`resolveAccessibleLibraryIds`, `filterItemsByLibraryAccess`).
 - 2026-09-03 Session invalidation (`User.tokenVersion`, migration `20260903180000_user_token_version`), last-admin guards, self-service `PATCH /api/users/me`, login rate limiting, and central 401 handling in the frontend client.
 - 2026-09-03 Media-scoped tokens (`POST /api/auth/media-token`, four hours, `scope: 'media'`) for image and stream URLs; `authenticate` refuses them.
+- 2026-09-05 `Group.canEdit` (migration `20260905140000_group_can_edit`): a group can grant sight of its libraries without the right to change them. `requireLibraryAccess(..., { edit: true })` on all sixteen Editor-gated content routes; a switch in the group editor. Defaults true, so nothing changes until an admin turns it off.
+
+### Editing is a capability of the group, not of the role
+
+`Role` says whether a user edits *anywhere*; `Group.canEdit` says whether it is *here*. A group
+grants access to its libraries, and the flag decides whether that grant includes changing them, so
+an Editor can have the run of one library and a read-only view of another — which the role ladder
+alone cannot express.
+
+`requireLibraryAccess(resolver, { edit: true })` carries it, on all sixteen routes behind
+`requireRole('Editor')` that address library content. The check runs after the access check and
+answers 403 rather than 404: the caller can see the thing, so hiding its existence would only
+confuse. `LibraryService.getEditableLibraryIds` is the query, memoised per request in
+`editableLibraryIdsFor` beside the access list.
+
+Three deliberate edges. A user in several groups gets the union, so one group granting edit is
+enough. A library with no groups is public — visible to everyone, and since nothing scopes it,
+editable by any Editor. And `canEdit` defaults to true, so an existing install behaves exactly as
+it did until an admin turns a group down.
 
 ## Known Limitations
 
@@ -245,6 +264,9 @@ API calls return 403.
 - `UserDialog` edits are three non-atomic requests; a failure midway leaves the user partly updated with no rollback or retry.
 - `requireRole` accepts a list but always resolves to the minimum level, so exact-role restrictions (e.g. "Editor but not Admin") are impossible; the API shape is misleading.
 
+- A person's artwork is outside the scheme: `POST /api/persons/:id/refresh` is Editor-gated, but a
+  person belongs to no library, so there is nothing to scope the edit check by and any Editor can
+  refresh any person.
 - Frontend admin routes are registered for all roles; unauthorised users see empty pages with 403 errors instead of a redirect.
 - Tests cover hashing, JWT, `resolveJwtSecret`, `authenticate`/`requireRole` and session invalidation (supertest), the last-admin guards, self-service password change, `getAccessibleLibraries`/`canUserAccessLibrary` and the `/api/libraries` group filter; `groups.ts` (admin-only enforcement, duplicate names, and the visibility consequence of deleting the last group on a library); `users.ts`; the search group filter; and `streamAuth`'s `?token=` path in `stream.test.ts`. `imageAuth`'s query-token path is the one left. Frontend tests exist for `AuthContext`, `ProtectedRoute`, the pages and `apiClient` URL helpers.
 
@@ -256,4 +278,3 @@ API calls return 403.
 
 - **Role-aware frontend routing** (S): an `AdminRoute` wrapper (or `requiredRole` prop on `ProtectedRoute`) so Viewers are redirected rather than shown broken admin pages.
 - **Remaining auth tests** (S): `imageAuth`'s query-token path specifically — `streamAuth` is covered by `stream.test.ts`, and the users and groups routers and the search group filter all have their own files now.
-- **Per-library permissions on groups** (L): `Group` currently carries no capabilities; a natural extension is a per-group edit flag so Editors can be restricted to specific libraries, which the current role ladder cannot express.

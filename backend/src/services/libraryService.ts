@@ -85,6 +85,48 @@ export class LibraryService {
     });
   }
 
+  /**
+   * The libraries an Editor may change, as ids.
+   *
+   * Access and edit are different questions. A group grants access to its
+   * libraries; `canEdit` says whether that grant includes changing them, so an
+   * Editor can be given the run of one library and a read-only view of
+   * another. Admins are not asked, and a library with no groups at all is
+   * public — visible to everyone and, since nothing scopes it, editable by any
+   * Editor.
+   *
+   * Returns undefined for an Admin, matching `getAccessibleLibraries`' shape:
+   * undefined means "no restriction", not "none".
+   */
+  async getEditableLibraryIds(userId: string, isAdmin: boolean): Promise<string[] | undefined> {
+    if (isAdmin) return undefined;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { groups: { where: { canEdit: true }, select: { id: true } } },
+    });
+    const editableGroupIds = user?.groups.map((group) => group.id) ?? [];
+
+    const libraries = await prisma.library.findMany({
+      where: {
+        OR: [
+          { groups: { none: {} } },
+          ...(editableGroupIds.length > 0
+            ? [{ groups: { some: { id: { in: editableGroupIds } } } }]
+            : []),
+        ],
+      },
+      select: { id: true },
+    });
+    return libraries.map((library) => library.id);
+  }
+
+  /** Whether this user may change what is in one library. */
+  async canUserEditLibrary(userId: string, isAdmin: boolean, libraryId: string): Promise<boolean> {
+    const editable = await this.getEditableLibraryIds(userId, isAdmin);
+    return editable === undefined || editable.includes(libraryId);
+  }
+
   async getLibraryById(id: string) {
     return prisma.library.findUnique({
       where: { id },

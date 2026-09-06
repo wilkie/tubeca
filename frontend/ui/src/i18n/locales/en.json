@@ -247,6 +247,8 @@
     "createGroup": "Add Group",
     "editGroup": "Edit Group",
     "groupName": "Group Name",
+    "groupCanEdit": "Members with the Editor role can change these libraries",
+    "groupCanEditHelp": "Turn this off for a view-only group: members still see the libraries it grants, but cannot edit them.",
     "userCount": "Users",
     "libraryCount": "Libraries",
     "noGroups": "No groups found",

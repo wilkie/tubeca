@@ -412,3 +412,54 @@ describe('POST /api/collections/:id/refresh-metadata and refresh-images', () => 
     );
   });
 });
+
+describe('an Editor in a view-only group', () => {
+  beforeEach(resetDatabase);
+
+  /** A library one group grants sight of but not the right to change. */
+  async function readOnly() {
+    const group = await createGroup(undefined, { canEdit: false });
+    const library = await createLibrary({ groupIds: [group.id] });
+    const collection = await createCollection({ libraryId: library.id, name: 'Heat' });
+    const editor = await createUser({ role: 'Editor', groupIds: [group.id] });
+    return { library, collection, editor };
+  }
+
+  it('can read the collection', async () => {
+    const { collection, editor } = await readOnly();
+
+    const res = await request(app)
+      .get(`/api/collections/${collection.id}`)
+      .set('Authorization', editor.authHeader);
+
+    expect(res.status).toBe(200);
+  });
+
+  it('cannot rename, delete, refresh or identify it', async () => {
+    const { collection, editor } = await readOnly();
+    const auth = { Authorization: editor.authHeader };
+
+    const attempts = [
+      request(app).patch(`/api/collections/${collection.id}`).set(auth).send({ name: 'Renamed' }),
+      request(app).delete(`/api/collections/${collection.id}`).set(auth),
+      request(app).post(`/api/collections/${collection.id}/refresh-metadata`).set(auth).send({}),
+      request(app).post(`/api/collections/${collection.id}/refresh-images`).set(auth).send({}),
+      request(app).post(`/api/collections/${collection.id}/identify`).set(auth).send({ scraperId: 'tmdb', externalId: '1' }),
+    ];
+
+    for (const res of await Promise.all(attempts)) {
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it('cannot create a collection in that library either', async () => {
+    const { library, editor } = await readOnly();
+
+    const res = await request(app)
+      .post('/api/collections')
+      .set('Authorization', editor.authHeader)
+      .send({ name: 'New', collectionType: 'Film', libraryId: library.id });
+
+    expect(res.status).toBe(403);
+  });
+});

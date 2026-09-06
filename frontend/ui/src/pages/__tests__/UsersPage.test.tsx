@@ -74,6 +74,7 @@ const mockGroups: Group[] = [
   {
     id: 'grp-1',
     name: 'Staff',
+    canEdit: true,
     _count: { users: 2, libraries: 3 },
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
@@ -81,6 +82,7 @@ const mockGroups: Group[] = [
   {
     id: 'grp-2',
     name: 'Family',
+    canEdit: true,
     _count: { users: 5, libraries: 1 },
     createdAt: '2024-02-01T00:00:00Z',
     updatedAt: '2024-02-01T00:00:00Z',
@@ -484,7 +486,7 @@ describe('UsersPage', () => {
 
     it('creates new group', async () => {
       const user = userEvent.setup();
-      mockApiClient.createGroup.mockResolvedValue({ data: { group: { id: 'new-grp', name: 'New Group', createdAt: '', updatedAt: '' } } });
+      mockApiClient.createGroup.mockResolvedValue({ data: { group: { id: 'new-grp', name: 'New Group', canEdit: true, createdAt: '', updatedAt: '' } } });
 
       render(<UsersPage />);
 
@@ -498,12 +500,12 @@ describe('UsersPage', () => {
       await user.type(screen.getByLabelText(/group name/i), 'New Group');
       await user.click(screen.getByRole('button', { name: /save/i }));
 
-      expect(mockApiClient.createGroup).toHaveBeenCalledWith({ name: 'New Group' });
+      expect(mockApiClient.createGroup).toHaveBeenCalledWith({ name: 'New Group', canEdit: true });
     });
 
     it('updates existing group', async () => {
       const user = userEvent.setup();
-      mockApiClient.updateGroup.mockResolvedValue({ data: { group: { id: 'grp-1', name: 'Updated Staff', createdAt: '', updatedAt: '' } } });
+      mockApiClient.updateGroup.mockResolvedValue({ data: { group: { id: 'grp-1', name: 'Updated Staff', canEdit: true, createdAt: '', updatedAt: '' } } });
 
       render(<UsersPage />);
 
@@ -521,7 +523,7 @@ describe('UsersPage', () => {
       await user.type(input, 'Updated Staff');
       await user.click(screen.getByRole('button', { name: /save/i }));
 
-      expect(mockApiClient.updateGroup).toHaveBeenCalledWith('grp-1', { name: 'Updated Staff' });
+      expect(mockApiClient.updateGroup).toHaveBeenCalledWith('grp-1', { canEdit: true, name: 'Updated Staff' });
     });
 
     it('shows error when group name is empty', async () => {
@@ -665,5 +667,54 @@ describe('UsersPage', () => {
         expect(screen.queryByText('Failed to load')).not.toBeInTheDocument();
       });
     });
+  });
+});
+
+describe('a view-only group', () => {
+  /** Open the groups tab, which is where the group editor lives. */
+  async function groupsTab(user: ReturnType<typeof userEvent.setup>) {
+    render(<UsersPage />);
+    await waitFor(() => expect(screen.getByRole('tab', { name: /groups/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('tab', { name: /groups/i }));
+  }
+
+  const switchFor = () => screen.getByRole('switch', { name: /can change these libraries/i });
+
+  it('offers the switch on, since a new group can edit by default', async () => {
+    const user = userEvent.setup();
+    await groupsTab(user);
+
+    await user.click(screen.getByRole('button', { name: /add group/i }));
+
+    expect(switchFor()).toBeChecked();
+  });
+
+  it('creates one when the switch is turned off', async () => {
+    const user = userEvent.setup();
+    mockApiClient.createGroup.mockResolvedValue({
+      data: { group: { id: 'g', name: 'Guests', canEdit: false, createdAt: '', updatedAt: '' } },
+    });
+    await groupsTab(user);
+
+    await user.click(screen.getByRole('button', { name: /add group/i }));
+    await user.type(screen.getByLabelText(/group name/i), 'Guests');
+    await user.click(switchFor());
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(mockApiClient.createGroup).toHaveBeenCalledWith({ name: 'Guests', canEdit: false })
+    );
+  });
+
+  it('shows an existing group as view-only when it is', async () => {
+    const user = userEvent.setup();
+    mockApiClient.getGroups.mockResolvedValue({
+      data: { groups: [{ ...mockGroups[0], canEdit: false }] },
+    });
+    await groupsTab(user);
+
+    await user.click(screen.getAllByTestId('EditIcon')[0].closest('button')!);
+
+    expect(switchFor()).not.toBeChecked();
   });
 });

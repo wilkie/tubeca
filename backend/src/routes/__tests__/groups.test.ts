@@ -176,3 +176,70 @@ describe('DELETE /api/groups/:id', () => {
     expect(user.groups).toEqual([]);
   });
 });
+
+describe('a view-only group', () => {
+  beforeEach(resetDatabase);
+
+  it('is created editable unless told otherwise', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .post('/api/groups')
+      .set('Authorization', authHeader)
+      .send({ name: 'Family' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.group.canEdit).toBe(true);
+  });
+
+  it('can be created view-only', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .post('/api/groups')
+      .set('Authorization', authHeader)
+      .send({ name: 'Guests', canEdit: false });
+
+    expect(res.status).toBe(201);
+    expect(res.body.group.canEdit).toBe(false);
+  });
+
+  it('can be turned view-only later', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+    const group = await createGroup('Guests');
+
+    const res = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .set('Authorization', authHeader)
+      .send({ name: 'Guests', canEdit: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.group.canEdit).toBe(false);
+  });
+
+  it('keeps its setting when a rename does not mention it', async () => {
+    // An older client sending only a name must not quietly re-grant editing.
+    const { authHeader } = await createUser({ role: 'Admin' });
+    const group = await createGroup('Guests', { canEdit: false });
+
+    const res = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .set('Authorization', authHeader)
+      .send({ name: 'Visitors' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.group.canEdit).toBe(false);
+  });
+
+  it('refuses a value that is not a boolean', async () => {
+    const { authHeader } = await createUser({ role: 'Admin' });
+
+    const res = await request(app)
+      .post('/api/groups')
+      .set('Authorization', authHeader)
+      .send({ name: 'Odd', canEdit: 'yes' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/canEdit/);
+  });
+});

@@ -21,6 +21,8 @@ const router = Router();
 const imageService = new ImageService();
 const authService = new AuthService();
 const imageAccess = requireLibraryAccess(imageParam('id'));
+// The same check, plus the right to change what is in that library.
+const imageEdit = requireLibraryAccess(imageParam('id'), { edit: true });
 
 /** Image types an upload may claim, and the formats we accept for one. */
 const IMAGE_TYPES: ImageType[] = [
@@ -442,7 +444,7 @@ router.get(
  *       403:
  *         description: Forbidden - Editor role required
  */
-router.post('/download', requireRole('Editor'), requireLibraryAccess(entityInBody), async (req, res) => {
+router.post('/download', requireRole('Editor'), requireLibraryAccess(entityInBody, { edit: true }), async (req, res) => {
   try {
     const { url, imageType, mediaId, collectionId, showCreditId, creditId, isPrimary, scraperId } = req.body;
 
@@ -510,7 +512,7 @@ router.post('/download', requireRole('Editor'), requireLibraryAccess(entityInBod
  *       404:
  *         description: Image not found
  */
-router.put('/:id/primary', requireRole('Editor'), imageAccess, async (req, res) => {
+router.put('/:id/primary', requireRole('Editor'), imageEdit, async (req, res) => {
   try {
     const image = await imageService.setPrimary(req.params.id);
     if (!image) {
@@ -578,7 +580,7 @@ router.put('/:id/primary', requireRole('Editor'), imageAccess, async (req, res) 
 router.post(
   '/upload',
   requireRole('Editor'),
-  requireLibraryAccess(entityInQuery),
+  requireLibraryAccess(entityInQuery, { edit: true }),
   express.raw({ type: ['image/*'], limit: '25mb' }),
   async (req, res) => {
     try {
@@ -643,7 +645,7 @@ router.post(
  *       404:
  *         description: Image not found
  */
-router.delete('/:id', requireRole('Editor'), imageAccess, async (req, res) => {
+router.delete('/:id', requireRole('Editor'), imageEdit, async (req, res) => {
   try {
     await imageService.deleteImage(req.params.id);
     res.status(204).send();

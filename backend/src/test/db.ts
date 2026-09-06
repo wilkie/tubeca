@@ -63,8 +63,10 @@ export async function createUser(opts: { name?: string; role?: Role; groupIds?: 
   return { user, token, authHeader: `Bearer ${token}` };
 }
 
-export async function createGroup(name?: string) {
-  return prisma.group.create({ data: { name: name ?? unique('group') } });
+export async function createGroup(name?: string, opts: { canEdit?: boolean } = {}) {
+  return prisma.group.create({
+    data: { name: name ?? unique('group'), canEdit: opts.canEdit ?? true },
+  });
 }
 
 export async function createLibrary(

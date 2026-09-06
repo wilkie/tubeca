@@ -51,6 +51,11 @@ export interface UpdateUserInput {
 export interface Group {
   id: string
   name: string
+  /**
+   * Whether members with the Editor role may change the libraries this group
+   * grants. False makes it a view-only group.
+   */
+  canEdit: boolean
   createdAt: string
   updatedAt: string
   _count?: {
@@ -69,10 +74,14 @@ export interface GroupsResponse {
 
 export interface CreateGroupInput {
   name: string
+  /** Defaults to true when omitted. */
+  canEdit?: boolean
 }
 
 export interface UpdateGroupInput {
   name: string
+  /** Left as it is when omitted. */
+  canEdit?: boolean
 }
 
 export interface SetupStatusResponse {

@@ -53,6 +53,24 @@ export function accessibleLibraryIdsFor(req: Request): Promise<string[] | undefi
   return pending;
 }
 
+/**
+ * The same, for editing rather than seeing. A group grants access to its
+ * libraries; `Group.canEdit` says whether that grant includes changing them.
+ */
+const editCache = new WeakMap<Request, Promise<string[] | undefined>>();
+
+export function editableLibraryIdsFor(req: Request): Promise<string[] | undefined> {
+  const cached = editCache.get(req);
+  if (cached) return cached;
+
+  const user = req.user;
+  const pending = user
+    ? libraryService.getEditableLibraryIds(user.userId, user.role === 'Admin')
+    : Promise.resolve<string[] | undefined>([]);
+  editCache.set(req, pending);
+  return pending;
+}
+
 const missing: LibraryResolution = { kind: 'missing' };
 const unscoped: LibraryResolution = { kind: 'unscoped' };
 const orphan: LibraryResolution = { kind: 'orphan' };
@@ -137,7 +155,19 @@ export const entityInQuery: LibraryResolver = async (req) => {
  * Inaccessible and orphaned entities are reported as 404 rather than 403 so the
  * response does not reveal that the entity exists, matching `GET /api/libraries/:id`.
  */
-export function requireLibraryAccess(resolve: LibraryResolver) {
+export interface LibraryAccessOptions {
+  /**
+   * Require the right to *change* the library, not merely to see it. Use on
+   * every route behind `requireRole('Editor')` that addresses library content:
+   * the role says a user edits somewhere, this says whether it is here.
+   *
+   * A refusal here is a 403, not a 404 — the caller can see the thing, so
+   * hiding its existence would only be confusing.
+   */
+  edit?: boolean
+}
+
+export function requireLibraryAccess(resolve: LibraryResolver, options: LibraryAccessOptions = {}) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -151,6 +181,8 @@ export function requireLibraryAccess(resolve: LibraryResolver) {
       switch (resolution.kind) {
         case 'missing':
         case 'unscoped':
+          // Nothing to scope by. A person's artwork belongs to no library, so
+          // the role is all there is to go on.
           return next();
         case 'orphan':
           return res.status(404).json({ error: 'Not found' });
@@ -158,8 +190,16 @@ export function requireLibraryAccess(resolve: LibraryResolver) {
           // From the per-request list, so a route that also filters its rows
           // does not ask the database the same question twice.
           const accessible = await accessibleLibraryIdsFor(req);
-          const allowed = accessible === undefined || accessible.includes(resolution.libraryId);
-          return allowed ? next() : res.status(404).json({ error: 'Not found' });
+          if (accessible !== undefined && !accessible.includes(resolution.libraryId)) {
+            return res.status(404).json({ error: 'Not found' });
+          }
+          if (options.edit) {
+            const editable = await editableLibraryIdsFor(req);
+            if (editable !== undefined && !editable.includes(resolution.libraryId)) {
+              return res.status(403).json({ error: 'This library is read-only for you' });
+            }
+          }
+          return next();
         }
       }
     } catch {

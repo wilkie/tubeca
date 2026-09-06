@@ -365,8 +365,6 @@ listed were finished the same day and struck from it.
   scraper and an audio player; the alternative is pruning the schema. This is the one open item
   that is a product decision rather than an engineering one
   ([Libraries](libraries-and-scanning.md)).
-- **Library access is all-or-nothing**: `Group` carries no capabilities, so an Editor cannot be
-  restricted to particular libraries ([Auth](auth-and-users.md)).
 
 ## Conventions for Maintaining These Specs
 

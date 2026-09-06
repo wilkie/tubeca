@@ -68,6 +68,10 @@ router.get('/', requireRole('Admin'), async (_req, res) => {
  *             properties:
  *               name:
  *                 type: string
+ *               canEdit:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Whether Editors in this group may change the libraries it grants
  *     responses:
  *       201:
  *         description: Group created
@@ -85,10 +89,13 @@ router.get('/', requireRole('Admin'), async (_req, res) => {
  */
 router.post('/', requireRole('Admin'), async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, canEdit } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
+    }
+    if (canEdit !== undefined && typeof canEdit !== 'boolean') {
+      return res.status(400).json({ error: 'canEdit must be true or false' });
     }
 
     // Check if group name already exists
@@ -98,7 +105,7 @@ router.post('/', requireRole('Admin'), async (req, res) => {
     }
 
     const group = await prisma.group.create({
-      data: { name },
+      data: { name, canEdit: canEdit ?? true },
       include: {
         _count: {
           select: {
@@ -141,6 +148,10 @@ router.post('/', requireRole('Admin'), async (req, res) => {
  *             properties:
  *               name:
  *                 type: string
+ *               canEdit:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Whether Editors in this group may change the libraries it grants
  *     responses:
  *       200:
  *         description: Group updated
@@ -161,10 +172,13 @@ router.post('/', requireRole('Admin'), async (req, res) => {
 router.patch('/:id', requireRole('Admin'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
+    const { name, canEdit } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
+    }
+    if (canEdit !== undefined && typeof canEdit !== 'boolean') {
+      return res.status(400).json({ error: 'canEdit must be true or false' });
     }
 
     // Check group exists
@@ -183,7 +197,9 @@ router.patch('/:id', requireRole('Admin'), async (req, res) => {
 
     const group = await prisma.group.update({
       where: { id },
-      data: { name },
+      // Left alone when the caller does not mention it, so an older client
+      // renaming a group does not silently make it editable.
+      data: { name, ...(canEdit === undefined ? {} : { canEdit }) },
       include: {
         _count: {
           select: {

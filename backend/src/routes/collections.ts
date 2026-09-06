@@ -12,6 +12,8 @@ import { contentDeletionService } from '../services/contentDeletionService';
 const router = Router();
 const collectionService = new CollectionService();
 const collectionAccess = requireLibraryAccess(collectionParam('id'));
+// The same check, plus the right to change what is in that library.
+const collectionEdit = requireLibraryAccess(collectionParam('id'), { edit: true });
 const libraryAccess = requireLibraryAccess(libraryParam('libraryId'));
 
 // All routes require authentication
@@ -383,7 +385,7 @@ router.get('/:id', collectionAccess, async (req, res) => {
  *       403:
  *         description: Forbidden - Editor role required
  */
-router.post('/', requireRole('Editor'), requireLibraryAccess(entityInBody), async (req, res) => {
+router.post('/', requireRole('Editor'), requireLibraryAccess(entityInBody, { edit: true }), async (req, res) => {
   try {
     const { name, libraryId, parentId } = req.body;
 
@@ -449,7 +451,7 @@ router.post('/', requireRole('Editor'), requireLibraryAccess(entityInBody), asyn
  *       404:
  *         description: Collection not found
  */
-router.patch('/:id', requireRole('Editor'), collectionAccess, async (req, res) => {
+router.patch('/:id', requireRole('Editor'), collectionEdit, async (req, res) => {
   try {
     const { name, parentId } = req.body;
     const collection = await collectionService.updateCollection(req.params.id, {
@@ -492,7 +494,7 @@ router.patch('/:id', requireRole('Editor'), collectionAccess, async (req, res) =
  *       500:
  *         description: Server error
  */
-router.delete('/:id', requireRole('Editor'), collectionAccess, async (req, res) => {
+router.delete('/:id', requireRole('Editor'), collectionEdit, async (req, res) => {
   try {
     await collectionService.deleteCollection(req.params.id);
     res.status(204).send();
@@ -537,7 +539,7 @@ router.delete('/:id', requireRole('Editor'), collectionAccess, async (req, res) 
  *       404:
  *         description: Collection not found
  */
-router.post('/:id/refresh-metadata', requireRole('Editor'), collectionAccess, async (req, res) => {
+router.post('/:id/refresh-metadata', requireRole('Editor'), collectionEdit, async (req, res) => {
   try {
     const collection = await collectionService.getCollectionById(req.params.id);
     if (!collection) {
@@ -628,7 +630,7 @@ router.post('/:id/refresh-metadata', requireRole('Editor'), collectionAccess, as
  *       404:
  *         description: Collection not found
  */
-router.post('/:id/refresh-images', requireRole('Editor'), collectionAccess, async (req, res) => {
+router.post('/:id/refresh-images', requireRole('Editor'), collectionEdit, async (req, res) => {
   try {
     const collection = await collectionService.getCollectionById(req.params.id);
     if (!collection) {
@@ -735,7 +737,7 @@ router.post('/:id/refresh-images', requireRole('Editor'), collectionAccess, asyn
  *       404:
  *         description: Collection not found
  */
-router.post('/:id/identify', requireRole('Editor'), collectionAccess, async (req, res) => {
+router.post('/:id/identify', requireRole('Editor'), collectionEdit, async (req, res) => {
   try {
     const { externalId, scraperId } = req.body;
 

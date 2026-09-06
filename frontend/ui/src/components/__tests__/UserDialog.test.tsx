@@ -19,8 +19,8 @@ describe('UserDialog', () => {
   const mockOnClose = jest.fn();
   const mockOnSave = jest.fn();
   const mockGroups = [
-    { id: 'group-1', name: 'Admins', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
-    { id: 'group-2', name: 'Editors', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
+    { id: 'group-1', name: 'Admins', canEdit: true, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
+    { id: 'group-2', name: 'Editors', canEdit: true, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' },
   ];
 
   beforeEach(() => {
@@ -159,7 +159,7 @@ describe('UserDialog', () => {
       id: 'user-1',
       name: 'existinguser',
       role: 'Editor' as const,
-      groups: [{ id: 'group-1', name: 'Admins', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }],
+      groups: [{ id: 'group-1', name: 'Admins', canEdit: true, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }],
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
     };
