@@ -1,5 +1,6 @@
 import { WatchProgressService, isCompleted, MIN_RESUME_POSITION } from '../watchProgressService';
 import {
+  prisma,
   resetDatabase,
   createGroup,
   createLibrary,
@@ -234,5 +235,68 @@ describe('WatchProgressService batch and summaries', () => {
       expect(await service.markCollectionCompleted(user.id, empty.id)).toBe(0);
       expect(await service.clearCollectionProgress(user.id, empty.id)).toBe(0);
     });
+  });
+});
+
+describe('a collection bigger than SQLite will bind', () => {
+  beforeEach(resetDatabase);
+
+  /**
+   * More than the 999 parameters SQLite allows in one statement. This is not a
+   * hypothetical size: a library page asks for a roll-up over every show at
+   * once, and the media beneath them run to thousands. Before the queries were
+   * chunked this threw "The query parameter limit supported by your database is
+   * exceeded" — reported from a running server, not from a test.
+   */
+  const OVER_THE_LIMIT = 1100;
+
+  async function bigShow() {
+    const library = await createLibrary({ libraryType: 'Television' });
+    const show = await createCollection({
+      libraryId: library.id,
+      name: 'Long Runner',
+      collectionType: 'Show',
+    });
+    await prisma.media.createMany({
+      data: Array.from({ length: OVER_THE_LIMIT }, (_, i) => ({
+        name: `Episode ${i}`,
+        path: `/tv/long/${i}.mkv`,
+        type: 'Video' as const,
+        duration: 1200,
+        collectionId: show.id,
+      })),
+    });
+    const { user } = await createUser();
+    return { show, user };
+  }
+
+  it('rolls up a collection with more items than one statement can name', async () => {
+    const { show, user } = await bigShow();
+
+    const summaries = await service.getCollectionSummaries(user.id, true, [show.id]);
+
+    expect(summaries[show.id]).toMatchObject({ total: OVER_THE_LIMIT, watched: 0 });
+  });
+
+  it('marks and clears one, counting every row', async () => {
+    const { show, user } = await bigShow();
+
+    expect(await service.markCollectionCompleted(user.id, show.id)).toBe(OVER_THE_LIMIT);
+    const marked = await service.getCollectionSummaries(user.id, true, [show.id]);
+    expect(marked[show.id]).toMatchObject({ watched: OVER_THE_LIMIT });
+
+    expect(await service.clearCollectionProgress(user.id, show.id)).toBe(OVER_THE_LIMIT);
+  });
+
+  it('reads progress for more media than one statement can name', async () => {
+    const { show, user } = await bigShow();
+    await service.markCollectionCompleted(user.id, show.id);
+    const ids = (await prisma.media.findMany({ where: { collectionId: show.id }, select: { id: true } })).map(
+      (m) => m.id
+    );
+
+    const progress = await service.getProgressBatch(user.id, ids);
+
+    expect(Object.keys(progress)).toHaveLength(OVER_THE_LIMIT);
   });
 });

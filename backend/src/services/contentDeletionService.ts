@@ -45,10 +45,11 @@ export class ContentDeletionService {
     const ids = [rootId];
     let frontier = [rootId];
     while (frontier.length > 0) {
-      const children = await prisma.collection.findMany({
-        where: { parentId: { in: frontier } },
-        select: { id: true },
-      });
+      // A tree one level wide — every show under one root — is more ids than
+      // SQLite will bind, even though the depth is small.
+      const children = await collectInChunks(frontier, (batch) =>
+        prisma.collection.findMany({ where: { parentId: { in: batch } }, select: { id: true } })
+      );
       frontier = children.map((c) => c.id);
       ids.push(...frontier);
     }

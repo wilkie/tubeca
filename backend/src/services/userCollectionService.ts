@@ -1,6 +1,7 @@
 import { prisma } from '../config/database';
 import { ConflictError, NotFoundError, ValidationError } from './errors';
 import { ImageType, Prisma, UserCollectionType } from '@prisma/client';
+import { collectInChunks } from '../utils/chunk';
 
 export interface CreateUserCollectionInput {
   name: string
@@ -635,7 +636,9 @@ export class UserCollectionService {
     }
 
     if (mediaIds.length > 0) {
-      const found = await prisma.media.findMany({ where: { id: { in: mediaIds } }, select: { id: true } });
+      const found = await collectInChunks(mediaIds, (batch) =>
+        prisma.media.findMany({ where: { id: { in: batch } }, select: { id: true } })
+      );
       if (found.length !== mediaIds.length) {
         throw new NotFoundError('The queue named a media item that does not exist');
       }
@@ -786,39 +789,36 @@ export class UserCollectionService {
     };
 
     if (collectionIds && collectionIds.length > 0) {
-      const matchedCollections = await prisma.userCollectionItem.findMany({
-        where: {
-          userCollectionId: systemCollection.id,
-          collectionId: { in: collectionIds },
-        },
-        select: { collectionId: true },
-      });
+      const matchedCollections = await collectInChunks(collectionIds, (batch) =>
+        prisma.userCollectionItem.findMany({
+          where: { userCollectionId: systemCollection.id, collectionId: { in: batch } },
+          select: { collectionId: true },
+        })
+      );
       result.collectionIds = matchedCollections
         .map((item) => item.collectionId)
         .filter((id): id is string => id !== null);
     }
 
     if (mediaIds && mediaIds.length > 0) {
-      const matchedMedia = await prisma.userCollectionItem.findMany({
-        where: {
-          userCollectionId: systemCollection.id,
-          mediaId: { in: mediaIds },
-        },
-        select: { mediaId: true },
-      });
+      const matchedMedia = await collectInChunks(mediaIds, (batch) =>
+        prisma.userCollectionItem.findMany({
+          where: { userCollectionId: systemCollection.id, mediaId: { in: batch } },
+          select: { mediaId: true },
+        })
+      );
       result.mediaIds = matchedMedia
         .map((item) => item.mediaId)
         .filter((id): id is string => id !== null);
     }
 
     if (userCollectionIds && userCollectionIds.length > 0) {
-      const matchedUserCollections = await prisma.userCollectionItem.findMany({
-        where: {
-          userCollectionId: systemCollection.id,
-          itemUserCollectionId: { in: userCollectionIds },
-        },
-        select: { itemUserCollectionId: true },
-      });
+      const matchedUserCollections = await collectInChunks(userCollectionIds, (batch) =>
+        prisma.userCollectionItem.findMany({
+          where: { userCollectionId: systemCollection.id, itemUserCollectionId: { in: batch } },
+          select: { itemUserCollectionId: true },
+        })
+      );
       result.userCollectionIds = matchedUserCollections
         .map((item) => item.itemUserCollectionId)
         .filter((id): id is string => id !== null);

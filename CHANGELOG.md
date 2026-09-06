@@ -103,6 +103,9 @@ All notable changes to Tubeca are recorded here. The format follows
   list for anyone running a scraper that does not declare its own.
 
 ### Fixed
+- Watched-progress roll-ups no longer fail on a large library. Opening a library page asks how much
+  of every show has been watched, and the question named every episode at once — more than the
+  database will accept in one query.
 - Deleting a large library, or scanning in more than about a thousand files at once, no longer
   crashes the server. Both build a list of every row involved and hand it to the database in one
   go, which SQLite refuses past 999 items — and the database layer answers that by panicking rather

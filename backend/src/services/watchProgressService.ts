@@ -1,6 +1,7 @@
 import { Prisma, type ImageType } from '@prisma/client';
 import { prisma } from '../config/database';
 import { LibraryService } from './libraryService';
+import { collectInChunks, inChunks } from '../utils/chunk';
 
 /** Fraction of the duration after which a media item counts as watched. */
 export const COMPLETION_THRESHOLD = 0.9;
@@ -54,7 +55,9 @@ export class WatchProgressService {
   /** Progress rows for a set of media ids, keyed by media id (absent when never played). */
   async getProgressBatch(userId: string, mediaIds: string[]) {
     if (mediaIds.length === 0) return {};
-    const rows = await prisma.watchProgress.findMany({ where: { userId, mediaId: { in: mediaIds } } });
+    const rows = await collectInChunks(mediaIds, (batch) =>
+      prisma.watchProgress.findMany({ where: { userId, mediaId: { in: batch } } })
+    );
     return Object.fromEntries(rows.map((row) => [row.mediaId, row]));
   }
 
@@ -84,10 +87,12 @@ export class WatchProgressService {
     const parentOf = new Map<string, string | null>(roots.map((r) => [r.id, r.parentId]));
     let frontier = roots.map((r) => r.id);
     while (frontier.length > 0) {
-      const children = await prisma.collection.findMany({
-        where: { parentId: { in: frontier } },
-        select: { id: true, parentId: true },
-      });
+      const children = await collectInChunks(frontier, (batch) =>
+        prisma.collection.findMany({
+          where: { parentId: { in: batch } },
+          select: { id: true, parentId: true },
+        })
+      );
       frontier = [];
       for (const child of children) {
         if (!parentOf.has(child.id)) {
@@ -106,13 +111,17 @@ export class WatchProgressService {
       return found;
     };
 
-    const media = await prisma.media.findMany({
-      where: { collectionId: { in: [...parentOf.keys()] } },
-      select: { id: true, collectionId: true },
-    });
-    const progress = await prisma.watchProgress.findMany({
-      where: { userId, mediaId: { in: media.map((m) => m.id) } },
-    });
+    // A library page asks about every show at once, and the media under them
+    // runs to thousands: more ids than SQLite will bind in one statement.
+    const media = await collectInChunks([...parentOf.keys()], (batch) =>
+      prisma.media.findMany({
+        where: { collectionId: { in: batch } },
+        select: { id: true, collectionId: true },
+      })
+    );
+    const progress = await collectInChunks(media.map((m) => m.id), (batch) =>
+      prisma.watchProgress.findMany({ where: { userId, mediaId: { in: batch } } })
+    );
     const progressByMedia = new Map(progress.map((p) => [p.mediaId, p]));
 
     const summaries: Record<string, CollectionWatchSummary> = {};
@@ -183,17 +192,15 @@ export class WatchProgressService {
     const seen = new Set<string>([collectionId]);
     let frontier = [collectionId];
     while (frontier.length > 0) {
-      const children = await prisma.collection.findMany({
-        where: { parentId: { in: frontier } },
-        select: { id: true },
-      });
+      const children = await collectInChunks(frontier, (batch) =>
+        prisma.collection.findMany({ where: { parentId: { in: batch } }, select: { id: true } })
+      );
       frontier = children.map((c) => c.id).filter((id) => !seen.has(id));
       for (const id of frontier) seen.add(id);
     }
-    const media = await prisma.media.findMany({
-      where: { collectionId: { in: [...seen] } },
-      select: { id: true },
-    });
+    const media = await collectInChunks([...seen], (batch) =>
+      prisma.media.findMany({ where: { collectionId: { in: batch } }, select: { id: true } })
+    );
     return media.map((m) => m.id);
   }
 
@@ -204,26 +211,28 @@ export class WatchProgressService {
   async markCollectionCompleted(userId: string, collectionId: string): Promise<number> {
     const ids = await this.mediaIdsUnder(collectionId);
     if (ids.length === 0) return 0;
-    const media = await prisma.media.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, duration: true },
-    });
-    // One upsert per item: SQLite has no multi-row upsert through Prisma, and a
-    // season is tens of rows rather than thousands.
-    await prisma.$transaction(
-      media.map((item) =>
-        prisma.watchProgress.upsert({
-          where: { userId_mediaId: { userId, mediaId: item.id } },
-          create: {
-            userId,
-            mediaId: item.id,
-            position: item.duration,
-            duration: item.duration,
-            completed: true,
-          },
-          update: { position: item.duration, duration: item.duration, completed: true },
-        })
-      )
+    const media = await collectInChunks(ids, (batch) =>
+      prisma.media.findMany({ where: { id: { in: batch } }, select: { id: true, duration: true } })
+    );
+    // One upsert per item: SQLite has no multi-row upsert through Prisma. In
+    // batches rather than one transaction, because this is offered on a show as
+    // well as a season, and a long-running series is hundreds of statements
+    // holding the write lock rather than tens.
+    const byId = new Map(media.map((item) => [item.id, item.duration]));
+    await inChunks(
+      media.map((item) => item.id),
+      async (batch) => {
+        await prisma.$transaction(
+          batch.map((mediaId) => {
+            const duration = byId.get(mediaId) ?? 0;
+            return prisma.watchProgress.upsert({
+              where: { userId_mediaId: { userId, mediaId } },
+              create: { userId, mediaId, position: duration, duration, completed: true },
+              update: { position: duration, duration, completed: true },
+            });
+          })
+        );
+      }
     );
     return media.length;
   }
@@ -232,10 +241,12 @@ export class WatchProgressService {
   async clearCollectionProgress(userId: string, collectionId: string): Promise<number> {
     const ids = await this.mediaIdsUnder(collectionId);
     if (ids.length === 0) return 0;
-    const { count } = await prisma.watchProgress.deleteMany({
-      where: { userId, mediaId: { in: ids } },
+    return inChunks(ids, async (batch) => {
+      const { count } = await prisma.watchProgress.deleteMany({
+        where: { userId, mediaId: { in: batch } },
+      });
+      return count;
     });
-    return count;
   }
 
   /**

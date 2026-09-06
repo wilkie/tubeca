@@ -320,6 +320,9 @@ raising an error a caller can catch. Measured 2026-09-06: 998 ids in an `updateM
 not. A list that comes from the library rather than from a request therefore has to be chunked, and
 `utils/chunk.ts` (`inChunks`, `collectInChunks`, 500 at a time) is how.
 
+A read hits a catchable error — "The query parameter limit supported by your database is exceeded"
+— while a write panics, which is why the write showed up first.
+
 It was found by `markMediaScrapePending` taking 9,904 ids during an episode repair. The same shape
 was in `markCollectionScrapePending`, and in `ContentDeletionService.imagePathsFor` and
 `deleteCollectionTree` — so deleting a library of more than a thousand items, or a scan importing
@@ -340,10 +343,6 @@ reconciles rather than a tree with no root.
   the new scrape keep their previous values (upsert with partial data).
 - **Person merging by exact name** (`personService.ts:120-125`) conflates distinct people with
   the same name when a scraper omits external ids, and the back-filled ids then stick.
-- **Not every long `in:` is chunked yet.** `userCollectionService` reads a collection's items and
-  checks a submitted queue with unbounded id lists, and `watchProgressService` clears a
-  collection's progress the same way. Each needs a library item or user collection with more than
-  ~998 entries to bite, which is why they have not.
 - **N+1 in scrape write paths that this part owns the tables for:** credits are inserted one
   `create` per row after a `deleteMany` (`collectionScrapeWorker.ts:318-348`,
   `metadataScrapeWorker.ts:299-330`), each preceded by up to four `Person` lookups and an
