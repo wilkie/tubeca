@@ -5,6 +5,7 @@ import { getImageStoragePath } from '../config/appConfig';
 import { evictMediaCache } from './hlsCache';
 import { searchIndexService } from './searchIndexService';
 import { removeTrickplay } from './trickplayService';
+import { collectInChunks, inChunks } from '../utils/chunk';
 
 /**
  * Remove an image file (and its directory if that leaves it empty). Errors are
@@ -54,30 +55,37 @@ export class ContentDeletionService {
     return ids;
   }
 
-  /** Relative paths of every image owned by these collections/media or their credits. */
+  /**
+   * Relative paths of every image owned by these collections/media or their
+   * credits. Deleting a library passes every id it owns, which is far more than
+   * SQLite will bind, so each half is asked for in chunks.
+   */
   async imagePathsFor(collectionIds: string[], mediaIds: string[]): Promise<string[]> {
-    if (collectionIds.length === 0 && mediaIds.length === 0) return [];
-    const images = await prisma.image.findMany({
-      where: {
-        OR: [
-          ...(collectionIds.length > 0
-            ? [
-                { collectionId: { in: collectionIds } },
-                { showCredit: { showDetails: { collectionId: { in: collectionIds } } } },
-                { filmCredit: { filmDetails: { collectionId: { in: collectionIds } } } },
-              ]
-            : []),
-          ...(mediaIds.length > 0
-            ? [
-                { mediaId: { in: mediaIds } },
-                { credit: { videoDetails: { mediaId: { in: mediaIds } } } },
-              ]
-            : []),
-        ],
-      },
-      select: { path: true },
-    });
-    return images.map((i) => i.path);
+    const byCollection = await collectInChunks(collectionIds, (batch) =>
+      prisma.image.findMany({
+        where: {
+          OR: [
+            { collectionId: { in: batch } },
+            { showCredit: { showDetails: { collectionId: { in: batch } } } },
+            { filmCredit: { filmDetails: { collectionId: { in: batch } } } },
+          ],
+        },
+        select: { path: true },
+      })
+    );
+    const byMedia = await collectInChunks(mediaIds, (batch) =>
+      prisma.image.findMany({
+        where: {
+          OR: [
+            { mediaId: { in: batch } },
+            { credit: { videoDetails: { mediaId: { in: batch } } } },
+          ],
+        },
+        select: { path: true },
+      })
+    );
+    // The two halves can name the same file, since a credit belongs to both.
+    return [...new Set([...byCollection, ...byMedia].map((i) => i.path))];
   }
 
   /**
@@ -118,21 +126,24 @@ export class ContentDeletionService {
     if (!exists) return null;
 
     const collectionIds = await this.collectTreeIds(rootId);
-    const media = await prisma.media.findMany({
-      where: { collectionId: { in: collectionIds } },
-      select: { id: true },
-    });
+    const media = await collectInChunks(collectionIds, (batch) =>
+      prisma.media.findMany({ where: { collectionId: { in: batch } }, select: { id: true } })
+    );
     const mediaIds = media.map((m) => m.id);
 
     const files = await this.imagePathsFor(collectionIds, mediaIds);
     for (const file of files) deleteImageFile(this.storageRoot, file);
     for (const id of mediaIds) evictMediaCache(id);
 
-    await prisma.$transaction([
-      prisma.media.deleteMany({ where: { id: { in: mediaIds } } }),
-      // Children cascade from the root in the database.
-      prisma.collection.delete({ where: { id: rootId } }),
-    ]);
+    // Not one transaction any more: a library's worth of ids will not bind in
+    // a single statement. The media go first, in chunks, and the collection
+    // delete that cascades the rest is last, so an interruption leaves rows
+    // that a rescan reconciles rather than a tree with no root.
+    await inChunks(mediaIds, (batch) =>
+      prisma.media.deleteMany({ where: { id: { in: batch } } }).then(() => undefined)
+    );
+    // Children cascade from the root in the database.
+    await prisma.collection.delete({ where: { id: rootId } });
 
     // The search index has no foreign keys to cascade through.
     for (const id of [...collectionIds, ...mediaIds]) await searchIndexService.remove(id);

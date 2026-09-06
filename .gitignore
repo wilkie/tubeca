@@ -51,6 +51,11 @@ Thumbs.db
 # Database
 *.db
 *.db-journal
+# backup-database.sh names its copies `<db>.<timestamp>`, which `*.db` does not
+# match, and defaults to a `backups/` beside the database — inside the repo for
+# a development database.
+backups/
+*.db.[0-9]*
 *.sqlite
 *.sqlite3
 

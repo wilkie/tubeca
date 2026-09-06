@@ -2,6 +2,7 @@ import type { ScrapeStatus } from '@prisma/client';
 import type { ScraperPlugin, SearchResult } from '@tubeca/scraper-types';
 import { prisma } from '../config/database';
 import { pickBestMatch, type MatchQuery } from './scrapeMatching';
+import { inChunks } from '../utils/chunk';
 
 /** Outcome of trying to obtain metadata for one item. */
 export type ScrapeAttempt<T> =
@@ -144,17 +145,25 @@ export async function recordMediaScrape(mediaId: string, attempt: ScrapeAttempt<
 }
 
 export async function markCollectionScrapePending(collectionIds: string[]): Promise<void> {
-  if (collectionIds.length === 0) return;
-  await prisma.collection.updateMany({
-    where: { id: { in: collectionIds } },
-    data: { scrapeStatus: 'Pending', scrapeMessage: null },
-  });
+  // A scan marks everything it imported at once, which is more ids than SQLite
+  // will bind; see `utils/chunk.ts`.
+  await inChunks(collectionIds, (batch) =>
+    prisma.collection
+      .updateMany({
+        where: { id: { in: batch } },
+        data: { scrapeStatus: 'Pending', scrapeMessage: null },
+      })
+      .then(() => undefined)
+  );
 }
 
 export async function markMediaScrapePending(mediaIds: string[]): Promise<void> {
-  if (mediaIds.length === 0) return;
-  await prisma.media.updateMany({
-    where: { id: { in: mediaIds } },
-    data: { scrapeStatus: 'Pending', scrapeMessage: null },
-  });
+  await inChunks(mediaIds, (batch) =>
+    prisma.media
+      .updateMany({
+        where: { id: { in: batch } },
+        data: { scrapeStatus: 'Pending', scrapeMessage: null },
+      })
+      .then(() => undefined)
+  );
 }

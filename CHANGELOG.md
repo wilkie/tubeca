@@ -103,6 +103,10 @@ All notable changes to Tubeca are recorded here. The format follows
   list for anyone running a scraper that does not declare its own.
 
 ### Fixed
+- Deleting a large library, or scanning in more than about a thousand files at once, no longer
+  crashes the server. Both build a list of every row involved and hand it to the database in one
+  go, which SQLite refuses past 999 items — and the database layer answers that by panicking rather
+  than reporting an error. Those lists are now sent in batches.
 - Television episodes named `14 - Karen Peralta.mkv` inside a `Season 3` folder are matched again.
   The filename parser only understood `S03E14`-style names and never looked at the folder, so two
   in five episodes had no season or episode number — and without those, the scraper cannot ask for
