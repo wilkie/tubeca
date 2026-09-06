@@ -931,18 +931,29 @@ export class HlsService {
       ffmpegArgs.push(...getDecoderInputArgs(encoder, await this.videoCodecOf(videoPath)));
     }
 
-    // Seek before the input either way. For a transcode that is simply faster.
-    // For a stream copy it is also the only way to get a whole segment: seeking
-    // after the input makes FFmpeg count the discarded head against `-t`, so it
-    // wrote about four seconds of a six-second slot and the player skipped the
-    // rest. Seeking before the input lands on the keyframe at or before the
-    // slot, which is exact whenever the source's GOP divides the segment
-    // duration and otherwise starts the segment a little early.
-    if (startTime > 0) {
+    // Where the seek goes decides what the segment contains, and the two rungs
+    // want opposite things.
+    //
+    // A transcode seeks before the input, which is fast and exact: the frames
+    // are decoded and re-encoded, so the cut can fall anywhere.
+    //
+    // A copy seeks *after* it. Seeking before the input fast-seeks to the
+    // keyframe at or before the slot and then measures `-t` on the original
+    // timeline, so slot 4 of a real episode here (nominally 24.0-30.0s) came
+    // out holding 19.52-30.19 — ten and a half seconds of content stamped as
+    // starting at 24.0. Everything in it played four and a half seconds late,
+    // and the boundary with the previous segment jumped backwards. Seeking
+    // after the input starts at the first keyframe at or after the slot: 6.13
+    // seconds for a 6 second slot on the same file.
+    if (!isOriginal && startTime > 0) {
       ffmpegArgs.push('-ss', startTime.toString());
     }
 
     ffmpegArgs.push('-i', videoPath);
+
+    if (isOriginal && startTime > 0) {
+      ffmpegArgs.push('-ss', startTime.toString());
+    }
 
     // Duration limit
     ffmpegArgs.push('-t', segmentDuration.toString());

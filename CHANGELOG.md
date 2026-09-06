@@ -103,6 +103,11 @@ All notable changes to Tubeca are recorded here. The format follows
   list for anyone running a scraper that does not declare its own.
 
 ### Fixed
+- Playing a file at Original quality no longer drifts out of sync or jumps backwards. Each segment
+  was being built from up to a keyframe earlier than the point it claimed to start at — on one
+  episode, ten and a half seconds of video labelled as six — so the picture ran late, segments
+  overlapped, and the audio and video came apart. Introduced on 2026-09-05 and fixed the next day;
+  cached segments from those two days are discarded.
 - Watched-progress roll-ups no longer fail on a large library. Opening a library page asks how much
   of every show has been watched, and the question named every episode at once — more than the
   database will accept in one query.

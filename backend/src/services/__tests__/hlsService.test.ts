@@ -427,7 +427,7 @@ describe('HlsService playlist synthesis', () => {
       expect(args[args.length - 1]).toBe('pipe:1');
     });
 
-    it('seeks before the input, so a segment is not cut short', async () => {
+    it('seeks after the input, so a copied segment holds its own slot', async () => {
       const media = await createVideoMedia({ path: '/media/seek.mkv', duration: 100 });
       spawned.length = 0;
       void service.getSegment(media.id, ORIGINAL_QUALITY, 3, 'default');
@@ -438,9 +438,11 @@ describe('HlsService playlist synthesis', () => {
       spawned[0]?.emit('close', 1);
       await new Promise((resolve) => setImmediate(resolve));
 
-      // Seeking after the input made FFmpeg count the discarded head against
-      // `-t`, so a six-second slot held about four seconds of picture.
-      expect(args.indexOf('-ss')).toBeLessThan(args.indexOf('-i'));
+      // Seeking before the input fast-seeks to the keyframe before the slot and
+      // then measures `-t` on the original timeline: slot 4 of a real episode
+      // came out holding 19.52-30.19s stamped as starting at 24.0, so it played
+      // four and a half seconds late and jumped backwards at the boundary.
+      expect(args.indexOf('-ss')).toBeGreaterThan(args.indexOf('-i'));
       expect(valueOf(args, '-ss')).toBe('18');
       expect(valueOf(args, '-t')).toBe('6');
     });

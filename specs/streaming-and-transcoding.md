@@ -165,11 +165,24 @@ offset that would put it at `segmentIndex * segmentDuration` in that track's own
 from the init segment's `mdhd`), and adds that offset to every fragment in the run — rebasing rather
 than assuming zero, and keeping later fragments the same distance along.
 
-The same commit fixed a quieter bug. `original` used to seek *after* the input for accuracy; with
-`-c copy` FFmpeg then counted the discarded head against `-t`, so a six-second slot held about four
-seconds of picture and the player skipped the rest at every boundary. Seeking before the input lands
-on the keyframe at or before the slot, which is exact whenever the source's GOP divides the segment
-duration and otherwise starts the segment slightly early.
+**Where the seek goes** decides what a segment contains, and the two rungs want opposite things. A
+transcode seeks before the input: fast, and exact, because the frames are decoded and re-encoded so
+the cut can fall anywhere. A copy seeks *after* it.
+
+That distinction was removed on 2026-09-05 and restored on 2026-09-06, because removing it broke
+playback. Seeking before the input fast-seeks to the keyframe at or before the slot and then
+measures `-t` on the *original* timeline. Measured on a real episode (H.264 + E-AC-3, keyframes
+about 5.1s apart): slot 4, nominally 24.0-30.0s, came out holding **19.52-30.19s** — ten and a half
+seconds of content stamped as beginning at 24.0. Everything in it played four and a half seconds
+late, consecutive segments overlapped, and because MSE resolves an overlapping append differently in
+the audio and video buffers — video cannot be cut mid-GOP, audio can be replaced sample-accurately —
+the two drifted apart. The reported symptoms were audio/video desync after a seek and the picture
+skipping backwards mid-playback. Seeking after the input gives 6.13 seconds for a 6 second slot on
+the same file, positioned where the playlist says.
+
+The change had been justified by a synthetic test file with a ten-second GOP, where output seek did
+produce a short segment. That file was not representative, and one measurement on one contrived
+input is not evidence about a library.
 
 A copied HEVC stream is tagged `hvc1`, since Apple's players will not take `hev1`.
 
@@ -298,12 +311,12 @@ The first video stream by `streamIndex` is the one judged, and on this library t
 embedded cover image — there are 854 mjpeg and 189 png streams, but none of them precedes a real
 video track in any file.
 
-Copying depends on segment boundaries landing near keyframes, since a copied segment cannot have
-one forced. Seeking before the input means FFmpeg starts at the keyframe at or before the slot, so
-a file whose GOP divides the segment duration is exact and one with a long GOP has segments that
-start a little early and overlap their neighbour — MSE overwrites the overlap. The files measured
-here carry a keyframe every 2.002 s, so a six-second boundary is within 0.03 s; the viewer's remedy
-for a badly behaved file is to pick a transcoded rung, which is always offered alongside.
+Copying depends on segment boundaries landing near keyframes, since a copied segment cannot have one
+forced. With the seek after the input a segment starts at the first keyframe *at or after* its slot,
+so it is never displaced backwards; what it can be is short by up to one GOP at the start. On a file
+with keyframes 5.1s apart that is a fraction of a second in practice (6.13s measured for a 6s slot),
+and on the 2.002s-GOP files measured earlier it is 0.03s. A file with a genuinely long GOP would gap
+audibly, and the viewer's remedy is a transcoded rung, which is always offered alongside.
 
 Every player request also calls `cancelStalePrefetches`, which kills any encode for the same variant
 that is still `prefetch`, **belongs to the same viewer**, and whose index falls outside
@@ -496,6 +509,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
 - 2026-09-05 HEVC and AV1 join the `original` rung, and every `Original` entry declares `CODECS` read from its own initialisation segment, so a player that cannot decode one skips the rung instead of failing on it.
+- 2026-09-06 The copy rung seeks after the input again. Seeking before it had a 6s slot holding 10.7s of content from 4.5s earlier, which desynchronised audio from video and skipped the picture backwards at every boundary. `Fmp4Splitter` also shifts all tracks by one offset rather than one each, which changes nothing today (FFmpeg starts every track's decode time at zero) but stops being a lip-sync error waiting for a muxer that does not.
 - 2026-09-05 `original` became fragmented MP4 (CMAF): `#EXT-X-MAP`, an `init.mp4` per variant, `.m4s` segments, decode times rebased onto the file's timeline by `Fmp4Splitter`. Seeking moved before the input in the same commit, which fixed `original` segments holding about four seconds of a six-second slot.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
 
@@ -558,6 +572,10 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 ## Opportunities
 
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
+- **Keyframe-aligned segments for the copy rung** (M) would end the approximation rather than bound
+  it: probe the keyframe positions once per file, cache them, and synthesise the playlist from them
+  so every copied segment begins exactly where a keyframe does. This is the honest fix for what the
+  seek change was reaching for.
 - **Variable segment durations** (S/M): playlists are synthesised and HLS allows a variable
   `EXTINF`, so the first few segments of a file could be shorter to cut startup further. It would
   need one schedule function shared by the playlist and the segment generator, and it does not

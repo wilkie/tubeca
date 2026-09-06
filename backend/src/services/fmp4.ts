@@ -448,10 +448,27 @@ export class Fmp4Splitter {
     if (!this.offsets) {
       this.offsets = new Map();
       const starts = readFragmentDecodeTimes(buffer);
+
+      // One shift for the whole run, measured in seconds, rather than one per
+      // track. FFmpeg happens to start every track's decode time at zero, so
+      // per-track deltas come out identical and nothing is wrong today; a
+      // presentation offset between tracks lives in `ctts`, not here. But the
+      // per-track form only worked by that coincidence: any muxer that starts
+      // two tracks at different decode times would have had them dragged to the
+      // same instant, which is a lip-sync error by construction.
+      let earliest: number | undefined;
       for (const [trackId, timescale] of this.timescales) {
         const from = starts.get(trackId);
-        if (from === undefined) continue;
-        this.offsets.set(trackId, Math.round(this.options.startSeconds * timescale) - from);
+        if (from === undefined || !timescale) continue;
+        const seconds = from / timescale;
+        if (earliest === undefined || seconds < earliest) earliest = seconds;
+      }
+      if (earliest === undefined) earliest = 0;
+      const shiftSeconds = this.options.startSeconds - earliest;
+
+      for (const [trackId, timescale] of this.timescales) {
+        if (starts.get(trackId) === undefined) continue;
+        this.offsets.set(trackId, Math.round(shiftSeconds * timescale));
       }
     }
     shiftFragmentDecodeTimes(buffer, this.offsets);

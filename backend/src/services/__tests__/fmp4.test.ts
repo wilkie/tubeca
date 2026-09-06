@@ -199,6 +199,29 @@ describe('Fmp4Splitter', () => {
     ]);
   });
 
+  it('shifts every track together, so their offsets survive', () => {
+    // A muxer that starts two tracks at different decode times must not have
+    // them dragged to the same instant: that is a lip-sync error by
+    // construction. Video a tenth of a second behind audio stays behind it.
+    const offsetTracks = Buffer.concat([
+      init([
+        { id: 1, timescale: 90000 },
+        { id: 2, timescale: 48000 },
+      ]),
+      moof([
+        { id: 1, decodeTime: 9000 }, // 0.1s
+        { id: 2, decodeTime: 0 }, //    0.0s
+      ]),
+      box('mdat', Buffer.alloc(64, 1)),
+    ]);
+
+    const { media } = split(offsetTracks, 12);
+    const times = readFragmentDecodeTimes(media);
+
+    expect(times.get(1)! / 90000).toBeCloseTo(12.1, 5);
+    expect(times.get(2)! / 48000).toBeCloseTo(12.0, 5);
+  });
+
   it('keeps later fragments the same distance along the run', () => {
     const withSecond = Buffer.concat([
       stream(),
