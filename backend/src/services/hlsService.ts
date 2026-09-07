@@ -26,6 +26,18 @@ import {
 } from './hlsCache';
 import type { TranscodingSettings } from '@prisma/client';
 import { codecStringsFromInit, Fmp4Splitter } from './fmp4';
+import {
+  ensureKeyframes,
+  gridLayout,
+  isGridLayoutId,
+  keyframeLayout,
+  longestSegment,
+  segmentCount,
+  segmentLength,
+  segmentStart,
+  storedKeyframes,
+  type SegmentLayout,
+} from './keyframes';
 
 // Quality presets for transcoding (default values, overridden by settings)
 export interface QualityPreset {
@@ -166,6 +178,9 @@ export class HlsService {
     string,
     { copyable: boolean; codec?: string | null; expires: number }
   >();
+
+  /** Where each file's segments are cut, by media id; see `keyframes.ts`. */
+  private layoutCache = new Map<string, { layout: SegmentLayout; target: number; expires: number }>();
 
   /** In-flight segment encodes keyed by `<variantPath>:<index>`, shared by player requests and prefetch. */
   private generatingSegments: Map<string, SegmentJob> = new Map();
@@ -317,6 +332,70 @@ export class HlsService {
   }
 
   /**
+   * Where this file's segments are cut, as of now.
+   *
+   * A file whose keyframes have not been read yet is cut on the even grid,
+   * which is what every file did before keyframes were read at all. Held
+   * briefly so that four rungs of one master playlist ask the database once.
+   */
+  private async currentLayout(mediaId: string, duration: number): Promise<SegmentLayout> {
+    const target = await this.getSegmentDuration();
+    const cached = this.layoutCache.get(mediaId);
+    if (cached && cached.target === target && cached.expires > Date.now()) return cached.layout;
+
+    const stored = await storedKeyframes(mediaId);
+    const layout =
+      stored && stored.times.length > 0
+        ? keyframeLayout(stored.times, duration, target)
+        : gridLayout(duration, target);
+
+    // Short, because a probe finishing should reach the next viewer to press
+    // play rather than the next viewer to restart the server.
+    this.layoutCache.set(mediaId, { layout, target, expires: Date.now() + 30_000 });
+    return layout;
+  }
+
+  /**
+   * The layout a segment request belongs to.
+   *
+   * Players carry the layout their playlist was built from, because a probe
+   * that finishes mid-stream changes where the cuts are and a player asking
+   * for segment 40 of the old layout must not be handed segment 40 of the new
+   * one. An even grid is entirely described by its name, so that case is
+   * answered without touching the database at all.
+   *
+   * A probed layout that is no longer the file's — which means the file itself
+   * changed, since the cuts name the layout — falls through to the current
+   * one. Everything cached for the old file is wrong by then anyway.
+   */
+  private async layoutFor(
+    mediaId: string,
+    duration: number,
+    requestedId?: string
+  ): Promise<SegmentLayout> {
+    if (requestedId && isGridLayoutId(requestedId)) {
+      const target = Number(requestedId.slice(1));
+      if (Number.isFinite(target) && target > 0) return gridLayout(duration, target);
+    }
+    return this.currentLayout(mediaId, duration);
+  }
+
+  /**
+   * Read this file's keyframes, unless they are already known, so that the
+   * next playlist for it is cut where they are.
+   *
+   * Deliberately not awaited. Probing means reading the whole file, which for
+   * a large episode on a network share takes half a minute; nobody waits that
+   * long to start watching, and the even grid plays perfectly well meanwhile.
+   */
+  private async learnKeyframes(mediaId: string, videoPath: string): Promise<void> {
+    if (await storedKeyframes(mediaId)) return;
+    void ensureKeyframes(mediaId, videoPath).catch((error) => {
+      console.warn(`Could not read the keyframes of ${videoPath}:`, error);
+    });
+  }
+
+  /**
    * Whether `original` can be offered: the video can be copied.
    *
    * The audio is a separate question. If it cannot be copied it is re-encoded
@@ -383,7 +462,7 @@ export class HlsService {
    */
   private ensureSegment(
     videoPath: string,
-    totalDuration: number,
+    layout: SegmentLayout,
     quality: string,
     segmentIndex: number,
     audioTrack: string,
@@ -419,7 +498,7 @@ export class HlsService {
     };
     job.promise = this.generateSegment(
       videoPath,
-      totalDuration,
+      layout,
       quality,
       segmentIndex,
       audioTrack,
@@ -485,8 +564,19 @@ export class HlsService {
   /**
    * Get the cache directory path for a specific media/quality/audioTrack combination
    */
-  getVariantCachePath(mediaId: string, quality: string, audioTrack: string = 'default'): string {
-    return path.join(this.cachePath, mediaId, `a${audioTrack}`, quality);
+  getVariantCachePath(
+    mediaId: string,
+    quality: string,
+    audioTrack: string,
+    /**
+     * Which cut of the file these segments are. Two layouts of one rung are
+     * different sets of bytes covering different spans, so they cannot share a
+     * directory; naming the directory after the layout also means the segments
+     * of a layout nobody uses any more simply age out of the cache.
+     */
+    layoutId: string
+  ): string {
+    return path.join(this.cachePath, mediaId, `a${audioTrack}`, `${quality}-${layoutId}`);
   }
 
   /**
@@ -568,7 +658,10 @@ export class HlsService {
     const cached = this.codecStringCache.get(key);
     if (cached !== undefined) return cached;
 
-    const variantPath = this.getVariantCachePath(mediaId, ORIGINAL_QUALITY, audioTrack);
+    const media = await this.mediaService.getVideoById(mediaId);
+    if (!media) return null;
+    const layout = await this.currentLayout(mediaId, media.duration || 0);
+    const variantPath = this.getVariantCachePath(mediaId, ORIGINAL_QUALITY, audioTrack, layout.id);
     const cachedInit = path.join(variantPath, INIT_SEGMENT_NAME);
     const readFrom = (initPath: string): string | null => {
       try {
@@ -587,7 +680,7 @@ export class HlsService {
       // Not produced yet
     }
 
-    const pending = this.getInitSegment(mediaId, ORIGINAL_QUALITY, audioTrack);
+    const pending = this.getInitSegment(mediaId, ORIGINAL_QUALITY, audioTrack, layout.id);
     if (!wait) {
       // Nothing depends on the answer, so let the header be built in the
       // background and say nothing about codecs this time.
@@ -624,9 +717,13 @@ export class HlsService {
       throw new Error('Media not found');
     }
 
-    const segmentDuration = await this.getSegmentDuration();
     const duration = media.duration || 0;
-    const segmentCount = Math.ceil(duration / segmentDuration);
+    const layout = await this.currentLayout(media.id, duration);
+    const count = segmentCount(layout);
+
+    // The first play of a file is what pays for reading its keyframes, and it
+    // pays nothing: this returns immediately and the grid carries this viewer.
+    void this.learnKeyframes(media.id, media.path);
 
     const carried =
       (token ? `&token=${encodeURIComponent(token)}` : '') +
@@ -637,7 +734,9 @@ export class HlsService {
       '#EXTM3U',
       // Version 7 is what `#EXT-X-MAP` on a media playlist requires.
       `#EXT-X-VERSION:${fmp4 ? 7 : 3}`,
-      `#EXT-X-TARGETDURATION:${segmentDuration + 1}`,
+      // Segments cut at keyframes are as long as the gaps between them, so
+      // this is measured rather than assumed; a player sizes its buffer from it.
+      `#EXT-X-TARGETDURATION:${Math.max(1, Math.ceil(longestSegment(layout)))}`,
       '#EXT-X-MEDIA-SEQUENCE:0',
       '#EXT-X-PLAYLIST-TYPE:VOD',
     ];
@@ -646,22 +745,24 @@ export class HlsService {
       // Fragments carry no header of their own; this is where the player gets
       // the track descriptions it needs before the first segment means anything.
       lines.push(
-        `#EXT-X-MAP:URI="${quality}/${INIT_SEGMENT_NAME}?audioTrack=${audioTrack}${carried}"`
+        `#EXT-X-MAP:URI="${quality}/${INIT_SEGMENT_NAME}?audioTrack=${audioTrack}&layout=${layout.id}${carried}"`
       );
     }
 
-    for (let i = 0; i < segmentCount; i++) {
-      const segmentDur = Math.min(segmentDuration, duration - (i * segmentDuration));
-      lines.push(`#EXTINF:${segmentDur.toFixed(3)},`);
-      // Include quality in segment URL path so it resolves correctly
-      lines.push(`${quality}/${segmentFileName(quality, i)}?audioTrack=${audioTrack}${carried}`);
+    for (let i = 0; i < count; i++) {
+      lines.push(`#EXTINF:${segmentLength(layout, i).toFixed(3)},`);
+      // The layout goes with the URL so that this playlist keeps working for
+      // as long as the player holds it, whatever is probed in the meantime.
+      lines.push(
+        `${quality}/${segmentFileName(quality, i)}?audioTrack=${audioTrack}&layout=${layout.id}${carried}`
+      );
     }
 
     lines.push('#EXT-X-ENDLIST');
 
     // Trigger initial segment prefetch (non-blocking)
     // This ensures the first few segments are ready when the player requests them
-    this.prefetchInitialSegments(media.path, duration, quality, audioTrack, mediaId);
+    this.prefetchInitialSegments(media.path, layout, quality, audioTrack, mediaId);
 
     return lines.join('\n');
   }
@@ -672,18 +773,18 @@ export class HlsService {
    */
   private async prefetchInitialSegments(
     videoPath: string,
-    totalDuration: number,
+    layout: SegmentLayout,
     quality: string,
     audioTrack: string,
     mediaId: string
   ): Promise<void> {
     const settings = await this.getSettings();
     const prefetchCount = settings.prefetchSegments || 2;
-    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
+    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack, layout.id);
 
     // Generate initial segments (0, 1, 2, ...) in parallel
     for (let i = 0; i < prefetchCount; i++) {
-      this.ensureSegment(videoPath, totalDuration, quality, i, audioTrack, variantPath, 'prefetch').catch((err) => {
+      this.ensureSegment(videoPath, layout, quality, i, audioTrack, variantPath, 'prefetch').catch((err) => {
         if (!isCancellation(err)) console.error(`Initial prefetch failed for segment ${i}:`, err);
       });
     }
@@ -715,12 +816,15 @@ export class HlsService {
     audioTrack: string,
     sink: Writable,
     /** Which viewer is asking; see `cancelStalePrefetches`. */
-    session?: string
+    session?: string,
+    /** Which cut of the file the player's playlist describes. */
+    layoutId?: string
   ): Promise<SegmentDelivery> {
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) return { kind: 'missing' };
 
-    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
+    const layout = await this.layoutFor(mediaId, media.duration || 0, layoutId);
+    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack, layout.id);
     const segmentPath = path.join(variantPath, segmentFileName(quality, segmentIndex));
     const settings = await this.getSettings();
 
@@ -731,7 +835,7 @@ export class HlsService {
     const prefetchNext = () =>
       this.prefetchSegments(
         media.path,
-        media.duration || 0,
+        layout,
         quality,
         segmentIndex,
         audioTrack,
@@ -769,7 +873,7 @@ export class HlsService {
     try {
       await this.ensureSegment(
         media.path,
-        media.duration || 0,
+        layout,
         quality,
         segmentIndex,
         audioTrack,
@@ -793,14 +897,16 @@ export class HlsService {
     mediaId: string,
     quality: string,
     segmentIndex: number,
-    audioTrack: string = 'default'
+    audioTrack: string = 'default',
+    layoutId?: string
   ): Promise<string | null> {
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) {
       return null;
     }
 
-    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
+    const layout = await this.layoutFor(mediaId, media.duration || 0, layoutId);
+    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack, layout.id);
     const segmentPath = path.join(variantPath, segmentFileName(quality, segmentIndex));
 
     // The player has told us where it is. Anything still encoding for a part
@@ -817,7 +923,7 @@ export class HlsService {
         this.touchFile(segmentPath);
 
         // Trigger prefetch for upcoming segments (non-blocking)
-        this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
+        this.prefetchSegments(media.path, layout, quality, segmentIndex, audioTrack, variantPath);
 
         return segmentPath;
       }
@@ -826,7 +932,7 @@ export class HlsService {
     }
 
     try {
-      await this.ensureSegment(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
+      await this.ensureSegment(media.path, layout, quality, segmentIndex, audioTrack, variantPath);
     } catch (error) {
       console.error(`Segment generation failed for ${mediaId} ${quality}/${segmentIndex}:`, error);
       return null;
@@ -834,7 +940,7 @@ export class HlsService {
 
     if (fs.existsSync(segmentPath)) {
       // Trigger prefetch for upcoming segments
-      this.prefetchSegments(media.path, media.duration || 0, quality, segmentIndex, audioTrack, variantPath);
+      this.prefetchSegments(media.path, layout, quality, segmentIndex, audioTrack, variantPath);
       return segmentPath;
     }
 
@@ -846,7 +952,7 @@ export class HlsService {
    */
   private async prefetchSegments(
     videoPath: string,
-    totalDuration: number,
+    layout: SegmentLayout,
     quality: string,
     currentIndex: number,
     audioTrack: string,
@@ -855,8 +961,7 @@ export class HlsService {
   ): Promise<void> {
     const settings = await this.getSettings();
     const prefetchCount = settings.prefetchSegments || 2;
-    const segmentDuration = settings.segmentDuration || this.defaultSegmentDuration;
-    const maxSegment = Math.ceil(totalDuration / segmentDuration) - 1;
+    const maxSegment = segmentCount(layout) - 1;
 
     // Prefetch next N segments
     for (let i = 1; i <= prefetchCount; i++) {
@@ -865,7 +970,7 @@ export class HlsService {
 
       this.ensureSegment(
         videoPath,
-        totalDuration,
+        layout,
         quality,
         nextIndex,
         audioTrack,
@@ -886,7 +991,7 @@ export class HlsService {
    */
   private async generateSegment(
     videoPath: string,
-    totalDuration: number,
+    layout: SegmentLayout,
     quality: string,
     segmentIndex: number,
     audioTrack: string,
@@ -908,10 +1013,12 @@ export class HlsService {
     const settings = await this.getSettings();
     const encoder = await this.getActiveEncoder();
     const presets = await this.getQualityPresets();
-    const configuredSegmentDuration = settings.segmentDuration || this.defaultSegmentDuration;
 
-    const startTime = segmentIndex * configuredSegmentDuration;
-    const segmentDuration = Math.min(configuredSegmentDuration, totalDuration - startTime);
+    // Where this segment starts and how long it runs comes from the layout,
+    // not from arithmetic on an index: on a probed file the segments are of
+    // different lengths, because the file's keyframes are unevenly spaced.
+    const startTime = segmentStart(layout, segmentIndex);
+    const segmentDuration = segmentLength(layout, segmentIndex);
 
     if (segmentDuration <= 0) {
       throw new Error(`Invalid segment index: ${segmentIndex}`);
@@ -1033,7 +1140,9 @@ export class HlsService {
       );
 
       // Force keyframe at segment boundaries for clean switching
-      ffmpegArgs.push('-force_key_frames', `expr:gte(t,n_forced*${configuredSegmentDuration})`);
+      // One at the start of the segment, so a player switching rungs mid-file
+      // finds a keyframe exactly where the copy rung has one.
+      ffmpegArgs.push('-force_key_frames', `expr:gte(t,n_forced*${segmentDuration})`);
 
       // For transcoding, reset timestamps and offset to expected position
       ffmpegArgs.push('-output_ts_offset', startTime.toString());
@@ -1224,13 +1333,15 @@ export class HlsService {
   async getInitSegment(
     mediaId: string,
     quality: string,
-    audioTrack: string = 'default'
+    audioTrack: string = 'default',
+    layoutId?: string
   ): Promise<string | null> {
     if (!isFmp4Quality(quality)) return null;
     const media = await this.mediaService.getVideoById(mediaId);
     if (!media) return null;
 
-    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack);
+    const layout = await this.layoutFor(mediaId, media.duration || 0, layoutId);
+    const variantPath = this.getVariantCachePath(mediaId, quality, audioTrack, layout.id);
     const initPath = path.join(variantPath, INIT_SEGMENT_NAME);
     try {
       if (fs.statSync(initPath).size > 0) {
@@ -1244,14 +1355,7 @@ export class HlsService {
     try {
       // The first segment is what a player asks for next anyway, so generating
       // it now is not wasted work.
-      await this.ensureSegment(
-        media.path,
-        media.duration || 0,
-        quality,
-        0,
-        audioTrack,
-        variantPath
-      );
+      await this.ensureSegment(media.path, layout, quality, 0, audioTrack, variantPath);
     } catch (error) {
       console.error(`Could not produce an initialisation segment for ${mediaId}:`, error);
       return null;
@@ -1299,6 +1403,7 @@ export class HlsService {
    * Clean up cache for a specific media item
    */
   async cleanupMediaCache(mediaId: string): Promise<void> {
+    this.layoutCache.delete(mediaId);
     if (evictMediaCache(mediaId, this.cachePath)) {
       console.log(`Cleaned up HLS cache for media: ${mediaId}`);
     }

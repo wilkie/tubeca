@@ -102,7 +102,16 @@ All notable changes to Tubeca are recorded here. The format follows
   saved into the library as posters. `images.allowedHosts` in `tubeca.config.json` adds to that
   list for anyone running a scraper that does not declare its own.
 
+### Changed
+- Segments are now cut at each file's own keyframes instead of on a fixed six-second grid. A
+  file's keyframes are read once, in the background, the first time somebody plays it; until then
+  it plays on the grid as before, and a file whose keyframes cannot be read stays there.
+
 ### Fixed
+- Original quality no longer skips forward past the start of a segment. Segments were cut on a
+  grid, but a copied segment can only begin at a keyframe, so its content started at the next one
+  — on one episode a segment labelled as beginning at 30.0s actually began at 34.91s, leaving
+  nearly five seconds of the episode out and playing the rest late.
 - Playing a file at Original quality no longer drifts out of sync or jumps backwards. Each segment
   was being built from up to a keyframe earlier than the point it claimed to start at — on one
   episode, ten and a half seconds of video labelled as six — so the picture ran late, segments

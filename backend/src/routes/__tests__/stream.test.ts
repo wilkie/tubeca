@@ -380,12 +380,14 @@ describe('stream route guards', () => {
   describe('GET /hls/:id/:quality/init.mp4', () => {
     it('serves a cached header for the fragmented rung', async () => {
       const { media, authHeader } = await fixture();
-      const variant = path.join(cacheDir, media.id, 'adefault', 'original');
+      // `g6` is the even layout a file plays on until its keyframes are read;
+      // a playlist puts the layout it was built from in every segment URL.
+      const variant = path.join(cacheDir, media.id, 'adefault', 'original-g6');
       fs.mkdirSync(variant, { recursive: true });
       fs.writeFileSync(path.join(variant, 'init.mp4'), Buffer.from('a fake header'));
 
       const res = await request(app)
-        .get(`/api/stream/hls/${media.id}/original/init.mp4`)
+        .get(`/api/stream/hls/${media.id}/original/init.mp4?layout=g6`)
         .set('Authorization', authHeader);
 
       expect(res.status).toBe(200);
@@ -416,12 +418,12 @@ describe('stream route guards', () => {
   describe('GET /hls/:id/:quality/:segment', () => {
     it('serves a cached fragmented segment as a media segment', async () => {
       const { media, authHeader } = await fixture();
-      const variant = path.join(cacheDir, media.id, 'adefault', 'original');
+      const variant = path.join(cacheDir, media.id, 'adefault', 'original-g6');
       fs.mkdirSync(variant, { recursive: true });
       fs.writeFileSync(path.join(variant, '0.m4s'), Buffer.from('fragment bytes'));
 
       const res = await request(app)
-        .get(`/api/stream/hls/${media.id}/original/0.m4s`)
+        .get(`/api/stream/hls/${media.id}/original/0.m4s?layout=g6`)
         .set('Authorization', authHeader);
 
       expect(res.status).toBe(200);
@@ -430,12 +432,12 @@ describe('stream route guards', () => {
 
     it('serves a cached transcoded segment as MPEG-TS', async () => {
       const { media, authHeader } = await fixture();
-      const variant = path.join(cacheDir, media.id, 'adefault', '720p');
+      const variant = path.join(cacheDir, media.id, 'adefault', '720p-g6');
       fs.mkdirSync(variant, { recursive: true });
       fs.writeFileSync(path.join(variant, '0.ts'), Buffer.from('transport stream'));
 
       const res = await request(app)
-        .get(`/api/stream/hls/${media.id}/720p/0.ts`)
+        .get(`/api/stream/hls/${media.id}/720p/0.ts?layout=g6`)
         .set('Authorization', authHeader);
 
       expect(res.status).toBe(200);

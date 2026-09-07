@@ -834,6 +834,15 @@ router.get('/hls/:id/:quality.m3u8', mediaAccess, async (req, res) => {
  *         schema:
  *           type: string
  *         description: Audio track identifier
+ *       - in: query
+ *         name: layout
+ *         schema:
+ *           type: string
+ *         description: >
+ *           Which cut of the file the playlist described, from the playlist's own
+ *           segment URIs. Segments are cut at the file's keyframes once those have
+ *           been read, so a playlist a player is still holding names the layout it
+ *           was built from and keeps getting segments that match it.
  *     responses:
  *       200:
  *         description: MPEG-TS segment
@@ -878,6 +887,15 @@ router.get('/hls/:id/:quality.m3u8', mediaAccess, async (req, res) => {
  *         name: audioTrack
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: layout
+ *         schema:
+ *           type: string
+ *         description: >
+ *           Which cut of the file the playlist described, from the playlist's own
+ *           segment URIs. Segments are cut at the file's keyframes once those have
+ *           been read, so a playlist a player is still holding names the layout it
+ *           was built from and keeps getting segments that match it.
  *     responses:
  *       200:
  *         description: Initialisation segment
@@ -899,7 +917,8 @@ router.get('/hls/:id/:quality/init.mp4', mediaAccess, async (req, res) => {
       return res.status(404).json({ error: 'Not a fragmented variant' });
     }
 
-    const initPath = await hlsService.getInitSegment(id, quality, audioTrack);
+    const layout = typeof req.query.layout === 'string' ? req.query.layout : undefined;
+    const initPath = await hlsService.getInitSegment(id, quality, audioTrack, layout);
     if (!initPath) {
       return res.status(404).json({ error: 'Initialisation segment not found' });
     }
@@ -937,7 +956,19 @@ const serveHlsSegment: RequestHandler = async (req, res) => {
 
     // Who is asking, so a seek only abandons this viewer's own prefetches.
     const session = typeof req.query.session === 'string' ? req.query.session : undefined;
-    const delivery = await hlsService.serveSegment(id, quality, segmentIndex, audioTrack, res, session);
+    // Which cut of the file this player's playlist describes; see `keyframes.ts`.
+    // Without it the server would answer from whatever the layout is now, which
+    // for a player mid-stream is a different set of instants entirely.
+    const layout = typeof req.query.layout === 'string' ? req.query.layout : undefined;
+    const delivery = await hlsService.serveSegment(
+      id,
+      quality,
+      segmentIndex,
+      audioTrack,
+      res,
+      session,
+      layout
+    );
 
     if (delivery.kind === 'missing') {
       if (res.headersSent || res.destroyed) return res.end();

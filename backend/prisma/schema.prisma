@@ -178,6 +178,9 @@ model Media {
   // Per-user playback positions
   watchProgress WatchProgress[]
 
+  // Where this file's segments are allowed to begin (see MediaKeyframes)
+  keyframes   MediaKeyframes?
+
   // Most recent metadata scrape outcome (see ScrapeStatus)
   scrapeStatus  ScrapeStatus?
   scrapeMessage String?
@@ -193,6 +196,28 @@ model Media {
 }
 
 // Media stream information (audio, video, subtitle tracks)
+/// Where a video file's keyframes are, so its HLS segments can be cut there.
+///
+/// Read once, the first time somebody plays the file, because reading it means
+/// reading the whole file. Kept in its own table rather than on Media so that
+/// the list — a few thousand numbers for a long film — is only loaded by the
+/// streaming code that needs it.
+model MediaKeyframes {
+  id          String   @id @default(uuid())
+
+  media       Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId     String   @unique
+
+  /// Presentation times in seconds, ascending, JSON-encoded.
+  times       String
+
+  /// The file as it was when this was read; a replaced file is probed again.
+  fileSize    Float?
+  fileMtimeMs Float?
+
+  probedAt    DateTime @default(now())
+}
+
 model MediaStream {
   id          String      @id @default(uuid())
 

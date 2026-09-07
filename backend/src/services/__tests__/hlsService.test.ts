@@ -54,6 +54,11 @@ jest.unstable_mockModule('../../config/appConfig', () => ({
 }));
 
 const { HlsService, ORIGINAL_QUALITY } = await import('../hlsService');
+const { gridLayout, keyframeLayout } = await import('../keyframes');
+type SegmentLayout = ReturnType<typeof gridLayout>;
+
+/** The even layout every file uses until its keyframes have been read. */
+const grid = (duration: number) => gridLayout(duration, 6);
 
 describe('HlsService playlist synthesis', () => {
   const service = new HlsService();
@@ -65,6 +70,9 @@ describe('HlsService playlist synthesis', () => {
     // are about the playlist text. The codec attribute has its own tests.
     (service as unknown as { prefetchInitialSegments: () => void }).prefetchInitialSegments = () => {};
     (service as unknown as { originalCodecs: () => Promise<null> }).originalCodecs = async () => null;
+    // Reading a file's keyframes shells out to ffprobe; these tests are about
+    // the playlist that is produced before any of them are known.
+    (service as unknown as { learnKeyframes: () => Promise<void> }).learnKeyframes = async () => {};
     spawned.length = 0;
   });
 
@@ -101,26 +109,64 @@ describe('HlsService playlist synthesis', () => {
     await expect(service.generateMasterPlaylist('missing')).rejects.toThrow('Media not found');
   });
 
-  it('splits the duration into fixed segments with a short final segment', async () => {
+  it('splits a file whose keyframes are unknown into even segments', async () => {
     const media = await createVideoMedia({ path: '/media/film.mkv', duration: 20 });
     const playlist = await service.generateVariantPlaylist(media.id, '720p', '1');
     const lines = playlist.split('\n');
 
     // Default TranscodingSettings.segmentDuration is 6s: 6 + 6 + 6 + 2
-    expect(lines).toContain('#EXT-X-TARGETDURATION:7');
+    expect(lines).toContain('#EXT-X-TARGETDURATION:6');
     expect(lines.filter((l) => l.startsWith('#EXTINF:'))).toEqual([
       '#EXTINF:6.000,',
       '#EXTINF:6.000,',
       '#EXTINF:6.000,',
       '#EXTINF:2.000,',
     ]);
-    expect(lines.filter((l) => l.endsWith('.ts?audioTrack=1'))).toEqual([
-      '720p/0.ts?audioTrack=1',
-      '720p/1.ts?audioTrack=1',
-      '720p/2.ts?audioTrack=1',
-      '720p/3.ts?audioTrack=1',
+    expect(lines.filter((l) => l.endsWith('.ts?audioTrack=1&layout=g6'))).toEqual([
+      '720p/0.ts?audioTrack=1&layout=g6',
+      '720p/1.ts?audioTrack=1&layout=g6',
+      '720p/2.ts?audioTrack=1&layout=g6',
+      '720p/3.ts?audioTrack=1&layout=g6',
     ]);
     expect(lines[lines.length - 1]).toBe('#EXT-X-ENDLIST');
+  });
+
+  it('cuts a file at its keyframes once they have been read', async () => {
+    const media = await createVideoMedia({ path: '/media/probed.mkv', duration: 20 });
+    // Keyframes 3.5s apart: nothing lands on the 6-second grid.
+    await prisma.mediaKeyframes.create({
+      data: { mediaId: media.id, times: JSON.stringify([0, 3.5, 7, 10.5, 14, 17.5]) },
+    });
+
+    const playlist = await service.generateVariantPlaylist(media.id, '720p', '1');
+    const lines = playlist.split('\n');
+
+    // 7 is the nearest keyframe to 6, and 14 the nearest to 13; the 3.5s left
+    // after that is too short to publish on its own, so it stays on segment 2.
+    expect(lines.filter((l) => l.startsWith('#EXTINF:'))).toEqual([
+      '#EXTINF:7.000,',
+      '#EXTINF:7.000,',
+      '#EXTINF:6.000,',
+    ]);
+    expect(lines).toContain('#EXT-X-TARGETDURATION:7');
+    // Every segment names the layout, so a playlist keeps working even if the
+    // file is probed again while a player is holding it.
+    expect(lines.filter((l) => l.startsWith('720p/')).every((l) => /&layout=k[0-9a-f]{8}$/.test(l)))
+      .toBe(true);
+  });
+
+  it('keeps the rungs cut at the same instants, so switching quality is seamless', async () => {
+    const media = await createVideoMedia({ path: '/media/film.mp4', duration: 20 });
+    await prisma.mediaKeyframes.create({
+      data: { mediaId: media.id, times: JSON.stringify([0, 3.5, 7, 10.5, 14, 17.5]) },
+    });
+
+    const copied = await service.generateVariantPlaylist(media.id, ORIGINAL_QUALITY, 'default');
+    const transcoded = await service.generateVariantPlaylist(media.id, '480p', 'default');
+
+    // A copied segment can only begin at a keyframe, so the transcode follows
+    // it rather than the other way round; hls.js switches rungs on its own.
+    expect(transcoded.match(/#EXTINF:[\d.]+,/g)).toEqual(copied.match(/#EXTINF:[\d.]+,/g));
   });
 
   describe('telling the player what the original rung contains', () => {
@@ -146,7 +192,7 @@ describe('HlsService playlist synthesis', () => {
 
     /** Put a header in the cache so the playlist can read codecs from it. */
     function cacheInit(service: InstanceType<typeof HlsService>, mediaId: string) {
-      const variant = service.getVariantCachePath(mediaId, ORIGINAL_QUALITY, 'default');
+      const variant = service.getVariantCachePath(mediaId, ORIGINAL_QUALITY, 'default', 'g6');
       fs.mkdirSync(variant, { recursive: true });
       fs.writeFileSync(path.join(variant, 'init.mp4'), h264Init());
     }
@@ -218,7 +264,7 @@ describe('HlsService playlist synthesis', () => {
       cacheInit(fresh, media.id);
 
       await fresh.generateMasterPlaylist(media.id);
-      const variant = fresh.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default');
+      const variant = fresh.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default', 'g6');
       fs.rmSync(path.join(variant, 'init.mp4'));
 
       // The header is gone, but the answer was remembered.
@@ -234,12 +280,12 @@ describe('HlsService playlist synthesis', () => {
 
       // Version 7 is what a media playlist carrying #EXT-X-MAP requires.
       expect(lines).toContain('#EXT-X-VERSION:7');
-      expect(lines).toContain('#EXT-X-MAP:URI="original/init.mp4?audioTrack=default"');
+      expect(lines).toContain('#EXT-X-MAP:URI="original/init.mp4?audioTrack=default&layout=g6"');
       expect(lines.filter((l) => l.startsWith('original/'))).toEqual([
-        'original/0.m4s?audioTrack=default',
-        'original/1.m4s?audioTrack=default',
-        'original/2.m4s?audioTrack=default',
-        'original/3.m4s?audioTrack=default',
+        'original/0.m4s?audioTrack=default&layout=g6',
+        'original/1.m4s?audioTrack=default&layout=g6',
+        'original/2.m4s?audioTrack=default&layout=g6',
+        'original/3.m4s?audioTrack=default&layout=g6',
       ]);
     });
 
@@ -254,7 +300,7 @@ describe('HlsService playlist synthesis', () => {
       );
 
       expect(playlist).toContain(
-        '#EXT-X-MAP:URI="original/init.mp4?audioTrack=default&token=jwt&session=viewer-1"'
+        '#EXT-X-MAP:URI="original/init.mp4?audioTrack=default&layout=g6&token=jwt&session=viewer-1"'
       );
     });
 
@@ -452,7 +498,7 @@ describe('HlsService playlist synthesis', () => {
     type Internals = {
       ensureSegment: (
         videoPath: string,
-        totalDuration: number,
+        layout: SegmentLayout,
         quality: string,
         segmentIndex: number,
         audioTrack: string,
@@ -469,8 +515,8 @@ describe('HlsService playlist synthesis', () => {
       const variant = path.join(cacheDir, 'm', 'adefault', '720p');
       const internals = quick as unknown as Internals;
 
-      const a = internals.ensureSegment('/media/x.mkv', 60, '720p', 0, 'default', variant);
-      const b = internals.ensureSegment('/media/x.mkv', 60, '720p', 0, 'default', variant);
+      const a = internals.ensureSegment('/media/x.mkv', grid(60), '720p', 0, 'default', variant);
+      const b = internals.ensureSegment('/media/x.mkv', grid(60), '720p', 0, 'default', variant);
 
       await expect(a).rejects.toThrow(/timed out/);
       await expect(b).rejects.toThrow(/timed out/);
@@ -483,7 +529,7 @@ describe('HlsService playlist synthesis', () => {
     it('resolves when FFmpeg exits cleanly and releases the process', async () => {
       const quick = new HlsService({ segmentTimeoutMs: 5000 });
       const variant = path.join(cacheDir, 'm2', 'adefault', '480p');
-      const pending = (quick as unknown as Internals).ensureSegment('/media/y.mkv', 60, '480p', 1, 'default', variant);
+      const pending = (quick as unknown as Internals).ensureSegment('/media/y.mkv', grid(60), '480p', 1, 'default', variant);
       await new Promise((r) => setImmediate(r));
       expect(quick.runningProcessCount).toBe(1);
       spawned[0].emit('close', 0);
@@ -494,7 +540,7 @@ describe('HlsService playlist synthesis', () => {
     it('shutdown kills running encodes', async () => {
       const quick = new HlsService({ segmentTimeoutMs: 5000 });
       const variant = path.join(cacheDir, 'm3', 'adefault', '360p');
-      const pending = (quick as unknown as Internals).ensureSegment('/media/z.mkv', 60, '360p', 0, 'default', variant);
+      const pending = (quick as unknown as Internals).ensureSegment('/media/z.mkv', grid(60), '360p', 0, 'default', variant);
       await new Promise((r) => setImmediate(r));
       quick.shutdown();
       await expect(pending).rejects.toThrow(/exited with code null/);
@@ -506,7 +552,7 @@ describe('HlsService playlist synthesis', () => {
     type Internals = {
       ensureSegment: (
         videoPath: string,
-        totalDuration: number,
+        layout: SegmentLayout,
         quality: string,
         segmentIndex: number,
         audioTrack: string,
@@ -531,14 +577,14 @@ describe('HlsService playlist synthesis', () => {
       const internals = service as unknown as Internals;
       const variant = path.join(cacheDir, 'prio', 'adefault', '720p');
       const started = [
-        internals.ensureSegment('/media/a.mkv', 600, '720p', 0, 'default', variant, 'prefetch'),
-        internals.ensureSegment('/media/a.mkv', 600, '720p', 1, 'default', variant, 'prefetch'),
+        internals.ensureSegment('/media/a.mkv', grid(600), '720p', 0, 'default', variant, 'prefetch'),
+        internals.ensureSegment('/media/a.mkv', grid(600), '720p', 1, 'default', variant, 'prefetch'),
       ];
       await settle();
       expect(spawned).toHaveLength(2);
 
-      const queuedPrefetch = internals.ensureSegment('/media/a.mkv', 600, '720p', 2, 'default', variant, 'prefetch');
-      const queuedLive = internals.ensureSegment('/media/a.mkv', 600, '720p', 50, 'default', variant, 'live');
+      const queuedPrefetch = internals.ensureSegment('/media/a.mkv', grid(600), '720p', 2, 'default', variant, 'prefetch');
+      const queuedLive = internals.ensureSegment('/media/a.mkv', grid(600), '720p', 50, 'default', variant, 'live');
       await settle();
       expect(spawned).toHaveLength(2);
 
@@ -563,17 +609,17 @@ describe('HlsService playlist synthesis', () => {
       const variant = path.join(cacheDir, 'promote', 'adefault', '720p');
 
       const busy = [
-        internals.ensureSegment('/media/b.mkv', 600, '720p', 0, 'default', variant, 'prefetch'),
-        internals.ensureSegment('/media/b.mkv', 600, '720p', 1, 'default', variant, 'prefetch'),
+        internals.ensureSegment('/media/b.mkv', grid(600), '720p', 0, 'default', variant, 'prefetch'),
+        internals.ensureSegment('/media/b.mkv', grid(600), '720p', 1, 'default', variant, 'prefetch'),
       ];
       await settle();
 
-      const waiting = internals.ensureSegment('/media/b.mkv', 600, '720p', 2, 'default', variant, 'prefetch');
-      const alsoWaiting = internals.ensureSegment('/media/b.mkv', 600, '720p', 3, 'default', variant, 'prefetch');
+      const waiting = internals.ensureSegment('/media/b.mkv', grid(600), '720p', 2, 'default', variant, 'prefetch');
+      const alsoWaiting = internals.ensureSegment('/media/b.mkv', grid(600), '720p', 3, 'default', variant, 'prefetch');
       await settle();
 
       // The player asks for segment 3, joining the prefetch already queued.
-      const live = internals.ensureSegment('/media/b.mkv', 600, '720p', 3, 'default', variant, 'live');
+      const live = internals.ensureSegment('/media/b.mkv', grid(600), '720p', 3, 'default', variant, 'live');
       spawned[0].emit('close', 0);
       await settle();
 
@@ -680,7 +726,7 @@ describe('HlsService playlist synthesis', () => {
       it('stores the header once beside the segments and keeps it out of them', async () => {
         const service = new HlsService({ segmentTimeoutMs: 5000 });
         const media = await createVideoMedia({ path: '/media/film.mp4', duration: 600 });
-        const variant = service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default');
+        const variant = service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default', 'g6');
         const { sink, chunks } = fakeSink();
 
         const delivery = service.serveSegment(media.id, ORIGINAL_QUALITY, 2, 'default', sink);
@@ -729,7 +775,7 @@ describe('HlsService playlist synthesis', () => {
 
         const initPath = await pending;
         expect(initPath).toBe(
-          path.join(service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default'), 'init.mp4')
+          path.join(service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default', 'g6'), 'init.mp4')
         );
         expect(fs.readFileSync(initPath!).toString('latin1', 4, 8)).toBe('ftyp');
       });
@@ -746,7 +792,7 @@ describe('HlsService playlist synthesis', () => {
     it('only names the cache file once the encode exits cleanly', async () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
       const segmentPath = path.join(variant, '0.ts');
       const { sink } = fakeSink();
 
@@ -774,7 +820,7 @@ describe('HlsService playlist synthesis', () => {
     it('leaves no cache file behind when the encode fails', async () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
       const { sink } = fakeSink();
       sink.on('error', () => {});
 
@@ -798,7 +844,7 @@ describe('HlsService playlist synthesis', () => {
     it('serves a segment that is already cached from disk', async () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
       fs.mkdirSync(variant, { recursive: true });
       fs.writeFileSync(path.join(variant, '5.ts'), 'cached bytes');
       const { sink, chunks } = fakeSink();
@@ -836,11 +882,11 @@ describe('HlsService playlist synthesis', () => {
     it('waits for an encode already running rather than starting a second', async () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const media = await createVideoMedia({ path: '/media/film.mkv', duration: 600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
       const internals = service as unknown as {
         ensureSegment: (
           videoPath: string,
-          totalDuration: number,
+          layout: SegmentLayout,
           quality: string,
           segmentIndex: number,
           audioTrack: string,
@@ -850,7 +896,7 @@ describe('HlsService playlist synthesis', () => {
       };
 
       // A prefetch is already encoding this one.
-      const prefetch = internals.ensureSegment(media.path, 600, '720p', 7, 'default', variant, 'prefetch');
+      const prefetch = internals.ensureSegment(media.path, grid(600), '720p', 7, 'default', variant, 'prefetch');
       await settle();
       expect(spawned).toHaveLength(1);
 
@@ -874,7 +920,7 @@ describe('HlsService playlist synthesis', () => {
     type Internals = {
       ensureSegment: (
         videoPath: string,
-        totalDuration: number,
+        layout: SegmentLayout,
         quality: string,
         segmentIndex: number,
         audioTrack: string,
@@ -898,10 +944,10 @@ describe('HlsService playlist synthesis', () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const internals = service as unknown as Internals;
       const media = await createVideoMedia({ path: '/media/seek.mkv', duration: 3600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
 
       const stale = internals
-        .ensureSegment(media.path, 3600, '720p', 0, 'default', variant, 'prefetch')
+        .ensureSegment(media.path, grid(3600), '720p', 0, 'default', variant, 'prefetch')
         .catch(() => 'cancelled');
       await settle();
       expect(spawned).toHaveLength(1);
@@ -924,12 +970,12 @@ describe('HlsService playlist synthesis', () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const internals = service as unknown as Internals;
       const media = await createVideoMedia({ path: '/media/shared.mkv', duration: 3600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
       const sink = responseSink();
 
       // Someone is ten minutes in, prefetching ahead of themselves.
       const theirs = internals
-        .ensureSegment(media.path, 3600, '720p', 100, 'default', variant, 'prefetch', undefined, 'them')
+        .ensureSegment(media.path, grid(3600), '720p', 100, 'default', variant, 'prefetch', undefined, 'them')
         .catch(() => 'cancelled');
       await settle();
       const theirChild = spawned.find((c) => path.basename(c.args[c.args.length - 1]) === '100.ts');
@@ -948,11 +994,11 @@ describe('HlsService playlist synthesis', () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const internals = service as unknown as Internals;
       const media = await createVideoMedia({ path: '/media/seek.mkv', duration: 3600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
       const sink = responseSink();
 
       const stale = internals
-        .ensureSegment(media.path, 3600, '720p', 0, 'default', variant, 'prefetch', undefined, 'us')
+        .ensureSegment(media.path, grid(3600), '720p', 0, 'default', variant, 'prefetch', undefined, 'us')
         .catch(() => 'cancelled');
       await settle();
       const staleChild = spawned[0];
@@ -968,10 +1014,10 @@ describe('HlsService playlist synthesis', () => {
       const service = new HlsService({ segmentTimeoutMs: 5000 });
       const internals = service as unknown as Internals;
       const media = await createVideoMedia({ path: '/media/forward.mkv', duration: 3600 });
-      const variant = service.getVariantCachePath(media.id, '720p', 'default');
+      const variant = service.getVariantCachePath(media.id, '720p', 'default', 'g6');
 
       const ahead = internals
-        .ensureSegment(media.path, 3600, '720p', 11, 'default', variant, 'prefetch')
+        .ensureSegment(media.path, grid(3600), '720p', 11, 'default', variant, 'prefetch')
         .catch(() => 'cancelled');
       await settle();
 
@@ -985,5 +1031,88 @@ describe('HlsService playlist synthesis', () => {
       await live;
       await expect(ahead).resolves.toBe('cancelled');
     });
+  });
+});
+
+describe('cutting a file where its keyframes are', () => {
+  const settle = () => new Promise((r) => setImmediate(r));
+  const valueOf = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+  beforeEach(async () => {
+    await resetDatabase();
+    spawned.length = 0;
+  });
+
+  /** Ask for one segment and report what FFmpeg was told to produce. */
+  async function argsFor(
+    service: InstanceType<typeof HlsService>,
+    mediaId: string,
+    index: number,
+    layout?: string
+  ): Promise<string[]> {
+    const sink = new PassThrough();
+    sink.on('error', () => {});
+    void service
+      .serveSegment(mediaId, ORIGINAL_QUALITY, index, 'default', sink, undefined, layout)
+      .catch(() => {});
+    for (let attempt = 0; attempt < 50 && spawned.length === 0; attempt++) await settle();
+    const args = spawned[0]?.args ?? [];
+    spawned[0]?.emit('close', 1);
+    await settle();
+    return args;
+  }
+
+  it('starts a segment at the keyframe the playlist named, not on the grid', async () => {
+    const service = new HlsService({ segmentTimeoutMs: 5000 });
+    const media = await createVideoMedia({ path: '/media/probed.mp4', duration: 60 });
+    const times = [0, 3.5, 7, 10.5, 14, 17.5, 21, 24.5, 28, 31.5, 35, 38.5, 42, 45.5, 49, 52.5];
+    await prisma.mediaKeyframes.create({
+      data: { mediaId: media.id, times: JSON.stringify(times) },
+    });
+    const layout = keyframeLayout(times, 60, 6);
+
+    const args = await argsFor(service, media.id, 1, layout.id);
+
+    // Segment 1 begins at 7, the keyframe nearest six seconds in — the point
+    // of the exercise, since a copied segment cannot begin anywhere else.
+    expect(valueOf(args, '-ss')).toBe('7');
+    expect(valueOf(args, '-t')).toBe('7');
+  });
+
+  it('keeps answering an older playlist from the layout it was built from', async () => {
+    // A probe can land while somebody is watching. Their playlist says segment
+    // 1 covers 6-12s; answering it from the new cuts would hand them a segment
+    // starting at 7 and stamped as starting at 6, which is the mismatch all of
+    // this exists to prevent.
+    const service = new HlsService({ segmentTimeoutMs: 5000 });
+    const media = await createVideoMedia({ path: '/media/midstream.mp4', duration: 60 });
+    await prisma.mediaKeyframes.create({
+      data: { mediaId: media.id, times: JSON.stringify([0, 3.5, 7, 10.5, 14, 17.5, 21, 24.5]) },
+    });
+
+    const args = await argsFor(service, media.id, 1, 'g6');
+
+    expect(valueOf(args, '-ss')).toBe('6');
+    expect(valueOf(args, '-t')).toBe('6');
+  });
+
+  it('caches the two layouts apart, since they are different spans of the file', async () => {
+    const service = new HlsService({ segmentTimeoutMs: 5000 });
+    const media = await createVideoMedia({ path: '/media/both.mp4', duration: 60 });
+    const layout = keyframeLayout([0, 3.5, 7, 10.5, 14], 60, 6);
+
+    expect(service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default', 'g6')).not.toBe(
+      service.getVariantCachePath(media.id, ORIGINAL_QUALITY, 'default', layout.id)
+    );
+  });
+
+  it('falls back to the grid for a file that has never been probed', async () => {
+    const service = new HlsService({ segmentTimeoutMs: 5000 });
+    const media = await createVideoMedia({ path: '/media/unprobed.mp4', duration: 60 });
+    (service as unknown as { learnKeyframes: () => Promise<void> }).learnKeyframes = async () => {};
+
+    const playlist = await service.generateVariantPlaylist(media.id, ORIGINAL_QUALITY, 'default');
+
+    expect(playlist).toContain('layout=g6');
   });
 });

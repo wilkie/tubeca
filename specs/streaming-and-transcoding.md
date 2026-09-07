@@ -15,8 +15,10 @@
   parameter (needed because `<video>`/`<track>` elements cannot set headers).
 - Serve an HLS master playlist per video (`original` stream-copy variant when the probed codecs
   allow it, plus four fixed transcode rungs: 1080p/720p/480p/360p).
-- Serve a fully enumerated VOD variant playlist computed from `Media.duration` and the configured
-  segment duration; no FFmpeg is needed to produce playlists.
+- Serve a fully enumerated VOD variant playlist cut at the file's own keyframes once those have been
+  read, and on an even grid until then; no FFmpeg is needed to produce playlists.
+- Read a file's keyframe positions the first time somebody plays it, in the background, and remember
+  them in `MediaKeyframes`.
 - Generate individual segments on demand with one FFmpeg process per segment — MPEG-TS for the
   transcode rungs, fragmented MP4 (CMAF) for `original` — de-duplicate concurrent requests for the
   same segment, and cap concurrent FFmpeg processes with a semaphore.
@@ -133,16 +135,53 @@ audio track selection is carried as an `?audioTrack=` query on every variant and
 switching audio is a full player re-init with a new master URL (`PlayerContext.tsx:620-660`), not an
 `#EXT-X-MEDIA` rendition.
 
-`generateVariantPlaylist` (`hlsService.ts:207`) computes `ceil(duration / segmentDuration)` entries
-from `Media.duration` (an integer number of seconds from ffprobe) with `#EXT-X-PLAYLIST-TYPE:VOD`
-and `#EXT-X-ENDLIST`. The last `EXTINF` is clipped to the remainder. Because the playlist is
-derived, not produced by FFmpeg's `hls` muxer, the real encoded segment boundaries only line up if
-FFmpeg cuts exactly at `index * segmentDuration`; the segment generator works hard to make that true
-(below). If `Media.duration` is 0 (probe failed) the playlist has zero segments and the player sees
-an empty VOD.
+`generateVariantPlaylist` (`hlsService.ts`) asks `keyframes.ts` where this file's segments are
+allowed to begin and writes one `#EXTINF` per entry, with `#EXT-X-PLAYLIST-TYPE:VOD` and
+`#EXT-X-ENDLIST`. `#EXT-X-TARGETDURATION` is the measured longest segment rather than the configured
+one, because segments cut at keyframes are as long as the gaps between them. If `Media.duration` is
+0 (probe failed) the playlist has zero segments and the player sees an empty VOD.
 
 Every variant playlist request also fires `prefetchInitialSegments`, which starts background
-generation of segments `0..prefetchSegments-1` without awaiting them.
+generation of segments `0..prefetchSegments-1` without awaiting them, and `learnKeyframes`, which
+returns immediately (see below).
+
+### Where segments are allowed to begin (`keyframes.ts`)
+
+A copied segment cannot have a keyframe forced into it: it begins wherever the encoder left one.
+Asking FFmpeg for `-ss 30 -t 6` on a file whose keyframes are 5.13s apart does not produce
+30.0-36.0s; it produces six seconds starting at the first keyframe at or after 30, which on the
+episode measured here is **34.91**. The playlist said 30.0. Nearly five seconds of the episode were
+absent, everything in the segment played five seconds late, and it overlapped its successor —
+verified by extracting that segment's first frame and matching its hash against the source at 34.91.
+
+So the grid is replaced by the file's own keyframe positions:
+
+- **Probing.** `probeKeyframes` runs `ffprobe -select_streams v:0 -skip_frame nokey -show_entries
+  frame=pts_time`. This reads the whole file: 28 seconds for a 1GB episode over the CIFS mount here,
+  of which under 5 is CPU. With 30,000 files that is a week and a half of continuous reading, so
+  nothing is probed ahead of time. `learnKeyframes` fires on the first playlist request for a file
+  and is deliberately not awaited; that viewer watches on the grid and the next one gets the cuts.
+  At most two probes run at once, and one file is never probed twice concurrently.
+- **Storage.** `MediaKeyframes` holds the times as JSON against the file's size and mtime, so a file
+  replaced under the same name is probed again rather than cut at another file's keyframes. It is
+  its own table so that a list of several thousand numbers is loaded only by the streaming code.
+- **Cutting.** `keyframeLayout` walks the keyframes and takes the one *nearest* each `target`-second
+  mark, not the first at or after it. Rounding up compounds: on the measured episode (497 keyframes,
+  0.58-10.01s apart, 6s target) it gave segments averaging 8.39s and reaching 15.31s, while taking
+  the nearer side gave 6.49s and 10.01s. That 10.01s is the file's longest gap between keyframes,
+  which is the shortest a longest segment can possibly be. A tail under half a segment stays on its
+  predecessor rather than being published as a sliver.
+- **One layout for every rung.** hls.js switches quality on its own, and HLS expects variants to be
+  cut at the same instants. The copy rung has no choice about where its cuts fall, so the transcode
+  rungs follow it: `-force_key_frames` is given the segment's own length, and each segment starts
+  with a keyframe by construction anyway since it is a separate FFmpeg run.
+- **Naming a layout.** A probe finishing mid-stream would otherwise move the cuts under a player
+  that is holding the old playlist — the exact mismatch this exists to prevent. So each layout has a
+  short id (`g6` for the six-second grid, `k<sha1>` for a probe), the playlist puts it in every
+  segment and `#EXT-X-MAP` URI as `&layout=`, and the segment route resolves against the layout the
+  request names. A grid is reconstructible from its id alone. Two layouts of one rung are different
+  bytes covering different spans, so the cache directory is `<quality>-<layoutId>`; segments of a
+  layout nobody uses any more simply age out.
 
 ### Fragmented MP4 for `original` (`fmp4.ts`)
 
@@ -190,10 +229,11 @@ A copied HEVC stream is tagged `hvc1`, since Apple's players will not take `hev1
 
 Cache root is `hlsCache.path` from `tubeca.config.json`, defaulting to `backend/data/hls-cache`
 (`appConfig.ts:169-198`; the `data/` tree is ESLint-excluded because `.ts` segments would otherwise
-be linted as TypeScript). Layout is `<root>/<mediaId>/a<audioTrack|default>/<quality>/<index>.ts`
-for the transcode rungs and `<index>.m4s` plus one `init.mp4` for `original` (`getVariantCachePath`
-and `segmentFileName`). No playlists are written to disk. Segments left by the MPEG-TS `original`
-rung are simply never read again and age out with the TTL sweep.
+be linted as TypeScript). Layout is
+`<root>/<mediaId>/a<audioTrack|default>/<quality>-<layoutId>/<index>.ts` for the transcode rungs and
+`<index>.m4s` plus one `init.mp4` for `original` (`getVariantCachePath` and `segmentFileName`). No
+playlists are written to disk. Segments left by the MPEG-TS `original` rung, and by the layout-less
+directories that preceded 2026-09-06, are simply never read again and age out with the TTL sweep.
 
 `getSegment` (`hlsService.ts:295`):
 
@@ -311,12 +351,14 @@ The first video stream by `streamIndex` is the one judged, and on this library t
 embedded cover image — there are 854 mjpeg and 189 png streams, but none of them precedes a real
 video track in any file.
 
-Copying depends on segment boundaries landing near keyframes, since a copied segment cannot have one
-forced. With the seek after the input a segment starts at the first keyframe *at or after* its slot,
-so it is never displaced backwards; what it can be is short by up to one GOP at the start. On a file
-with keyframes 5.1s apart that is a fraction of a second in practice (6.13s measured for a 6s slot),
-and on the 2.002s-GOP files measured earlier it is 0.03s. A file with a genuinely long GOP would gap
-audibly, and the viewer's remedy is a transcoded rung, which is always offered alongside.
+Copying depends on segment boundaries landing on keyframes, since a copied segment cannot have one
+forced. Until 2026-09-06 they were asked to land on an even grid instead, and the segment's content
+was displaced forward to the next keyframe — up to a full GOP of the file missing from the head of
+every segment, measured at 4.91s on one real slot. Since the cuts come from the keyframes themselves
+this is exact: a segment begins where a keyframe is, and the playlist says so. Verified on the
+measured episode, where segments 1, 4 and 120 of the probed layout each came back within 20ms of
+their stated length (one frame's display time) with video and audio agreeing to 1ms. A file that has
+not been probed yet still plays on the grid, and so carries the old displacement for one viewing.
 
 Every player request also calls `cancelStalePrefetches`, which kills any encode for the same variant
 that is still `prefetch`, **belongs to the same viewer**, and whose index falls outside
@@ -509,6 +551,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
 - 2026-09-05 HEVC and AV1 join the `original` rung, and every `Original` entry declares `CODECS` read from its own initialisation segment, so a player that cannot decode one skips the rung instead of failing on it.
+- 2026-09-06 Segments are cut at the file's own keyframes rather than on an even grid, one layout shared by every rung. A copied segment could not begin where the grid said, so its content was displaced forward to the next keyframe — 4.91s of a real episode missing from one segment's head. Keyframes are read once, in the background, on the first play (`MediaKeyframes`), and each layout is named in the segment URLs so a playlist keeps working while a probe lands.
 - 2026-09-06 The copy rung seeks after the input again. Seeking before it had a 6s slot holding 10.7s of content from 4.5s earlier, which desynchronised audio from video and skipped the picture backwards at every boundary. `Fmp4Splitter` also shifts all tracks by one offset rather than one each, which changes nothing today (FFmpeg starts every track's decode time at zero) but stops being a lip-sync error waiting for a muxer that does not.
 - 2026-09-05 `original` became fragmented MP4 (CMAF): `#EXT-X-MAP`, an `init.mp4` per variant, `.m4s` segments, decode times rebased onto the file's timeline by `Fmp4Splitter`. Seeking moved before the input in the same commit, which fixed `original` segments holding about four seconds of a six-second slot.
 - 2026-09-04 An abandoned segment now unlinks its part file once the write stream has closed. A write stream opens its file asynchronously, so a segment abandoned in its first moments could be unlinked before the file existed and have it appear afterwards, leaving a `.part-` file in the cache until the TTL sweep. Found by the test for it failing intermittently under a full parallel run.
@@ -572,14 +615,13 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 ## Opportunities
 
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
-- **Keyframe-aligned segments for the copy rung** (M) would end the approximation rather than bound
-  it: probe the keyframe positions once per file, cache them, and synthesise the playlist from them
-  so every copied segment begins exactly where a keyframe does. This is the honest fix for what the
-  seek change was reaching for.
-- **Variable segment durations** (S/M): playlists are synthesised and HLS allows a variable
-  `EXTINF`, so the first few segments of a file could be shorter to cut startup further. It would
-  need one schedule function shared by the playlist and the segment generator, and it does not
-  help a seek into the middle.
+- **Shorter opening segments** (S): `EXTINF` already varies per segment and one schedule function
+  is already shared by the playlist and the segment generator, so the first two or three segments of
+  a file could be cut at the *nearest keyframe under* the target rather than nearest to it, to reach
+  first picture sooner. It does not help a seek into the middle.
+- **Probe on import for new files** (S): a file arriving through the watcher could be probed while
+  it is already being read for duration and streams, which is when the disk is warm; the cost is
+  only unacceptable for the existing thirty thousand.
 - **Cache encoder detection across restarts** (S): write the result next to the HLS cache so the
   first playback after a restart never waits for test encodes.
 - **Purge only what changed** (S): a `segmentDuration` change could re-encode lazily instead of
