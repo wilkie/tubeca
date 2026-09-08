@@ -204,24 +204,32 @@ offset that would put it at `segmentIndex * segmentDuration` in that track's own
 from the init segment's `mdhd`), and adds that offset to every fragment in the run — rebasing rather
 than assuming zero, and keeping later fragments the same distance along.
 
-**Where the seek goes** decides what a segment contains, and the two rungs want opposite things. A
-transcode seeks before the input: fast, and exact, because the frames are decoded and re-encoded so
-the cut can fall anywhere. A copy seeks *after* it.
+**Where the seek goes** decides both what a segment contains and how long it takes to produce. A
+transcode seeks once, before the input: fast, and exact, because the frames are decoded and
+re-encoded so the cut can fall anywhere. A copy seeks twice, and neither seek works on its own.
 
-That distinction was removed on 2026-09-05 and restored on 2026-09-06, because removing it broke
-playback. Seeking before the input fast-seeks to the keyframe at or before the slot and then
-measures `-t` on the *original* timeline. Measured on a real episode (H.264 + E-AC-3, keyframes
-about 5.1s apart): slot 4, nominally 24.0-30.0s, came out holding **19.52-30.19s** — ten and a half
-seconds of content stamped as beginning at 24.0. Everything in it played four and a half seconds
-late, consecutive segments overlapped, and because MSE resolves an overlapping append differently in
-the audio and video buffers — video cannot be cut mid-GOP, audio can be replaced sample-accurately —
-the two drifted apart. The reported symptoms were audio/video desync after a seek and the picture
-skipping backwards mid-playback. Seeking after the input gives 6.13 seconds for a 6 second slot on
-the same file, positioned where the playlist says.
+*Before the input* FFmpeg fast-seeks to a keyframe at or before the target and then measures `-t` on
+the original timeline. Measured on a real episode (H.264 + E-AC-3, keyframes about 5.1s apart): slot
+4, nominally 24.0-30.0s, came out holding **19.52-30.19s** — ten and a half seconds of content
+stamped as beginning at 24.0. Everything in it played four and a half seconds late, consecutive
+segments overlapped, and because MSE resolves an overlapping append differently in the audio and
+video buffers — video cannot be cut mid-GOP, audio can be replaced sample-accurately — the two
+drifted apart. That was 2026-09-05, reported as audio/video desync after a seek and the picture
+skipping backwards; it had been justified by a synthetic file with a ten-second GOP, which was not
+representative of anything.
 
-The change had been justified by a synthetic test file with a ten-second GOP, where output seek did
-produce a short segment. That file was not representative, and one measurement on one contrived
-input is not evidence about a library.
+*After the input* it is exact, but it demuxes the file from the beginning to get there, and the cost
+grows with position: **14.2 seconds to produce a 5.9 second segment** from the middle of the same
+episode. The player consumed faster than the server could produce and stalled at every boundary,
+recovering only if the viewer paused long enough to build a buffer — which is exactly how it was
+reported on 2026-09-06.
+
+*Both together* are exact and fast. The input seek lands somewhere close for nothing, the output
+seek covers the last `COPY_SEEK_PRE_ROLL` seconds. This is safe regardless of where the input seek
+actually lands, because a seek before the input rebases the timeline onto the point that was *asked
+for* rather than the point that was reached, so the two offsets add up. Verified across pre-roll
+distances from 0 to 79 seconds on the real file: byte-identical first frames and durations to the
+output seek alone, at 0.35s instead of 14.2s.
 
 A copied HEVC stream is tagged `hvc1`, since Apple's players will not take `hev1`.
 
@@ -551,6 +559,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
 - 2026-09-05 HEVC and AV1 join the `original` rung, and every `Original` entry declares `CODECS` read from its own initialisation segment, so a player that cannot decode one skips the rung instead of failing on it.
+- 2026-09-07 A copied segment seeks twice — roughly before the input, exactly after it. The output seek alone was demuxing from the start of the file, taking 14.2s to produce a 5.9s segment from mid-episode, so playback hiccupped at every boundary unless the viewer paused to build a buffer. Same bytes, 0.35s.
 - 2026-09-06 Segments are cut at the file's own keyframes rather than on an even grid, one layout shared by every rung. A copied segment could not begin where the grid said, so its content was displaced forward to the next keyframe — 4.91s of a real episode missing from one segment's head. Keyframes are read once, in the background, on the first play (`MediaKeyframes`), and each layout is named in the segment URLs so a playlist keeps working while a probe lands.
 - 2026-09-06 The copy rung seeks after the input again. Seeking before it had a 6s slot holding 10.7s of content from 4.5s earlier, which desynchronised audio from video and skipped the picture backwards at every boundary. `Fmp4Splitter` also shifts all tracks by one offset rather than one each, which changes nothing today (FFmpeg starts every track's decode time at zero) but stops being a lip-sync error waiting for a muxer that does not.
 - 2026-09-05 `original` became fragmented MP4 (CMAF): `#EXT-X-MAP`, an `init.mp4` per variant, `.m4s` segments, decode times rebased onto the file's timeline by `Fmp4Splitter`. Seeking moved before the input in the same commit, which fixed `original` segments holding about four seconds of a six-second slot.
@@ -558,6 +567,16 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 
 ## Known Limitations
 
+- **Every segment whose audio is re-encoded begins with 21ms of silence.** Each segment is its own
+  FFmpeg run, so the AAC encoder starts fresh in each one and its 1024-sample priming delay lands at
+  the head of the segment. Measured on a real episode: the first 256 samples of a segment have an
+  RMS of 2 where the source at the same instant has 309, and everything in it sits 21ms late. Its
+  audio also overshoots the slot by ~36ms, since the encoder rounds up to a whole AAC frame. The
+  result is a brief dropout at every boundary — reported as an occasional blip. `+delay_moov` makes
+  FFmpeg write the edit list that would signal the priming, and it does remove the silence and works
+  on a pipe, but the edit list it writes differs per segment (the media times measured 1328 against
+  1344) while CMAF has one initialisation segment for the whole variant, so it cannot simply be
+  turned on. The fix is not to re-encode the audio per segment at all: see Opportunities.
 - **Only AAC and MP3 audio can be copied, and one reason is now the container.** FFmpeg refuses to
   write a fragmented MP4 header before it has seen an AC-3 packet ("Set the delay_moov flag to fix
   this"), and `delay_moov` would put the header at the end, where it is no use to a segment being
@@ -615,6 +634,12 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 ## Opportunities
 
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
+- **Encode a file's audio once rather than once per segment** (M) — the fix for the priming dropout
+  above. When the source audio cannot be copied, transcode the whole track to AAC once into the
+  media's cache directory and have each segment copy from that. One priming delay at the start of
+  the file instead of one per segment, no per-segment rounding overshoot, and less CPU: the audio of
+  a 45-minute episode is a few seconds of work done once. It needs a second cached artifact per
+  `(media, audioTrack)` with its own lifecycle, and segments would then read two inputs.
 - **Shorter opening segments** (S): `EXTINF` already varies per segment and one schedule function
   is already shared by the playlist and the segment generator, so the first two or three segments of
   a file could be cut at the *nearest keyframe under* the target rather than nearest to it, to reach

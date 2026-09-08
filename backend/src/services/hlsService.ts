@@ -96,6 +96,16 @@ const NEEDS_DECLARED_CODECS = new Set(['hevc', 'av1']);
  */
 const CODEC_PROBE_TIMEOUT_MS = 5000;
 
+/**
+ * How far before a copied segment the input seek aims, leaving the rest to an
+ * output seek that is exact.
+ *
+ * Only the accuracy of the sum matters, so this could be almost anything; it
+ * is the demuxing between the two that costs, and ten seconds of it is under a
+ * tenth of a second on the files measured here.
+ */
+const COPY_SEEK_PRE_ROLL = 10;
+
 export interface SegmentInfo {
   path: string;
   index: number;
@@ -1038,28 +1048,38 @@ export class HlsService {
       ffmpegArgs.push(...getDecoderInputArgs(encoder, await this.videoCodecOf(videoPath)));
     }
 
-    // Where the seek goes decides what the segment contains, and the two rungs
-    // want opposite things.
+    // Where the seek goes decides both what the segment contains and how long
+    // it takes to produce, and the two rungs want different things.
     //
-    // A transcode seeks before the input, which is fast and exact: the frames
-    // are decoded and re-encoded, so the cut can fall anywhere.
+    // A transcode seeks before the input: fast, and exact, because the frames
+    // are decoded and re-encoded so the cut can fall anywhere.
     //
-    // A copy seeks *after* it. Seeking before the input fast-seeks to the
-    // keyframe at or before the slot and then measures `-t` on the original
-    // timeline, so slot 4 of a real episode here (nominally 24.0-30.0s) came
-    // out holding 19.52-30.19 — ten and a half seconds of content stamped as
-    // starting at 24.0. Everything in it played four and a half seconds late,
-    // and the boundary with the previous segment jumped backwards. Seeking
-    // after the input starts at the first keyframe at or after the slot: 6.13
-    // seconds for a 6 second slot on the same file.
-    if (!isOriginal && startTime > 0) {
-      ffmpegArgs.push('-ss', startTime.toString());
-    }
-
-    ffmpegArgs.push('-i', videoPath);
-
-    if (isOriginal && startTime > 0) {
-      ffmpegArgs.push('-ss', startTime.toString());
+    // A copy cannot cut between keyframes, and FFmpeg's two seeks fail it in
+    // opposite directions. Before the input, it lands on a keyframe at or
+    // before the target and includes everything from there, mislabelled — on a
+    // real episode here, a 6s slot came back holding 10.7s starting 4.5s
+    // early. After the input it is exact, but it demuxes the file from the
+    // beginning to get there: 14.2 seconds to produce a 5.9 second segment
+    // from the middle of that episode, so playback stalled at every boundary
+    // and only kept up if the viewer paused long enough to build a buffer.
+    //
+    // Doing both is exact *and* fast. The input seek gets somewhere close for
+    // nothing, the output seek covers the rest — and because a seek before the
+    // input rebases the timeline onto the point that was asked for rather than
+    // the point it reached, the two add up whatever keyframe it actually
+    // landed on. Same bytes as the output seek alone, measured: 0.35s instead
+    // of 14.2.
+    if (startTime > 0) {
+      const preRoll = isOriginal ? Math.min(startTime, COPY_SEEK_PRE_ROLL) : 0;
+      const before = startTime - preRoll;
+      if (before > 0) ffmpegArgs.push('-ss', before.toString());
+      if (preRoll > 0) {
+        ffmpegArgs.push('-i', videoPath, '-ss', preRoll.toString());
+      } else {
+        ffmpegArgs.push('-i', videoPath);
+      }
+    } else {
+      ffmpegArgs.push('-i', videoPath);
     }
 
     // Duration limit

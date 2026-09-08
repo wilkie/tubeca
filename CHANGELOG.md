@@ -108,6 +108,11 @@ All notable changes to Tubeca are recorded here. The format follows
   it plays on the grid as before, and a file whose keyframes cannot be read stays there.
 
 ### Fixed
+- Playback no longer hiccups every few seconds after seeking into the middle of a long file.
+  Building each segment meant reading the file from the beginning up to that point, which took
+  longer than the segment lasts — 14.2 seconds of work for 5.9 seconds of video, halfway through
+  one episode — so the player ran dry at every boundary and only kept up if you paused long enough
+  to build a buffer. The same segment now takes a third of a second.
 - Original quality no longer skips forward past the start of a segment. Segments were cut on a
   grid, but a copied segment can only begin at a keyframe, so its content started at the next one
   — on one episode a segment labelled as beginning at 30.0s actually began at 34.91s, leaving

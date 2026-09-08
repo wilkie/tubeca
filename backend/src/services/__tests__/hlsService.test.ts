@@ -473,24 +473,53 @@ describe('HlsService playlist synthesis', () => {
       expect(args[args.length - 1]).toBe('pipe:1');
     });
 
-    it('seeks after the input, so a copied segment holds its own slot', async () => {
-      const media = await createVideoMedia({ path: '/media/seek.mkv', duration: 100 });
+    /** The arguments FFmpeg was given for one segment of a file. */
+    async function segmentArgs(quality: string, index: number): Promise<string[]> {
+      const media = await createVideoMedia({
+        path: `/media/seek-${quality}-${index}.mkv`,
+        duration: 100,
+      });
       spawned.length = 0;
-      void service.getSegment(media.id, ORIGINAL_QUALITY, 3, 'default');
+      void service.getSegment(media.id, quality, index, 'default');
       for (let attempt = 0; attempt < 50 && spawned.length === 0; attempt++) {
         await new Promise((resolve) => setImmediate(resolve));
       }
       const args = spawned[0]?.args ?? [];
       spawned[0]?.emit('close', 1);
       await new Promise((resolve) => setImmediate(resolve));
+      return args;
+    }
 
-      // Seeking before the input fast-seeks to the keyframe before the slot and
-      // then measures `-t` on the original timeline: slot 4 of a real episode
-      // came out holding 19.52-30.19s stamped as starting at 24.0, so it played
-      // four and a half seconds late and jumped backwards at the boundary.
-      expect(args.indexOf('-ss')).toBeGreaterThan(args.indexOf('-i'));
-      expect(valueOf(args, '-ss')).toBe('18');
+    it('seeks a copy twice, close before the input and exactly after it', async () => {
+      const args = await segmentArgs(ORIGINAL_QUALITY, 3);
+
+      // Neither seek works alone. Before the input, FFmpeg lands on a keyframe
+      // at or before the target and includes everything from there: a 6s slot
+      // of a real episode came back holding 10.7s starting 4.5s early. After
+      // the input it is exact but demuxes from the start of the file, which
+      // took 14.2s to produce a 5.9s segment from the middle of that episode —
+      // slower than watching it. Together they are exact and cost 0.35s.
+      const input = args.indexOf('-i');
+      const before = args.slice(0, input);
+      const after = args.slice(input);
+      expect(valueOf(before, '-ss')).toBe('8');
+      expect(valueOf(after, '-ss')).toBe('10');
       expect(valueOf(args, '-t')).toBe('6');
+    });
+
+    it('does not seek before the file for a segment near its start', async () => {
+      const args = await segmentArgs(ORIGINAL_QUALITY, 1);
+
+      // Six seconds in, there is nothing to pre-roll through.
+      expect(args.indexOf('-ss')).toBeGreaterThan(args.indexOf('-i'));
+      expect(valueOf(args, '-ss')).toBe('6');
+    });
+
+    it('seeks a transcode once, before the input, since it can cut anywhere', async () => {
+      const args = await segmentArgs('720p', 3);
+
+      expect(args.indexOf('-ss')).toBeLessThan(args.indexOf('-i'));
+      expect(valueOf(args, '-ss')).toBe('18');
     });
   });
 
