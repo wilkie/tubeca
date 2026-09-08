@@ -7,8 +7,13 @@ import { getHlsCachePath } from '../config/appConfig';
  * `HlsService` so callers that only need to evict or measure the cache (media
  * deletion, the cleanup timer, tests) do not pay for encoder detection.
  *
- * Layout: `<cacheRoot>/<mediaId>/a<audioTrack>/<quality>/<index>.ts`
+ * Layout: `<cacheRoot>/<mediaId>/a<audioTrack>/<quality>-<layoutId>/<index>.ts`, with one
+ * `init.mp4` beside the segments of a fragmented variant and one `audio.mp4` — the whole track
+ * encoded once — beside the variants of an audio track.
  */
+
+/** The initialisation segment every segment of a fragmented variant depends on. */
+const INIT_SEGMENT = 'init.mp4';
 
 export interface CacheStats {
   totalSize: number
@@ -150,10 +155,14 @@ export function purgeAllSegments(cacheRoot: string): number {
  * segments first. Returns what was removed.
  */
 export function enforceCacheSize(cacheRoot: string, maxBytes: number): { deleted: number; freedBytes: number } {
-  const segments = listSegments(cacheRoot).filter(
-    (s) => s.path.endsWith('.ts') || s.path.endsWith('.vtt')
-  );
-  let total = segments.reduce((sum, s) => sum + s.size, 0);
+  // Everything counts towards the cap, including the fragmented segments and
+  // prepared audio tracks that used to escape it entirely — a `.m4s` weighs
+  // what a `.ts` weighs, and one prepared track is 62MB.
+  const all = listSegments(cacheRoot).filter((s) => !s.path.endsWith('.m3u8'));
+  // The header is a kilobyte and every segment beside it is useless without
+  // it, so it is counted but never chosen for eviction.
+  const segments = all.filter((s) => path.basename(s.path) !== INIT_SEGMENT);
+  let total = all.reduce((sum, s) => sum + s.size, 0);
   const result = { deleted: 0, freedBytes: 0 };
   if (total <= maxBytes) return result;
 

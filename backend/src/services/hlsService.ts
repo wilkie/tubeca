@@ -26,6 +26,7 @@ import {
 } from './hlsCache';
 import type { TranscodingSettings } from '@prisma/client';
 import { codecStringsFromInit, Fmp4Splitter } from './fmp4';
+import { hasPreparedAudio, prepareAudio, preparedAudioPath } from './preparedAudio';
 import {
   ensureKeyframes,
   gridLayout,
@@ -105,6 +106,22 @@ const CODEC_PROBE_TIMEOUT_MS = 5000;
  * tenth of a second on the files measured here.
  */
 const COPY_SEEK_PRE_ROLL = 10;
+
+/**
+ * How far past its slot a segment whose audio is *copied* is allowed to run.
+ *
+ * A copy cannot split a frame, so `-t` rounds down and the segment stops a few
+ * milliseconds short — 9ms measured on a real slot, which is a gap of silence
+ * between it and the next segment. Rounding up instead makes consecutive
+ * segments overlap, and an overlap of the same encoded frames is nothing: MSE
+ * overwrites it with itself. One AAC frame is 21.3ms and one MPEG-1 layer III
+ * frame at 44.1kHz is 26.1ms, so this covers either with room to spare while
+ * staying under a single video frame at 24fps.
+ */
+const AUDIO_COPY_PAD = 0.03;
+
+/** The bitrate a prepared audio track is encoded at, matching the copy rung. */
+const ORIGINAL_AUDIO_BITRATE = 192;
 
 export interface SegmentInfo {
   path: string;
@@ -406,6 +423,38 @@ export class HlsService {
   }
 
   /**
+   * Encode this file's audio once, so the segments after this play can copy it
+   * instead of each running the AAC encoder over their own few seconds and
+   * each beginning with its priming delay (`preparedAudio.ts`).
+   *
+   * Only for `original`, and only when the source audio cannot simply be
+   * copied. The transcode rungs each want a different bitrate, so one prepared
+   * track cannot serve them without quietly raising 360p's audio from 96k to
+   * 192k — which is the last thing a viewer on a thin connection needs.
+   *
+   * Deliberately not awaited: this costs minutes, and the viewer who triggered
+   * it is watching now.
+   */
+  private async prepareOriginalAudio(
+    mediaId: string,
+    videoPath: string,
+    audioTrack: string
+  ): Promise<void> {
+    const audioTrackDir = this.getAudioTrackPath(mediaId, audioTrack);
+    if (hasPreparedAudio(audioTrackDir)) return;
+    if (await this.canCopyAudio(videoPath, audioTrack)) return;
+
+    void prepareAudio({
+      videoPath,
+      audioTrack,
+      audioTrackDir,
+      bitrate: ORIGINAL_AUDIO_BITRATE,
+    }).catch((error) => {
+      console.warn(`Could not prepare the audio of ${videoPath}:`, error);
+    });
+  }
+
+  /**
    * Whether `original` can be offered: the video can be copied.
    *
    * The audio is a separate question. If it cannot be copied it is re-encoded
@@ -574,6 +623,15 @@ export class HlsService {
   /**
    * Get the cache directory path for a specific media/quality/audioTrack combination
    */
+  /**
+   * Where a media item's audio tracks and their variants live. The prepared
+   * audio track sits here rather than inside a variant, because it does not
+   * depend on the quality or on where the segments are cut.
+   */
+  getAudioTrackPath(mediaId: string, audioTrack: string): string {
+    return path.join(this.cachePath, mediaId, `a${audioTrack}`);
+  }
+
   getVariantCachePath(
     mediaId: string,
     quality: string,
@@ -586,7 +644,7 @@ export class HlsService {
      */
     layoutId: string
   ): string {
-    return path.join(this.cachePath, mediaId, `a${audioTrack}`, `${quality}-${layoutId}`);
+    return path.join(this.getAudioTrackPath(mediaId, audioTrack), `${quality}-${layoutId}`);
   }
 
   /**
@@ -731,9 +789,14 @@ export class HlsService {
     const layout = await this.currentLayout(media.id, duration);
     const count = segmentCount(layout);
 
-    // The first play of a file is what pays for reading its keyframes, and it
-    // pays nothing: this returns immediately and the grid carries this viewer.
+    // The first play of a file is what pays for reading its keyframes and for
+    // encoding its audio, and it pays nothing: both of these return at once,
+    // and this viewer is carried by the grid and by per-segment audio exactly
+    // as they were before either existed.
     void this.learnKeyframes(media.id, media.path);
+    if (quality === ORIGINAL_QUALITY) {
+      void this.prepareOriginalAudio(media.id, media.path, audioTrack);
+    }
 
     const carried =
       (token ? `&token=${encodeURIComponent(token)}` : '') +
@@ -1069,27 +1132,51 @@ export class HlsService {
     // the point it reached, the two add up whatever keyframe it actually
     // landed on. Same bytes as the output seek alone, measured: 0.35s instead
     // of 14.2.
+    // How this segment gets its sound. Copying from the source is best and
+    // needs nothing; failing that, copying from one encode of the whole track
+    // avoids the per-segment priming delay (`preparedAudio.ts`); failing that,
+    // it is re-encoded here, which is what every segment did before and what
+    // the first play of a file still does while the track is being prepared.
+    const audioTrackDir = path.dirname(outputDir);
+    const copyFromSource = isOriginal && (await this.canCopyAudio(videoPath, audioTrack));
+    const copyFromPrepared =
+      isOriginal && !copyFromSource && hasPreparedAudio(audioTrackDir);
+    const copyingAudio = copyFromSource || copyFromPrepared;
+    // The TTL sweep keys on access time, and a track being copied into every
+    // segment of a film nobody has finished would otherwise look untouched.
+    if (copyFromPrepared) this.touchFile(preparedAudioPath(audioTrackDir));
+
     if (startTime > 0) {
       const preRoll = isOriginal ? Math.min(startTime, COPY_SEEK_PRE_ROLL) : 0;
       const before = startTime - preRoll;
       if (before > 0) ffmpegArgs.push('-ss', before.toString());
-      if (preRoll > 0) {
-        ffmpegArgs.push('-i', videoPath, '-ss', preRoll.toString());
-      } else {
-        ffmpegArgs.push('-i', videoPath);
+      ffmpegArgs.push('-i', videoPath);
+      // The prepared track is a second input, seeked to the same instant so
+      // that the one output seek below cuts both of them in the same place.
+      if (copyFromPrepared) {
+        if (before > 0) ffmpegArgs.push('-ss', before.toString());
+        ffmpegArgs.push('-i', preparedAudioPath(audioTrackDir));
       }
+      if (preRoll > 0) ffmpegArgs.push('-ss', preRoll.toString());
     } else {
       ffmpegArgs.push('-i', videoPath);
+      if (copyFromPrepared) ffmpegArgs.push('-i', preparedAudioPath(audioTrackDir));
     }
 
-    // Duration limit
-    ffmpegArgs.push('-t', segmentDuration.toString());
+    // Duration limit, rounded up rather than down when the audio is copied.
+    ffmpegArgs.push(
+      '-t',
+      (copyingAudio ? segmentDuration + AUDIO_COPY_PAD : segmentDuration).toString()
+    );
 
     // Map video stream
     ffmpegArgs.push('-map', '0:v:0');
 
     // Map audio stream
-    if (audioTrack !== 'default') {
+    if (copyFromPrepared) {
+      // The track was chosen when it was prepared, so it is the only one here.
+      ffmpegArgs.push('-map', '1:a:0');
+    } else if (audioTrack !== 'default') {
       ffmpegArgs.push('-map', `0:${audioTrack}`);
     } else {
       ffmpegArgs.push('-map', '0:a:0?');
@@ -1100,10 +1187,10 @@ export class HlsService {
       // and the bulk of the CPU. Only the sound is re-encoded, and only when a
       // browser could not have played it.
       ffmpegArgs.push('-c:v', 'copy');
-      if (await this.canCopyAudio(videoPath, audioTrack)) {
+      if (copyingAudio) {
         ffmpegArgs.push('-c:a', 'copy');
       } else {
-        ffmpegArgs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
+        ffmpegArgs.push('-c:a', 'aac', `-b:a`, `${ORIGINAL_AUDIO_BITRATE}k`, '-ac', '2');
       }
       // Apple's players want the sample entry spelled `hvc1`, not `hev1`, and
       // a copied HEVC stream keeps whichever tag the source file used.

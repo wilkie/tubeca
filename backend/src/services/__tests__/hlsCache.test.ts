@@ -111,4 +111,28 @@ describe('cache maintenance', () => {
     expect(fs.existsSync(newest)).toBe(true);
     expect(enforceCacheSize(root, 150)).toEqual({ deleted: 0, freedBytes: 0 });
   });
+
+  it('counts fragmented segments and prepared audio, which used to escape the cap', () => {
+    // Since `original` became fragmented MP4 its segments were not `.ts` and
+    // so were neither counted nor evicted; a prepared audio track is 62MB of
+    // the same blind spot.
+    const fragment = segment('m/adefault/original-g6/0.m4s', 200, 5);
+    const track = segment('m/adefault/audio.mp4', 300, 4);
+
+    const result = enforceCacheSize(root, 100);
+
+    expect(result.freedBytes).toBe(500);
+    expect(fs.existsSync(fragment)).toBe(false);
+    expect(fs.existsSync(track)).toBe(false);
+  });
+
+  it('never evicts the header its variant depends on', () => {
+    // A kilobyte, and every segment beside it is unplayable without it.
+    const init = segment('m/adefault/original-g6/init.mp4', 1000, 99);
+    segment('m/adefault/original-g6/0.m4s', 500, 1);
+
+    enforceCacheSize(root, 100);
+
+    expect(fs.existsSync(init)).toBe(true);
+  });
 });

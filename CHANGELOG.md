@@ -108,6 +108,13 @@ All notable changes to Tubeca are recorded here. The format follows
   it plays on the grid as before, and a file whose keyframes cannot be read stays there.
 
 ### Fixed
+- The occasional blip in the audio at Original quality is gone for files whose sound has to be
+  converted. Each segment was running the AAC encoder over its own few seconds, and an encoder
+  starting fresh emits 21ms of silence before anything else — so every segment boundary was a brief
+  dropout. The sound is now converted once for the whole file, in the background, and the segments
+  copy from it; the residual offset measures 2ms rather than 21ms, with no silence. The first play
+  of a file still uses the old path while that conversion runs, so it takes a second viewing before
+  a file sounds right. The other quality levels are unchanged.
 - Playback no longer hiccups every few seconds after seeking into the middle of a long file.
   Building each segment meant reading the file from the beginning up to that point, which took
   longer than the segment lasts — 14.2 seconds of work for 5.9 seconds of video, halfway through

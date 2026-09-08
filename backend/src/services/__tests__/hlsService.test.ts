@@ -504,7 +504,8 @@ describe('HlsService playlist synthesis', () => {
       const after = args.slice(input);
       expect(valueOf(before, '-ss')).toBe('8');
       expect(valueOf(after, '-ss')).toBe('10');
-      expect(valueOf(args, '-t')).toBe('6');
+      // 6 plus the pad a copied audio track gets; see the cases below.
+      expect(valueOf(args, '-t')).toBe('6.03');
     });
 
     it('does not seek before the file for a segment near its start', async () => {
@@ -1105,7 +1106,7 @@ describe('cutting a file where its keyframes are', () => {
     // Segment 1 begins at 7, the keyframe nearest six seconds in — the point
     // of the exercise, since a copied segment cannot begin anywhere else.
     expect(valueOf(args, '-ss')).toBe('7');
-    expect(valueOf(args, '-t')).toBe('7');
+    expect(valueOf(args, '-t')).toBe('7.03');
   });
 
   it('keeps answering an older playlist from the layout it was built from', async () => {
@@ -1122,7 +1123,7 @@ describe('cutting a file where its keyframes are', () => {
     const args = await argsFor(service, media.id, 1, 'g6');
 
     expect(valueOf(args, '-ss')).toBe('6');
-    expect(valueOf(args, '-t')).toBe('6');
+    expect(valueOf(args, '-t')).toBe('6.03');
   });
 
   it('caches the two layouts apart, since they are different spans of the file', async () => {
@@ -1143,5 +1144,123 @@ describe('cutting a file where its keyframes are', () => {
     const playlist = await service.generateVariantPlaylist(media.id, ORIGINAL_QUALITY, 'default');
 
     expect(playlist).toContain('layout=g6');
+  });
+});
+
+describe('preparing a file\'s audio once instead of per segment', () => {
+  const settle = () => new Promise((r) => setImmediate(r));
+  const valueOf = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+  const service = new HlsService({ segmentTimeoutMs: 5000 });
+
+  beforeEach(async () => {
+    await resetDatabase();
+    spawned.length = 0;
+  });
+
+  /** A file whose sound a browser could not play, so it has to be re-encoded. */
+  async function eac3File(name: string) {
+    const media = await createVideoMedia({ path: `/media/${name}.mkv`, duration: 100 });
+    await prisma.mediaStream.createMany({
+      data: [
+        { mediaId: media.id, streamIndex: 0, streamType: 'Video', codec: 'h264' },
+        { mediaId: media.id, streamIndex: 1, streamType: 'Audio', codec: 'eac3' },
+      ],
+    });
+    return media;
+  }
+
+  /** Put a finished prepared track where the segment builder looks for it. */
+  function cachePrepared(mediaId: string, audioTrack = 'default') {
+    const dir = service.getAudioTrackPath(mediaId, audioTrack);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'audio.mp4'), Buffer.alloc(64, 7));
+    return path.join(dir, 'audio.mp4');
+  }
+
+  /**
+   * The arguments FFmpeg was given for one segment of this file. Matched on
+   * the file's own path, because a prefetch from an earlier case can still be
+   * spawning when this one starts.
+   */
+  async function segmentArgs(media: { id: string; path: string }, index = 2): Promise<string[]> {
+    spawned.length = 0;
+    void service.getSegment(media.id, ORIGINAL_QUALITY, index, 'default');
+    let child: (typeof spawned)[number] | undefined;
+    for (let attempt = 0; attempt < 50 && !child; attempt++) {
+      await settle();
+      child = spawned.find((c) => c.args.includes(media.path));
+    }
+    for (const spawnedChild of spawned) spawnedChild.emit('close', 1);
+    await settle();
+    return child?.args ?? [];
+  }
+
+  it('re-encodes per segment while no prepared track exists', async () => {
+    const media = await eac3File('unprepared');
+
+    const args = await segmentArgs(media);
+
+    // What every segment did before, and what the first play of a file still
+    // does: one AAC encoder run per segment, each with its own priming delay.
+    expect(valueOf(args, '-c:a')).toBe('aac');
+    expect(args.filter((a) => a === '-i')).toHaveLength(1);
+    expect(valueOf(args, '-t')).toBe('6');
+  });
+
+  it('copies from the prepared track once there is one', async () => {
+    const media = await eac3File('prepared');
+    const track = cachePrepared(media.id);
+
+    const args = await segmentArgs(media);
+
+    expect(valueOf(args, '-c:a')).toBe('copy');
+    // A second input, seeked to the same instant as the first so that the one
+    // output seek cuts both in the same place.
+    expect(args.filter((a) => a === '-i')).toHaveLength(2);
+    expect(args[args.indexOf('-i', args.indexOf('-i') + 1) + 1]).toBe(track);
+    expect(valueOf(args, '-map')).toBe('0:v:0');
+    expect(args.slice(args.indexOf('-map') + 2)).toContain('1:a:0');
+  });
+
+  it('runs a copied segment past its slot rather than short of it', async () => {
+    const media = await eac3File('padded');
+    cachePrepared(media.id);
+
+    const args = await segmentArgs(media);
+
+    // A copy cannot split a frame, so cutting at the slot leaves a gap of
+    // silence before the next segment. Overlapping instead is free: the two
+    // segments hold the same encoded frames there.
+    expect(valueOf(args, '-t')).toBe('6.03');
+  });
+
+  it('seeks the prepared track to the same instant as the file', async () => {
+    const media = await eac3File('aligned');
+    cachePrepared(media.id);
+
+    const args = await segmentArgs(media, 3);
+
+    // Segment 3 of a six-second grid starts at 18, and the pre-roll is 10.
+    const seeksBeforeInputs = args
+      .map((arg, i) => (arg === '-ss' ? args[i + 1] : null))
+      .filter((v): v is string => v !== null);
+    expect(seeksBeforeInputs).toEqual(['8', '8', '10']);
+  });
+
+  it('leaves a file whose sound can already be copied alone', async () => {
+    const media = await createVideoMedia({ path: '/media/aac.mkv', duration: 100 });
+    await prisma.mediaStream.createMany({
+      data: [
+        { mediaId: media.id, streamIndex: 0, streamType: 'Video', codec: 'h264' },
+        { mediaId: media.id, streamIndex: 1, streamType: 'Audio', codec: 'aac' },
+      ],
+    });
+    cachePrepared(media.id);
+
+    const args = await segmentArgs(media);
+
+    // Nothing to gain from a second input: the source's own frames are copied.
+    expect(args.filter((a) => a === '-i')).toHaveLength(1);
+    expect(valueOf(args, '-c:a')).toBe('copy');
   });
 });

@@ -24,6 +24,8 @@
   same segment, and cap concurrent FFmpeg processes with a semaphore.
 - Split FFmpeg's fragmented-MP4 output into the `#EXT-X-MAP` initialisation segment and the media
   segment, rebasing each segment's decode times onto the file's timeline.
+- Encode a file's audio to AAC once, in the background, when it is not already copyable, so that
+  segments copy it rather than each running the encoder over their own few seconds.
 - Prefetch the first N segments when a variant playlist is requested and the next N segments after
   every served segment, giving player requests priority over prefetches and abandoning prefetches
   the player has seeked away from.
@@ -232,6 +234,36 @@ distances from 0 to 79 seconds on the real file: byte-identical first frames and
 output seek alone, at 0.35s instead of 14.2s.
 
 A copied HEVC stream is tagged `hvc1`, since Apple's players will not take `hev1`.
+
+### One AAC encode per file, not per segment (`preparedAudio.ts`)
+
+Nearly half this library's audio is E-AC-3 or DTS, which no browser will take, so the `original`
+rung copies the picture and re-encodes only the sound. Until 2026-09-07 it did that inside each
+segment's own FFmpeg run, and an AAC encoder starting fresh emits its 1024-sample priming delay
+first. Measured on a real episode: the first 256 samples of a segment have an RMS of **2** where the
+source at that instant has 309, and cross-correlating the segment against the source puts it exactly
+**+1024 samples (21.33ms)** late. Every boundary was a 21ms dropout — one every few seconds, all
+film long, reported as an occasional blip in the audio.
+
+So when the source audio cannot be copied, the whole track is encoded once to
+`<mediaId>/a<audioTrack>/audio.mp4` and each segment takes it as a second input and copies from it.
+The same cross-correlation then reads **-96 samples (-2ms)**, with no silence: all that is left is
+the AAC frame the cut happens to land inside.
+
+- **Never on a playback path.** The encode costs 2m40s wall, 1m28s of CPU and 62MB for a 45-minute
+  episode on the machine measured — an estimate of "a few seconds" in an earlier version of this
+  document was wrong by two orders of magnitude. The first play of a file re-encodes per segment
+  exactly as before and starts this in the background, like `learnKeyframes`; the play after that is
+  clean. Nothing waits for it, and a file whose encode never finishes keeps working as it did.
+- **One at a time, one per destination.** It reads a whole file off the disk that is serving the
+  playback which asked for it, and the four rungs of a master playlist would otherwise ask at once.
+- **`original` only.** The transcode rungs each want their own bitrate (192/128/128/96k), and one
+  prepared track cannot serve them without quietly raising 360p's audio to 192k, which is exactly
+  what a viewer on a thin connection does not need. They keep per-segment audio, and keep the blip.
+- **Copied audio runs past its slot.** A copy cannot split a frame, so `-t` rounds down and the
+  segment stops about 9ms short of the next one — a gap of silence. `AUDIO_COPY_PAD` (30ms, over one
+  AAC frame at 21.3ms and one MP3 frame at 26.1ms, under one video frame at 24fps) makes consecutive
+  segments overlap instead, which costs nothing because the overlap is the same encoded frames.
 
 ### Segment generation and cache layout
 
@@ -559,6 +591,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
 - 2026-09-05 HEVC and AV1 join the `original` rung, and every `Original` entry declares `CODECS` read from its own initialisation segment, so a player that cannot decode one skips the rung instead of failing on it.
+- 2026-09-07 A file's audio is encoded to AAC once rather than once per segment, when it cannot simply be copied. Each segment's own encoder run had been putting its 1024-sample priming delay at the head of the segment — 21.33ms of silence at every boundary, measured by cross-correlation against the source. Now -2ms and no silence. The encode is background-only and costs minutes, so the first play of a file still uses per-segment audio. `enforceCacheSize` also counts fragmented segments and prepared tracks, which had been escaping the cap entirely since `original` stopped being MPEG-TS.
 - 2026-09-07 A copied segment seeks twice — roughly before the input, exactly after it. The output seek alone was demuxing from the start of the file, taking 14.2s to produce a 5.9s segment from mid-episode, so playback hiccupped at every boundary unless the viewer paused to build a buffer. Same bytes, 0.35s.
 - 2026-09-06 Segments are cut at the file's own keyframes rather than on an even grid, one layout shared by every rung. A copied segment could not begin where the grid said, so its content was displaced forward to the next keyframe — 4.91s of a real episode missing from one segment's head. Keyframes are read once, in the background, on the first play (`MediaKeyframes`), and each layout is named in the segment URLs so a playlist keeps working while a probe lands.
 - 2026-09-06 The copy rung seeks after the input again. Seeking before it had a 6s slot holding 10.7s of content from 4.5s earlier, which desynchronised audio from video and skipped the picture backwards at every boundary. `Fmp4Splitter` also shifts all tracks by one offset rather than one each, which changes nothing today (FFmpeg starts every track's decode time at zero) but stops being a lip-sync error waiting for a muxer that does not.
@@ -567,16 +600,19 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 
 ## Known Limitations
 
-- **Every segment whose audio is re-encoded begins with 21ms of silence.** Each segment is its own
-  FFmpeg run, so the AAC encoder starts fresh in each one and its 1024-sample priming delay lands at
-  the head of the segment. Measured on a real episode: the first 256 samples of a segment have an
-  RMS of 2 where the source at the same instant has 309, and everything in it sits 21ms late. Its
-  audio also overshoots the slot by ~36ms, since the encoder rounds up to a whole AAC frame. The
-  result is a brief dropout at every boundary — reported as an occasional blip. `+delay_moov` makes
-  FFmpeg write the edit list that would signal the priming, and it does remove the silence and works
-  on a pipe, but the edit list it writes differs per segment (the media times measured 1328 against
-  1344) while CMAF has one initialisation segment for the whole variant, so it cannot simply be
-  turned on. The fix is not to re-encode the audio per segment at all: see Opportunities.
+- **The transcode rungs still re-encode audio per segment, so they still blip.** Each is its own
+  FFmpeg run and the AAC encoder's 1024-sample priming delay lands at the head of every segment:
+  21.33ms of silence at each boundary, measured by cross-correlation. `original` no longer does this
+  (see above) but a prepared track is encoded at one bitrate and the rungs want four. `+delay_moov`
+  makes FFmpeg write the edit list that signals the priming, and it does remove the silence and does
+  work on a pipe, but the edit list differs per segment (media times measured 1328 against 1344)
+  while CMAF has one initialisation segment for a whole variant, so it cannot simply be turned on.
+- **The first play of a file gets the worse version of everything.** Its keyframes have not been
+  read, so it plays on the even grid; its audio has not been prepared, so every segment re-encodes
+  and blips. Both are fixed by the time anyone plays it again, but a library nobody rewatches never
+  sees the better path.
+- **A prepared audio track is 62MB and one is kept per audio track played.** It counts towards
+  `maxSizeGB` and is evicted by the same LRU as everything else, but it is a large unit to evict.
 - **Only AAC and MP3 audio can be copied, and one reason is now the container.** FFmpeg refuses to
   write a fragmented MP4 header before it has seen an AC-3 packet ("Set the delay_moov flag to fix
   this"), and `delay_moov` would put the header at the end, where it is no use to a segment being
@@ -634,12 +670,14 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 ## Opportunities
 
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
-- **Encode a file's audio once rather than once per segment** (M) — the fix for the priming dropout
-  above. When the source audio cannot be copied, transcode the whole track to AAC once into the
-  media's cache directory and have each segment copy from that. One priming delay at the start of
-  the file instead of one per segment, no per-segment rounding overshoot, and less CPU: the audio of
-  a 45-minute episode is a few seconds of work done once. It needs a second cached artifact per
-  `(media, audioTrack)` with its own lifecycle, and segments would then read two inputs.
+- **Prepare audio for the transcode rungs too** (M): the same trick, but one track per distinct
+  audio bitrate on the ladder rather than one per file. Three more encodes and three more 62MB
+  artifacts per file is a poor trade at present; sharing one track across rungs whose bitrates
+  happen to match (1080p is already 192k, and 720p and 480p are both 128k) would halve that.
+- **Prepare on import rather than on first play** (M): the audio encode and the keyframe probe both
+  read the whole file, and a file arriving through the watcher is being read anyway. Doing all three
+  in one pass would make the first play as good as the second. The cost is only unacceptable for the
+  thirty thousand files already imported.
 - **Shorter opening segments** (S): `EXTINF` already varies per segment and one schedule function
   is already shared by the playlist and the segment generator, so the first two or three segments of
   a file could be cut at the *nearest keyframe under* the target rather than nearest to it, to reach
