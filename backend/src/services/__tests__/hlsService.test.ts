@@ -1170,11 +1170,12 @@ describe('preparing a file\'s audio once instead of per segment', () => {
   }
 
   /** Put a finished prepared track where the segment builder looks for it. */
-  function cachePrepared(mediaId: string, audioTrack = 'default') {
+  function cachePrepared(mediaId: string, bitrate = 192, audioTrack = 'default') {
     const dir = service.getAudioTrackPath(mediaId, audioTrack);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'audio.mp4'), Buffer.alloc(64, 7));
-    return path.join(dir, 'audio.mp4');
+    const file = path.join(dir, `audio-${bitrate}.mp4`);
+    fs.writeFileSync(file, Buffer.alloc(64, 7));
+    return file;
   }
 
   /**
@@ -1182,9 +1183,13 @@ describe('preparing a file\'s audio once instead of per segment', () => {
    * the file's own path, because a prefetch from an earlier case can still be
    * spawning when this one starts.
    */
-  async function segmentArgs(media: { id: string; path: string }, index = 2): Promise<string[]> {
+  async function segmentArgs(
+    media: { id: string; path: string },
+    index = 2,
+    quality: string = ORIGINAL_QUALITY
+  ): Promise<string[]> {
     spawned.length = 0;
-    void service.getSegment(media.id, ORIGINAL_QUALITY, index, 'default');
+    void service.getSegment(media.id, quality, index, 'default');
     let child: (typeof spawned)[number] | undefined;
     for (let attempt = 0; attempt < 50 && !child; attempt++) {
       await settle();
@@ -1245,6 +1250,30 @@ describe('preparing a file\'s audio once instead of per segment', () => {
       .map((arg, i) => (arg === '-ss' ? args[i + 1] : null))
       .filter((v): v is string => v !== null);
     expect(seeksBeforeInputs).toEqual(['8', '8', '10']);
+  });
+
+  it('copies it on a transcode rung too, which is what a browser usually picks', async () => {
+    // The rung the reported session actually played: 74 of its 82 segments
+    // came from 480p and 720p, and every one of them re-encoded its own audio.
+    const media = await eac3File('transcoded');
+    const track = cachePrepared(media.id, 128);
+
+    const args = await segmentArgs(media, 2, '480p');
+
+    expect(valueOf(args, '-c:a')).toBe('copy');
+    expect(args).toContain(track);
+    expect(valueOf(args, '-c:v')).not.toBe('copy');
+  });
+
+  it('takes the track encoded at the rung it is building', async () => {
+    const media = await eac3File('bitrates');
+    // 192k is the copy rung's; 480p wants 128k and must not be given it.
+    cachePrepared(media.id, 192);
+
+    const args = await segmentArgs(media, 2, '480p');
+
+    expect(valueOf(args, '-c:a')).toBe('aac');
+    expect(valueOf(args, '-b:a')).toBe('128k');
   });
 
   it('leaves a file whose sound can already be copied alone', async () => {

@@ -79,12 +79,12 @@ describe('prepareAudio', () => {
     for (let attempt = 0; attempt < 50 && spawned.length === 0; attempt++) await settle();
 
     // Mid-encode: a segment looking now must not copy from a partial track.
-    expect(hasPreparedAudio(dir)).toBe(false);
+    expect(hasPreparedAudio(dir, 192)).toBe(false);
     expect(spawned[0].args[spawned[0].args.length - 1]).toContain('.part-');
 
     await finish(0);
     await done;
-    expect(hasPreparedAudio(dir)).toBe(true);
+    expect(hasPreparedAudio(dir, 192)).toBe(true);
   });
 
   it('leaves nothing behind when the encode fails', async () => {
@@ -92,15 +92,31 @@ describe('prepareAudio', () => {
     await finish(1);
 
     await expect(done).resolves.toBe(false);
-    expect(hasPreparedAudio(dir)).toBe(false);
+    expect(hasPreparedAudio(dir, 192)).toBe(false);
     expect(fs.readdirSync(dir)).toEqual([]);
   });
 
   it('does not re-encode a track that is already there', async () => {
-    fs.writeFileSync(preparedAudioPath(dir), Buffer.alloc(16, 1));
+    fs.writeFileSync(preparedAudioPath(dir, 192), Buffer.alloc(16, 1));
 
     await expect(prepareAudio(options())).resolves.toBe(true);
     expect(spawned).toHaveLength(0);
+  });
+
+  it('keeps a track per bitrate, since the rungs do not agree on one', async () => {
+    // 720p and 480p both want 128k and share; 360p wants 96k and does not.
+    fs.writeFileSync(preparedAudioPath(dir, 128), Buffer.alloc(16, 1));
+
+    expect(hasPreparedAudio(dir, 128)).toBe(true);
+    expect(hasPreparedAudio(dir, 96)).toBe(false);
+
+    const done = prepareAudio(options({ bitrate: 96 }));
+    await finish(0);
+    await done;
+
+    expect(spawned[0].args[spawned[0].args.indexOf('-b:a') + 1]).toBe('96k');
+    expect(hasPreparedAudio(dir, 96)).toBe(true);
+    expect(hasPreparedAudio(dir, 128)).toBe(true);
   });
 
   it('reads the file once however many callers ask', async () => {

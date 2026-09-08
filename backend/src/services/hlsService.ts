@@ -120,7 +120,7 @@ const COPY_SEEK_PRE_ROLL = 10;
  */
 const AUDIO_COPY_PAD = 0.03;
 
-/** The bitrate a prepared audio track is encoded at, matching the copy rung. */
+/** The audio bitrate of the copy rung, which has no preset of its own. */
 const ORIGINAL_AUDIO_BITRATE = 192;
 
 export interface SegmentInfo {
@@ -435,21 +435,22 @@ export class HlsService {
    * Deliberately not awaited: this costs minutes, and the viewer who triggered
    * it is watching now.
    */
-  private async prepareOriginalAudio(
+  private async prepareRungAudio(
     mediaId: string,
     videoPath: string,
+    quality: string,
     audioTrack: string
   ): Promise<void> {
-    const audioTrackDir = this.getAudioTrackPath(mediaId, audioTrack);
-    if (hasPreparedAudio(audioTrackDir)) return;
-    if (await this.canCopyAudio(videoPath, audioTrack)) return;
+    const presets = await this.getQualityPresets();
+    const bitrate = presets[quality]?.audioBitrate ?? ORIGINAL_AUDIO_BITRATE;
 
-    void prepareAudio({
-      videoPath,
-      audioTrack,
-      audioTrackDir,
-      bitrate: ORIGINAL_AUDIO_BITRATE,
-    }).catch((error) => {
+    const audioTrackDir = this.getAudioTrackPath(mediaId, audioTrack);
+    if (hasPreparedAudio(audioTrackDir, bitrate)) return;
+    // The copy rung with sound a browser already takes never re-encodes, so it
+    // has nothing to gain. Every other rung does.
+    if (quality === ORIGINAL_QUALITY && (await this.canCopyAudio(videoPath, audioTrack))) return;
+
+    void prepareAudio({ videoPath, audioTrack, audioTrackDir, bitrate }).catch((error) => {
       console.warn(`Could not prepare the audio of ${videoPath}:`, error);
     });
   }
@@ -794,9 +795,7 @@ export class HlsService {
     // and this viewer is carried by the grid and by per-segment audio exactly
     // as they were before either existed.
     void this.learnKeyframes(media.id, media.path);
-    if (quality === ORIGINAL_QUALITY) {
-      void this.prepareOriginalAudio(media.id, media.path, audioTrack);
-    }
+    void this.prepareRungAudio(media.id, media.path, quality, audioTrack);
 
     const carried =
       (token ? `&token=${encodeURIComponent(token)}` : '') +
@@ -1138,13 +1137,17 @@ export class HlsService {
     // it is re-encoded here, which is what every segment did before and what
     // the first play of a file still does while the track is being prepared.
     const audioTrackDir = path.dirname(outputDir);
+    const audioBitrate = qualityPreset?.audioBitrate ?? ORIGINAL_AUDIO_BITRATE;
     const copyFromSource = isOriginal && (await this.canCopyAudio(videoPath, audioTrack));
-    const copyFromPrepared =
-      isOriginal && !copyFromSource && hasPreparedAudio(audioTrackDir);
+    // Every rung that would otherwise run the encoder over its own few seconds,
+    // which is all of them but a copy rung with playable sound. The transcode
+    // rungs are not a special case here: a browser choosing for itself lands on
+    // one of them far more often than on `original`.
+    const copyFromPrepared = !copyFromSource && hasPreparedAudio(audioTrackDir, audioBitrate);
     const copyingAudio = copyFromSource || copyFromPrepared;
     // The TTL sweep keys on access time, and a track being copied into every
     // segment of a film nobody has finished would otherwise look untouched.
-    if (copyFromPrepared) this.touchFile(preparedAudioPath(audioTrackDir));
+    if (copyFromPrepared) this.touchFile(preparedAudioPath(audioTrackDir, audioBitrate));
 
     if (startTime > 0) {
       const preRoll = isOriginal ? Math.min(startTime, COPY_SEEK_PRE_ROLL) : 0;
@@ -1155,12 +1158,14 @@ export class HlsService {
       // that the one output seek below cuts both of them in the same place.
       if (copyFromPrepared) {
         if (before > 0) ffmpegArgs.push('-ss', before.toString());
-        ffmpegArgs.push('-i', preparedAudioPath(audioTrackDir));
+        ffmpegArgs.push('-i', preparedAudioPath(audioTrackDir, audioBitrate));
       }
       if (preRoll > 0) ffmpegArgs.push('-ss', preRoll.toString());
     } else {
       ffmpegArgs.push('-i', videoPath);
-      if (copyFromPrepared) ffmpegArgs.push('-i', preparedAudioPath(audioTrackDir));
+      if (copyFromPrepared) {
+        ffmpegArgs.push('-i', preparedAudioPath(audioTrackDir, audioBitrate));
+      }
     }
 
     // Duration limit, rounded up rather than down when the audio is copied.
@@ -1239,12 +1244,13 @@ export class HlsService {
 
       ffmpegArgs.push(...encoderArgs);
 
-      // Audio encoding
-      ffmpegArgs.push(
-        '-c:a', 'aac',
-        '-b:a', `${qualityPreset.audioBitrate}k`,
-        '-ac', '2'
-      );
+      // Audio encoding, unless the whole track has already been encoded at
+      // this rung's bitrate and can simply be copied.
+      if (copyFromPrepared) {
+        ffmpegArgs.push('-c:a', 'copy');
+      } else {
+        ffmpegArgs.push('-c:a', 'aac', '-b:a', `${qualityPreset.audioBitrate}k`, '-ac', '2');
+      }
 
       // Force keyframe at segment boundaries for clean switching
       // One at the start of the segment, so a player switching rungs mid-file

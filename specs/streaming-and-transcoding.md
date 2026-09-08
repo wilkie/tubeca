@@ -245,21 +245,33 @@ source at that instant has 309, and cross-correlating the segment against the so
 **+1024 samples (21.33ms)** late. Every boundary was a 21ms dropout — one every few seconds, all
 film long, reported as an occasional blip in the audio.
 
-So when the source audio cannot be copied, the whole track is encoded once to
-`<mediaId>/a<audioTrack>/audio.mp4` and each segment takes it as a second input and copies from it.
-The same cross-correlation then reads **-96 samples (-2ms)**, with no silence: all that is left is
-the AAC frame the cut happens to land inside.
+This is not only the copy rung's problem, and scoping the first version of this to `original` was a
+mistake. Every transcode rung re-encodes audio too, and hls.js chooses a rung by bandwidth without
+being asked: on the session that reported the blip still happening, 74 of the 82 segments served in
+half an hour came from 480p and 720p and only 3 from `original`. So the fix covers every rung that
+would otherwise run the encoder over its own few seconds.
+
+The whole track is encoded once to `<mediaId>/a<audioTrack>/audio-<bitrate>.mp4` and each segment
+takes it as a second input and copies from it. The same cross-correlation then reads **-96 samples
+(-2ms)**, with no silence: all that is left is the AAC frame the cut happens to land inside. On a
+480p segment of the same instant the first 256 samples measure 87 rather than 3.
+
+**By bitrate**, because the ladder does not agree on one — `original` and 1080p want 192k, 720p and
+480p 128k, 360p 96k. One shared track would mean either giving 360p an audio stream at twice the
+rate its whole video budget allows, or giving `original` worse sound than it asks for. Rungs that do
+agree share the file, which covers the common case of a browser sitting between 720p and 480p.
 
 - **Never on a playback path.** The encode costs 2m40s wall, 1m28s of CPU and 62MB for a 45-minute
-  episode on the machine measured — an estimate of "a few seconds" in an earlier version of this
-  document was wrong by two orders of magnitude. The first play of a file re-encodes per segment
-  exactly as before and starts this in the background, like `learnKeyframes`; the play after that is
-  clean. Nothing waits for it, and a file whose encode never finishes keeps working as it did.
+  episode at 192k on the machine measured — an estimate of "a few seconds" in an earlier version of
+  this document was wrong by two orders of magnitude. The first play of a rung re-encodes per
+  segment exactly as before and starts this in the background, like `learnKeyframes`; the play after
+  that is clean. Nothing waits for it, and a file whose encode never finishes keeps working as it
+  did.
 - **One at a time, one per destination.** It reads a whole file off the disk that is serving the
-  playback which asked for it, and the four rungs of a master playlist would otherwise ask at once.
-- **`original` only.** The transcode rungs each want their own bitrate (192/128/128/96k), and one
-  prepared track cannot serve them without quietly raising 360p's audio to 192k, which is exactly
-  what a viewer on a thin connection does not need. They keep per-segment audio, and keep the blip.
+  playback which asked for it, and the rungs of a master playlist would otherwise ask at once.
+- **Prepared for the rung being watched**, not for the whole ladder, so a file costs one encode
+  rather than three. A viewer whose connection moves them between 720p and 480p pays once, since
+  those share a bitrate; one who moves to 360p pays again.
 - **Copied audio runs past its slot.** A copy cannot split a frame, so `-t` rounds down and the
   segment stops about 9ms short of the next one — a gap of silence. `AUDIO_COPY_PAD` (30ms, over one
   AAC frame at 21.3ms and one MP3 frame at 26.1ms, under one video frame at 24fps) makes consecutive
@@ -600,19 +612,20 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 
 ## Known Limitations
 
-- **The transcode rungs still re-encode audio per segment, so they still blip.** Each is its own
-  FFmpeg run and the AAC encoder's 1024-sample priming delay lands at the head of every segment:
-  21.33ms of silence at each boundary, measured by cross-correlation. `original` no longer does this
-  (see above) but a prepared track is encoded at one bitrate and the rungs want four. `+delay_moov`
-  makes FFmpeg write the edit list that signals the priming, and it does remove the silence and does
-  work on a pipe, but the edit list differs per segment (media times measured 1328 against 1344)
-  while CMAF has one initialisation segment for a whole variant, so it cannot simply be turned on.
+- **A rung blips until its own audio track has been prepared.** The preparation is per bitrate and
+  starts when that rung is first played, so moving to a rung with a bitrate nothing has prepared
+  yet — 360p, or the first move from 480p up to 1080p — is a few minutes of per-segment audio before
+  it settles. `+delay_moov` makes FFmpeg write the edit list that signals the priming and would fix
+  the per-segment case outright; it removes the silence and does work on a pipe, but the edit list
+  differs per segment (media times measured 1328 against 1344) while CMAF has one initialisation
+  segment for a whole variant, so it cannot simply be turned on.
 - **The first play of a file gets the worse version of everything.** Its keyframes have not been
   read, so it plays on the even grid; its audio has not been prepared, so every segment re-encodes
   and blips. Both are fixed by the time anyone plays it again, but a library nobody rewatches never
   sees the better path.
-- **A prepared audio track is 62MB and one is kept per audio track played.** It counts towards
-  `maxSizeGB` and is evicted by the same LRU as everything else, but it is a large unit to evict.
+- **A prepared audio track is 40-62MB and one is kept per audio track and bitrate played.** They
+  count towards `maxSizeGB` and are evicted by the same LRU as everything else, but they are a large
+  unit to evict.
 - **Only AAC and MP3 audio can be copied, and one reason is now the container.** FFmpeg refuses to
   write a fragmented MP4 header before it has seen an AC-3 packet ("Set the delay_moov flag to fix
   this"), and `delay_moov` would put the header at the end, where it is no use to a segment being
@@ -670,10 +683,11 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 ## Opportunities
 
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
-- **Prepare audio for the transcode rungs too** (M): the same trick, but one track per distinct
-  audio bitrate on the ladder rather than one per file. Three more encodes and three more 62MB
-  artifacts per file is a poor trade at present; sharing one track across rungs whose bitrates
-  happen to match (1080p is already 192k, and 720p and 480p are both 128k) would halve that.
+- **Serve audio as its own HLS rendition** (L): `#EXT-X-MEDIA` with video-only variants is what HLS
+  provides for exactly this, and it would end the per-rung duplication rather than manage it — one
+  audio track per file, referenced by every rung, instead of one per bitrate. It would also stop a
+  quality switch from re-fetching audio the player already has. The player re-inits on an audio
+  track change today (`PlayerContext.tsx`), which this would replace.
 - **Prepare on import rather than on first play** (M): the audio encode and the keyframe probe both
   read the whole file, and a file arriving through the watcher is being read anyway. Doing all three
   in one pass would make the first play as good as the second. The cost is only unacceptable for the

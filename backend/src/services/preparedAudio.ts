@@ -20,21 +20,37 @@ import { spawn } from 'child_process';
  * the same instant then comes out 96 samples (2ms) early, with no silence: the
  * residual is only the AAC frame the cut lands inside.
  *
+ * This is not only the copy rung's problem. Every transcode rung re-encodes
+ * audio too, and a browser left to choose for itself usually picks one of
+ * those — on the session that reported the blip, 74 of the 82 segments served
+ * came from 480p and 720p. So a track is prepared for whichever rung is being
+ * watched, at that rung's own bitrate.
+ *
  * It is not cheap — 2m40s wall, 1m28s of CPU and 62MB for a 45-minute episode
- * on the machine measured — so it is never on the path of a playback request.
- * The first play of a file re-encodes per segment exactly as before and starts
- * this in the background; the play after that is clean.
+ * at 192k on the machine measured — so it is never on the path of a playback
+ * request. The first play of a rung re-encodes per segment exactly as before
+ * and starts this in the background; the play after that is clean.
  */
 
-/** The prepared track for a media item and audio track, beside its variants. */
-export function preparedAudioPath(audioTrackDir: string): string {
-  return path.join(audioTrackDir, 'audio.mp4');
+/**
+ * The prepared track for a media item, audio track and bitrate, beside the
+ * variants that copy from it.
+ *
+ * By bitrate, because the rungs of the ladder do not agree on one: `original`
+ * and 1080p want 192k, 720p and 480p 128k, 360p 96k. One track for all of them
+ * would mean either giving 360p an audio stream twice the size its whole video
+ * budget allows for, or giving `original` worse sound than it asks for. Naming
+ * the file after the bitrate lets the rungs that do agree share, which is the
+ * common case: 720p and 480p are what a browser picks most of the time.
+ */
+export function preparedAudioPath(audioTrackDir: string, bitrate: number): string {
+  return path.join(audioTrackDir, `audio-${bitrate}.mp4`);
 }
 
 /** Whether a prepared track is there and complete. */
-export function hasPreparedAudio(audioTrackDir: string): boolean {
+export function hasPreparedAudio(audioTrackDir: string, bitrate: number): boolean {
   try {
-    return fs.statSync(preparedAudioPath(audioTrackDir)).size > 0;
+    return fs.statSync(preparedAudioPath(audioTrackDir, bitrate)).size > 0;
   } catch {
     return false;
   }
@@ -78,8 +94,8 @@ async function acquire(): Promise<() => void> {
  * being encoded. Resolves true if the track is now available.
  */
 export function prepareAudio(options: PrepareAudioOptions): Promise<boolean> {
-  const target = preparedAudioPath(options.audioTrackDir);
-  if (hasPreparedAudio(options.audioTrackDir)) return Promise.resolve(true);
+  const target = preparedAudioPath(options.audioTrackDir, options.bitrate);
+  if (hasPreparedAudio(options.audioTrackDir, options.bitrate)) return Promise.resolve(true);
 
   const existing = inFlight.get(target);
   if (existing) return existing;
@@ -88,7 +104,7 @@ export function prepareAudio(options: PrepareAudioOptions): Promise<boolean> {
     const release = await acquire();
     try {
       // Somebody else may have finished it while this waited its turn.
-      if (hasPreparedAudio(options.audioTrackDir)) return true;
+      if (hasPreparedAudio(options.audioTrackDir, options.bitrate)) return true;
       return await encode(options, target);
     } finally {
       release();
