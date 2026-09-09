@@ -15,6 +15,26 @@ import { getHlsCachePath } from '../config/appConfig';
 /** The initialisation segment every segment of a fragmented variant depends on. */
 const INIT_SEGMENT = 'init.mp4';
 
+/**
+ * Cached files that cost far more to make than a segment does, and so must not
+ * expire on a segment's timetable.
+ *
+ * A segment is 0.35s of FFmpeg. A prepared audio track is one to three minutes
+ * of it and 40-65MB, and an initialisation segment is the kilobyte without
+ * which every segment beside it is unplayable. Sweeping those on the same
+ * 24-hour idle timer threw away minutes of work for nothing — and did: the
+ * tracks prepared for one episode on 2026-09-07 were gone by the 9th, so a file
+ * that had been fixed went back to converting its audio per segment.
+ *
+ * They are still counted against `maxSizeGB` and still evicted by
+ * `enforceCacheSize` when the cache is actually full, which is the pressure
+ * that should decide their fate, and still removed with their media item.
+ */
+function isExpensive(filePath: string): boolean {
+  const name = path.basename(filePath);
+  return name === INIT_SEGMENT || /^audio-\d+\.mp4$/.test(name);
+}
+
 export interface CacheStats {
   totalSize: number
   mediaCount: number
@@ -116,6 +136,7 @@ export function sweepExpiredSegments(cacheRoot: string, ttlHours: number): numbe
   const cutoff = Date.now() - ttlHours * 60 * 60 * 1000;
   let deleted = 0;
   for (const segment of listSegments(cacheRoot)) {
+    if (isExpensive(segment.path)) continue;
     if (segment.atimeMs < cutoff) {
       try {
         fs.unlinkSync(segment.path);

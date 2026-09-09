@@ -108,6 +108,10 @@ All notable changes to Tubeca are recorded here. The format follows
   it plays on the grid as before, and a file whose keyframes cannot be read stays there.
 
 ### Fixed
+- Converted audio tracks are no longer thrown away after a day of not being watched. They expired on
+  the same timer as a cached segment despite costing minutes of work rather than a fraction of a
+  second, so a file that had stopped blipping started again a couple of days later. They are still
+  discarded when the cache genuinely runs out of room.
 - The occasional blip in the audio is gone, at every quality rather than only at Original. Each
   segment was running the AAC encoder over its own few seconds, and an encoder starting fresh emits
   21ms of silence before anything else — so every segment boundary was a brief dropout. The sound is

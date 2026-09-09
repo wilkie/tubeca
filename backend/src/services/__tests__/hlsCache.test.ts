@@ -126,6 +126,31 @@ describe('cache maintenance', () => {
     expect(fs.existsSync(track)).toBe(false);
   });
 
+  it('does not expire a prepared audio track on a segment\'s timer', () => {
+    // Minutes of CPU against a segment's third of a second. The tracks made for
+    // one episode on 2026-09-07 were swept by the 9th, and the file went back
+    // to converting its audio per segment.
+    const track = segment('m/adefault/audio-128.mp4', 400, 99);
+    const init = segment('m/adefault/original-g6/init.mp4', 1000, 99);
+    const stale = segment('m/adefault/original-g6/0.m4s', 500, 99);
+
+    const deleted = sweepExpiredSegments(root, 24);
+
+    expect(deleted).toBe(1);
+    expect(fs.existsSync(stale)).toBe(false);
+    expect(fs.existsSync(track)).toBe(true);
+    expect(fs.existsSync(init)).toBe(true);
+  });
+
+  it('still evicts a prepared track when the cache is actually full', () => {
+    // Idle time is the wrong pressure; running out of room is the right one.
+    const track = segment('m/adefault/audio-128.mp4', 400, 99);
+
+    enforceCacheSize(root, 100);
+
+    expect(fs.existsSync(track)).toBe(false);
+  });
+
   it('never evicts the header its variant depends on', () => {
     // A kilobyte, and every segment beside it is unplayable without it.
     const init = segment('m/adefault/original-g6/init.mp4', 1000, 99);

@@ -603,6 +603,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
 - 2026-09-05 HEVC and AV1 join the `original` rung, and every `Original` entry declares `CODECS` read from its own initialisation segment, so a player that cannot decode one skips the rung instead of failing on it.
+- 2026-09-09 The TTL sweep no longer discards prepared audio tracks and initialisation segments. It expired them on the same 24-hour idle timer as a segment, so one to three minutes of CPU was thrown away for nothing: tracks prepared for an episode on the 7th were gone by the 9th and the file went back to converting its audio per segment. They are still counted against `maxSizeGB` and still evicted by `enforceCacheSize` under real pressure, which is the pressure that should decide it.
 - 2026-09-07 A file's audio is encoded to AAC once rather than once per segment, when it cannot simply be copied. Each segment's own encoder run had been putting its 1024-sample priming delay at the head of the segment — 21.33ms of silence at every boundary, measured by cross-correlation against the source. Now -2ms and no silence. The encode is background-only and costs minutes, so the first play of a file still uses per-segment audio. `enforceCacheSize` also counts fragmented segments and prepared tracks, which had been escaping the cap entirely since `original` stopped being MPEG-TS.
 - 2026-09-07 A copied segment seeks twice — roughly before the input, exactly after it. The output seek alone was demuxing from the start of the file, taking 14.2s to produce a 5.9s segment from mid-episode, so playback hiccupped at every boundary unless the viewer paused to build a buffer. Same bytes, 0.35s.
 - 2026-09-06 Segments are cut at the file's own keyframes rather than on an even grid, one layout shared by every rung. A copied segment could not begin where the grid said, so its content was displaced forward to the next keyframe — 4.91s of a real episode missing from one segment's head. Keyframes are read once, in the background, on the first play (`MediaKeyframes`), and each layout is named in the segment URLs so a playlist keeps working while a probe lands.
@@ -612,6 +613,15 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 
 ## Known Limitations
 
+- **A first viewing gets none of this.** Keyframes are read in the background and audio is prepared
+  in the background, so the play that triggers them runs on the even grid with per-segment audio —
+  which for a library watched once through is every play there is. Observed on a real episode: it
+  played entirely on `g6` with no prepared track, its keyframes landing in the database after the
+  viewing had started. Both halves are fixable and neither has been fixed: the keyframe probe can be
+  made fast enough to run before the playlist (a Matroska `Cues` index gives byte-identical results
+  in 0.67s against 28s for a full scan, measured), and the audio encoder runs about 31x faster than
+  playback, so segments could copy from a track that is still being written rather than waiting for
+  it to finish.
 - **A rung blips until its own audio track has been prepared.** The preparation is per bitrate and
   starts when that rung is first played, so moving to a rung with a bitrate nothing has prepared
   yet — 360p, or the first move from 480p up to 1080p — is a few minutes of per-segment audio before
@@ -689,6 +699,17 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
   removes the seams this rung keeps growing rather than managing another one, and the measurement
   that makes it tractable — that `ffprobe`'s packet position plus four bytes is exactly the sample,
   so no Matroska demuxer is needed — is recorded there.
+- **Resolve the keyframe layout before the first playlist** (M): Matroska carries a `Cues` index of
+  its own keyframes, and reading it gives exactly what a 28-second full scan gives — 497 of 497
+  keyframes matching on the measured episode — in **0.67s**, most of which was a lazy 16MB read of
+  the file's tail rather than following `SeekHead` to the element. Fast enough to happen before the
+  playlist is generated, which would make the first play keyframe-aligned instead of the second.
+  MP4 sources have the same thing in `stss`. Files with no index fall back to the scan.
+- **Let segments copy a prepared track while it is still being written** (M): the audio encoder runs
+  about 31x faster than playback (1m27s of CPU for a 2723s track), so within seconds of a play
+  starting it is minutes ahead of the viewer. Tracking its progress — `ffmpeg -progress` reports
+  `out_time_us` — and letting a segment copy from the partial file once its range is covered would
+  turn "clean on the second viewing" into "clean after the first few seconds of the first one".
 - **Serve audio as its own HLS rendition** (L): `#EXT-X-MEDIA` with video-only variants is what HLS
   provides for exactly this, and it would end the per-rung duplication rather than manage it — one
   audio track per file, referenced by every rung, instead of one per bitrate. It would also stop a

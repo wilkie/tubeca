@@ -1157,6 +1157,14 @@ describe('preparing a file\'s audio once instead of per segment', () => {
     spawned.length = 0;
   });
 
+  // `getSegment` starts prefetches after the segment it was asked for, and a
+  // child left running holds a 5s timeout that fires during a later test file
+  // and rejects a sink nobody is listening to any more.
+  afterEach(async () => {
+    for (const child of spawned) child.emit('close', 1);
+    await settle();
+  });
+
   /** A file whose sound a browser could not play, so it has to be re-encoded. */
   async function eac3File(name: string) {
     const media = await createVideoMedia({ path: `/media/${name}.mkv`, duration: 100 });
