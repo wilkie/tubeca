@@ -31,6 +31,7 @@ backlog; `overview.md` (this file) rolls them up into themes.
 | [Metadata Scraping & Scraper Plugins](metadata-scraping.md) | Plugin interface, TMDB/TVDB plugins, scrape workers, Identify |
 | [Images & Artwork](images.md) | Image download, storage, serving, selection and fallbacks |
 | [Streaming, Transcoding & HLS](streaming-and-transcoding.md) | FFmpeg HLS pipeline, ABR ladder, hwaccel, trickplay, subtitles, cache |
+| [Segment Indexing](segment-indexing.md) | **Proposed, not built.** Serving copied segments from an index of the source rather than one FFmpeg run each |
 | [Search & Discovery](search.md) | Global search endpoint, quick search, keyword filters, sorting |
 | [User Collections, Favorites, Watch Later & Queue](user-collections.md) | Per-user playlists/sets, system collections, playback queue |
 | [Playback Experience](playback.md) | HLS.js player, controls, mini player, Up Next, quality memory |

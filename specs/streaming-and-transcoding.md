@@ -683,6 +683,12 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 ## Opportunities
 
 - **Use probed codecs in the legacy `/video/:id` route too** (S).
+- **Index the source instead of re-cutting it** (L), written up in
+  [Segment Indexing](segment-indexing.md): read once where every video sample lives, then build each
+  copied segment from the source's own bytes rather than from an FFmpeg run. It is the change that
+  removes the seams this rung keeps growing rather than managing another one, and the measurement
+  that makes it tractable — that `ffprobe`'s packet position plus four bytes is exactly the sample,
+  so no Matroska demuxer is needed — is recorded there.
 - **Serve audio as its own HLS rendition** (L): `#EXT-X-MEDIA` with video-only variants is what HLS
   provides for exactly this, and it would end the per-rung duplication rather than manage it — one
   audio track per file, referenced by every rung, instead of one per bitrate. It would also stop a
