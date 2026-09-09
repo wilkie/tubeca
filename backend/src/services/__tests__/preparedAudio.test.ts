@@ -66,6 +66,19 @@ describe('prepareAudio', () => {
     expect(args[args.indexOf('-b:a') + 1]).toBe('192k');
   });
 
+  it('names the muxer, since the temporary file has no extension FFmpeg knows', async () => {
+    const done = prepareAudio(options());
+    await finish(0);
+    await done;
+
+    const args = spawned[0].args;
+    expect(args[args.length - 1]).toMatch(/\.part-[0-9a-f]+$/);
+    // Without this FFmpeg infers the muxer from that extension, cannot, and
+    // exits with "Invalid argument" — which it did for two days while the rest
+    // of this file passed.
+    expect(args[args.indexOf('-f') + 1]).toBe('mp4');
+  });
+
   it('takes the audio track it was asked for', async () => {
     const done = prepareAudio(options({ audioTrack: '3' }));
     await finish(0);

@@ -108,6 +108,10 @@ All notable changes to Tubeca are recorded here. The format follows
   it plays on the grid as before, and a file whose keyframes cannot be read stays there.
 
 ### Fixed
+- Converting a file's audio now actually works. It had never once succeeded: the conversion wrote to
+  a temporary name FFmpeg could not identify a format from, so it failed immediately every time and
+  every file went on converting its audio segment by segment — which is the blip it was meant to
+  remove. Anything played since the feature was added will still blip until it is played again.
 - Converted audio tracks are no longer thrown away after a day of not being watched. They expired on
   the same timer as a cached segment despite costing minutes of work rather than a fraction of a
   second, so a file that had stopped blipping started again a couple of days later. They are still

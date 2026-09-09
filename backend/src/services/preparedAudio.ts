@@ -140,6 +140,12 @@ function encode(options: PrepareAudioOptions, target: string): Promise<boolean> 
       '-c:a', 'aac',
       '-b:a', `${options.bitrate}k`,
       '-ac', '2',
+      // Name the muxer. FFmpeg picks one from the file extension otherwise,
+      // and the extension here is `.part-<uuid>`, which it cannot place: every
+      // prepare failed with "Invalid argument" from the first version of this
+      // file until 2026-09-09, so the whole feature had never once run outside
+      // a test that mocked the process away.
+      '-f', 'mp4',
       '-y', temp,
     ]);
 

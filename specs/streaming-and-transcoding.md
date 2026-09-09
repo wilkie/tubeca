@@ -603,6 +603,7 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - 2026-09-04 `original` copies the picture whenever the codec allows and re-encodes only the audio when it must, instead of re-encoding both or neither. Measured on the development library: 48% of 30,014 files move from a full transcode to an audio-only one, which on a 1080p episode is 15.6 CPU-seconds per six-second segment against 0.5.
 - 2026-09-04 Hardware decode paired with a hardware encoder, by codec allowlist: 3.8 CPU-seconds per 1080p HEVC segment down to 1.1.
 - 2026-09-05 HEVC and AV1 join the `original` rung, and every `Original` entry declares `CODECS` read from its own initialisation segment, so a player that cannot decode one skips the rung instead of failing on it.
+- 2026-09-09 Preparing a file's audio started working at all. It had never once succeeded outside a test: the encode names its output `audio-<bitrate>.mp4.part-<uuid>` and did not name a muxer, so FFmpeg tried to infer one from `.part-03b524cf`, failed, and exited with "Invalid argument" every time. Eleven tests passed throughout, all of them mocking the process away. There is now one test that runs FFmpeg for real against a one-second file.
 - 2026-09-09 The TTL sweep no longer discards prepared audio tracks and initialisation segments. It expired them on the same 24-hour idle timer as a segment, so one to three minutes of CPU was thrown away for nothing: tracks prepared for an episode on the 7th were gone by the 9th and the file went back to converting its audio per segment. They are still counted against `maxSizeGB` and still evicted by `enforceCacheSize` under real pressure, which is the pressure that should decide it.
 - 2026-09-07 A file's audio is encoded to AAC once rather than once per segment, when it cannot simply be copied. Each segment's own encoder run had been putting its 1024-sample priming delay at the head of the segment — 21.33ms of silence at every boundary, measured by cross-correlation against the source. Now -2ms and no silence. The encode is background-only and costs minutes, so the first play of a file still uses per-segment audio. `enforceCacheSize` also counts fragmented segments and prepared tracks, which had been escaping the cap entirely since `original` stopped being MPEG-TS.
 - 2026-09-07 A copied segment seeks twice — roughly before the input, exactly after it. The output seek alone was demuxing from the start of the file, taking 14.2s to produce a 5.9s segment from mid-episode, so playback hiccupped at every boundary unless the viewer paused to build a buffer. Same bytes, 0.35s.
@@ -684,6 +685,11 @@ advertised bandwidth keeps ABR off it unless the estimate is high).
 - **Encoder detection still costs the first playback** if it has not finished: the first segment
   request awaits it, and a machine with several unusable hardware encoders can spend tens of
   seconds there. Results are not cached across restarts.
+- **Almost nothing exercises FFmpeg itself.** Every test that builds a command line replaces
+  `child_process` and asserts on the arguments, which says whether the code produced the flags it
+  meant to and nothing about whether FFmpeg would accept them. That gap hid a feature that had never
+  worked (see 2026-09-09 above). `preparedAudioReal.test.ts` is the only test that runs the real
+  binary; the segment builder has no equivalent.
 - **Tests cover playlists, direct-play eligibility, segment de-duplication, timeout and shutdown,
   slot priority and prefetch cancellation (against a fake `child_process`), the cache helpers,
   encoder argument construction, the settings validation and purge, the cleanup timer, and the
